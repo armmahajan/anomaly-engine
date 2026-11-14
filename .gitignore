@@ -1,0 +1,9 @@
+node_modules/
+dist/
+# Godot web export output (regenerate with `npm run build:game`)
+apps/studio/public/game/
+game/.godot/
+test-results/
+playwright-report/
+projects/
+.e2e-data/

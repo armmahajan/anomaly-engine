@@ -1,0 +1,30 @@
+{
+  "name": "anomaly",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @anomaly/studio",
+    "predev": "test -f apps/studio/public/game/index.html || npm run build:game",
+    "dev:remote": "STUDIO_HTTPS=1 npm run dev",
+    "build": "npm run build:game && npm run build -w @anomaly/studio",
+    "build:game": "bash scripts/build-game.sh",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/server && tsc --noEmit -p apps/studio",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}
