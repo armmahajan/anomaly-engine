@@ -54,6 +54,15 @@ export class FakeRenderer {
   async compose(request: { width: number; height: number }) {
     return solidPng(request.width, request.height);
   }
+
+  async tileableX(image: Buffer) {
+    return image;
+  }
+
+  /** Every cell of the sheet, as 16x24 pieces. */
+  async sliceGrid(_image: Buffer, cols: number, rows: number) {
+    return Array.from({ length: cols * rows }, (_, cell) => ({ png: solidPng(16, 24, [cell, 0, 0]), width: 16, height: 24, cell }));
+  }
 }
 
 export class FakeImageModel implements ImageModel {
@@ -93,6 +102,31 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("Score how well the render matches")) reply = { score: 8, issues: ["horn a bit small"], rig: exampleRig() };
     else if (prompt.includes("Write these clips")) reply = { clips: exampleClips(), notes: "ok" };
     else if (prompt.includes("Score the animation")) reply = { score: 8, issues: [], clips: exampleClips() };
+    else if (prompt.includes("Non-empty cells")) {
+      reply = {
+        pieces: [
+          { sheet: "structures", cell: 0, name: "Tall Pillar", kind: "structure", size: 420 },
+          { sheet: "structures", cell: 1, name: "Root Curtain", kind: "hanging", size: 260 },
+          { sheet: "props", cell: 0, name: "Lantern", kind: "light", size: 48, glow: "#ffcc80" },
+          { sheet: "props", cell: 1, name: "Mushrooms", kind: "decor", size: 36 },
+        ],
+      };
+    } else if (prompt.includes("Compose one room")) {
+      reply = {
+        palette: { ambient: "#8090a0", fog: "#3a5068", light: "#ffd9a0", shadow: "#05070a" },
+        platforms: [{ x: 0, y: 610, width: 2880, height: 110 }, { x: 600, y: 470, width: 220, height: 30 }],
+        placements: [
+          { piece: "s0_tall_pillar", layer: "mid", x: 500, y: 610, scale: 1.5, flip: false },
+          { piece: "s1_root_curtain", layer: "front", x: 900, y: 0, scale: 1, flip: true },
+          { piece: "p0_lantern", layer: "play", x: 700, y: 470, scale: 1, flip: false },
+          { piece: "p1_mushrooms", layer: "play", x: 300, y: 610, scale: 1, flip: false },
+        ],
+        lights: [],
+        fog: { mid: 0.5, back: 0.3, play: 0.2 },
+        rays: [{ x: 1200, width: 240, angle: 15, alpha: 0.3 }],
+        dust: { color: "#ffe2b0", amount: 80 },
+      };
+    }
     else reply = { error: "fake model got an unexpected prompt" };
     return { text: "```json\n" + JSON.stringify(reply) + "\n```", usage, model: this.id };
   }

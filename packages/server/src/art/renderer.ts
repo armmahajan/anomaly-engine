@@ -3,6 +3,7 @@ import { extname, join, normalize, sep } from "node:path";
 import {
   decodeRuntimeMessage,
   encodeStudioMessage,
+  PROTOCOL_VERSION,
   type RenderRigRequest,
   type RuntimeToStudio,
 } from "@anomaly/core";
@@ -56,6 +57,35 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
 };
 
+
+/** In-page helpers (run in the render page): base64 PNG <-> canvas. */
+const PAGE_HELPERS = `
+window.__anomalyDecode = async (data) => {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  return createImageBitmap(new Blob([bytes]));
+};
+window.__anomalyEncode = async (canvas) => {
+  const blob = await canvas.convertToBlob({ type: "image/png" });
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < buf.length; i += 0x8000) binary += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return btoa(binary);
+};
+`;
+
+type PageWindow = Window & {
+  __anomalyDecode: (data: string) => Promise<ImageBitmap>;
+  __anomalyEncode: (canvas: OffscreenCanvas) => Promise<string>;
+};
+
+export interface SlicedPiece {
+  png: Buffer;
+  width: number;
+  height: number;
+  /** Grid cell index, reading order. */
+  cell: number;
+}
+
 export class BrowserRenderer implements Renderer {
   private browser: Browser | null = null;
   private page: Promise<Page> | null = null;
@@ -81,6 +111,106 @@ export class BrowserRenderer implements Renderer {
 
   compose(request: ComposeRequest): Promise<Buffer> {
     return this.withPage((page) => this.composeOn(page, request));
+  }
+
+  /**
+   * Make an image tile seamlessly left-to-right: the last `blend` fraction is
+   * crossfaded over the start, and the result is that much narrower.
+   */
+  tileableX(image: Buffer, blend = 0.18): Promise<Buffer> {
+    return this.withPage(async (page) => {
+      const base64 = await page.evaluate(
+        async ({ data, blend }) => {
+          const w = window as unknown as PageWindow;
+          const bitmap = await w.__anomalyDecode(data);
+          const overlap = Math.round(bitmap.width * blend);
+          const width = bitmap.width - overlap;
+          const canvas = new OffscreenCanvas(width, bitmap.height);
+          const ctx = canvas.getContext("2d")!;
+          ctx.drawImage(bitmap, 0, 0);
+          // The strip past `width` fades in over the start: at x=0 it is fully the tail, at x=overlap fully the head.
+          const strip = new OffscreenCanvas(overlap, bitmap.height);
+          const sctx = strip.getContext("2d")!;
+          sctx.drawImage(bitmap, width, 0, overlap, bitmap.height, 0, 0, overlap, bitmap.height);
+          sctx.globalCompositeOperation = "destination-in";
+          const fade = sctx.createLinearGradient(0, 0, overlap, 0);
+          fade.addColorStop(0, "rgba(0,0,0,1)");
+          fade.addColorStop(1, "rgba(0,0,0,0)");
+          sctx.fillStyle = fade;
+          sctx.fillRect(0, 0, overlap, bitmap.height);
+          ctx.drawImage(strip, 0, 0);
+          return w.__anomalyEncode(canvas);
+        },
+        { data: image.toString("base64"), blend },
+      );
+      return Buffer.from(base64, "base64");
+    });
+  }
+
+  /** Cut a cols x rows sheet into cells, each trimmed to its visible (alpha) pixels. Empty cells are dropped. */
+  sliceGrid(image: Buffer, cols: number, rows: number, maxSize = 512): Promise<SlicedPiece[]> {
+    return this.withPage(async (page) => {
+      const pieces = await page.evaluate(
+        async ({ data, cols, rows, maxSize }) => {
+          const w = window as unknown as PageWindow;
+          const bitmap = await w.__anomalyDecode(data);
+          const cw = Math.floor(bitmap.width / cols);
+          const ch = Math.floor(bitmap.height / rows);
+          const out: { data: string; width: number; height: number; cell: number }[] = [];
+          for (let cell = 0; cell < cols * rows; cell++) {
+            const cx = (cell % cols) * cw;
+            const cy = Math.floor(cell / cols) * ch;
+            const cellCanvas = new OffscreenCanvas(cw, ch);
+            const cctx = cellCanvas.getContext("2d")!;
+            cctx.drawImage(bitmap, cx, cy, cw, ch, 0, 0, cw, ch);
+            const pixels = cctx.getImageData(0, 0, cw, ch).data;
+            let minX = cw, minY = ch, maxX = -1, maxY = -1;
+            for (let y = 0; y < ch; y++) {
+              for (let x = 0; x < cw; x++) {
+                if (pixels[(y * cw + x) * 4 + 3]! > 24) {
+                  if (x < minX) minX = x;
+                  if (x > maxX) maxX = x;
+                  if (y < minY) minY = y;
+                  if (y > maxY) maxY = y;
+                }
+              }
+            }
+            if (maxX < 0 || (maxX - minX) * (maxY - minY) < 64) continue;
+            const pw = maxX - minX + 1;
+            const ph = maxY - minY + 1;
+            const fit = Math.min(1, maxSize / Math.max(pw, ph));
+            const piece = new OffscreenCanvas(Math.max(1, Math.round(pw * fit)), Math.max(1, Math.round(ph * fit)));
+            piece.getContext("2d")!.drawImage(cellCanvas, minX, minY, pw, ph, 0, 0, piece.width, piece.height);
+            out.push({ data: await w.__anomalyEncode(piece), width: piece.width, height: piece.height, cell });
+          }
+          return out;
+        },
+        { data: image.toString("base64"), cols, rows, maxSize },
+      );
+      return pieces.map((p) => ({ png: Buffer.from(p.data, "base64"), width: p.width, height: p.height, cell: p.cell }));
+    });
+  }
+
+  /** Render a world scene from several camera positions (one frame per camera, stacked vertically). */
+  async renderWorld(request: { scene: unknown; images: Record<string, string>; cameras: number[]; width: number; height: number }): Promise<RenderedImage> {
+    return this.withPage(async (page) => {
+      const requestId = `world_${this.nextId++}`;
+      const reply = new Promise<Extract<RuntimeToStudio, { type: "rendered" }>>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.waiters.delete(requestId);
+          reject(new Error(`world render timed out after ${(RENDER_TIMEOUT_MS * 4) / 1000}s`));
+        }, RENDER_TIMEOUT_MS * 4);
+        this.waiters.set(requestId, (m) => {
+          clearTimeout(timer);
+          resolve(m);
+        });
+      });
+      const message = JSON.stringify({ source: "anomaly-studio", protocolVersion: PROTOCOL_VERSION, message: { type: "renderWorld", requestId, ...request } });
+      await page.evaluate((m) => window.postMessage(m, window.location.origin), message);
+      const result = await reply;
+      if (result.error || !result.png) throw new Error(`world render failed: ${result.error ?? "no image"}`);
+      return { png: Buffer.from(result.png, "base64"), width: result.width ?? 0, height: result.height ?? 0, scale: 1, warnings: result.warnings ?? [] };
+    });
   }
 
   private async withPage<T>(work: (page: Page) => Promise<T>): Promise<T> {
@@ -243,6 +373,7 @@ export class BrowserRenderer implements Renderer {
       }
     });
     await page.exposeFunction("__anomalyRuntimeMessage", (data: string) => this.receive(data));
+    await page.addInitScript(PAGE_HELPERS);
     await page.addInitScript(() => {
       window.addEventListener("message", (event) => {
         if (typeof event.data === "string" && event.data.includes('"anomaly-runtime"')) {

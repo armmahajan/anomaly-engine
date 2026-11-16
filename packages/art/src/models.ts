@@ -16,6 +16,8 @@ export interface ImageRequest {
   /** Reference images (PNG/JPEG/WebP bytes) for image-to-image. */
   references?: Buffer[];
   aspectRatio?: string;
+  /** Ask for a transparent background (models that support it). */
+  transparent?: boolean;
   signal?: AbortSignal;
 }
 
@@ -137,6 +139,7 @@ export class OpenRouterImageModel implements ImageModel {
       n: 1,
       aspect_ratio: request.aspectRatio ?? "1:1",
       ...this.extra,
+      ...(request.transparent ? { background: "transparent", output_format: "png" } : {}),
       ...(request.references?.length
         ? { input_references: request.references.map((r) => ({ type: "image_url", image_url: { url: dataUrl(r) } })) }
         : {}),

@@ -2,6 +2,8 @@ node_modules/
 dist/
 # Godot web export output (regenerate with `npm run build:game`)
 apps/studio/public/game/
+# Generated world previews (node scripts/world-demo.ts)
+apps/studio/public/world-preview/
 game/.godot/
 test-results/
 playwright-report/

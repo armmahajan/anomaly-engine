@@ -57,6 +57,22 @@ describe.skipIf(!hasExport || process.env.SKIP_BROWSER_TESTS === "1")("BrowserRe
 
       const composed = await renderer.compose({ width: 100, height: 50, background: "#000000", layers: [{ image: cropped, alpha: 0.5 }], grid: 20 });
       expect([composed.readUInt32BE(16), composed.readUInt32BE(20)]).toEqual([100, 50]);
+
+      // World helpers: seamless tiling narrows by the blend; slicing finds the rigs in a 3x1 transparent sheet.
+      const tile = await renderer.tileableX(composed, 0.2);
+      expect(tile.readUInt32BE(16)).toBe(80);
+      const pieces = await renderer.sliceGrid(image.png.length > 0 ? (await renderer.renderRig({
+        rig: exampleRig(),
+        direction: defaultArtDirection(),
+        clips: {},
+        frames: [{ clip: null, time: 0 }, { clip: null, time: 0 }, { clip: null, time: 0 }],
+        cellWidth: 96,
+        cellHeight: 96,
+        columns: 3,
+        background: null,
+      })).png : image.png, 3, 1);
+      expect(pieces.map((p) => p.cell)).toEqual([0, 1, 2]);
+      expect(pieces[0]!.width).toBeLessThan(96); // trimmed to the visible pixels
     } finally {
       await renderer.close();
     }

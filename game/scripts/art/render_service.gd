@@ -4,6 +4,7 @@ extends Node
 ## RigView as the game, so what the critic sees is what the player sees.
 
 const RigView := preload("res://scripts/art/rig_view.gd")
+const WorldView := preload("res://scripts/art/world_view.gd")
 
 const MAX_FRAMES := 48
 const MAX_CELL := 512
@@ -24,7 +25,11 @@ func _drain() -> void:
 	_busy = true
 	while not _queue.is_empty():
 		var job: Array = _queue.pop_front()
-		var reply: Dictionary = await _render_one(job[0])
+		var reply: Dictionary
+		if str(job[0].get("type", "")) == "renderWorld":
+			reply = await _render_world(job[0])
+		else:
+			reply = await _render_one(job[0])
 		job[1].call(reply)
 	_busy = false
 
@@ -93,6 +98,50 @@ func _render_one(request: Dictionary) -> Dictionary:
 		"width": image.get_width(),
 		"height": image.get_height(),
 		"scale": fit,
+		"warnings": warnings,
+	}
+
+
+## Render a world scene from several camera positions, stacked top to bottom.
+func _render_world(request: Dictionary) -> Dictionary:
+	var request_id := str(request.get("requestId", ""))
+	var scene = request.get("scene")
+	if typeof(scene) != TYPE_DICTIONARY:
+		return _error(request_id, "scene must be an object")
+	var size := Vector2i(clampi(int(request.get("width", 960)), 64, 1920), clampi(int(request.get("height", 540)), 64, 1080))
+	var cameras: Array = request.get("cameras", [0])
+	if cameras.is_empty() or cameras.size() > 8:
+		return _error(request_id, "cameras must have 1-8 entries")
+	var textures := WorldView.textures_from(request.get("images", {}))
+
+	var viewport := SubViewport.new()
+	viewport.size = size
+	viewport.disable_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	add_child(viewport)
+	var world = WorldView.new()
+	viewport.add_child(world)
+	var camera := Camera2D.new()
+	viewport.add_child(camera)
+	camera.make_current()
+	world.build(scene, textures, Vector2(size) / WorldView.fit_zoom(scene, Vector2(size)))
+
+	var sheet := Image.create(size.x, size.y * cameras.size(), false, Image.FORMAT_RGBA8)
+	for i in cameras.size():
+		WorldView.aim(camera, world, scene, Vector2(size), float(cameras[i]))
+		viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+		await RenderingServer.frame_post_draw
+		var frame := viewport.get_texture().get_image()
+		frame.convert(Image.FORMAT_RGBA8)
+		sheet.blit_rect(frame, Rect2i(Vector2i.ZERO, size), Vector2i(0, size.y * i))
+	var warnings: Array[String] = world.warnings
+	viewport.queue_free()
+	return {
+		"type": "rendered",
+		"requestId": request_id,
+		"png": Marshalls.raw_to_base64(sheet.save_png_to_buffer()),
+		"width": sheet.get_width(),
+		"height": sheet.get_height(),
 		"warnings": warnings,
 	}
 
