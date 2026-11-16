@@ -418,6 +418,8 @@ func _apply_stage() -> void:
 		_world_stage = null
 	if _world != null:
 		_world.visible = mode == "game"
+	if _dressing_view != null and is_instance_valid(_dressing_view):
+		_dressing_view.set_shown(mode == "game")
 	match mode:
 		"game":
 			if _mode == "play" and _player != null:

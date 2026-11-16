@@ -246,6 +246,8 @@ export interface WorldComposeInput {
   newLayout?: boolean;
   /** Dress the arena with the new room. */
   dressArena?: boolean;
+  /** Recompose this existing room (same id, name and suggested layout) instead of adding one. */
+  roomId?: string;
 }
 
 export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInput): Promise<StageResult & { roomId: string }> {
@@ -275,6 +277,15 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
   const placements = composition.placements.filter((p) => pieceIds.has(p.piece));
   if (placements.length < composition.placements.length) {
     ctx.log({ text: `dropped ${composition.placements.length - placements.length} placement(s) of unknown pieces` });
+  }
+  const existing = input.roomId ? biome.rooms.find((r) => r.id === input.roomId) : undefined;
+  if (input.roomId && !existing) throw new StageError(`${biome.name} has no room "${input.roomId}"`);
+  if (existing) {
+    return {
+      operations: [{ name: "setRoomComposition", input: { assetId: biome.id, roomId: existing.id, composition: { ...composition, placements } } }],
+      roomId: existing.id,
+      summary: `recomposed ${existing.name} for the new pieces`,
+    };
   }
   const name = input.name?.trim() || `${biome.name} ${biome.rooms.length + 1}`;
   const roomId = newRoomId(biome, name);

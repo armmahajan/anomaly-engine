@@ -256,11 +256,23 @@ between regions (two-way or one-way, gated by abilities), **story beats**
   (our own loop over an OpenAI-style `ModelClient`, ready for OpenRouter).
   `FakeModel` replays scripted replies for tests.
 
-## Art
+## Studio modes
 
-The **Art** tab (select a character) makes its look with AI, in stages. The
-AI loops within a stage on its own, and you pick between stages (or tick
-**Auto** to take its picks all the way):
+The toolbar switches modes in one window: **Arena** (play and tune), **Characters**
+and **Worlds** (art workbenches), **Wiki** and **Progression** (design documents,
+with the director's chat). The game runtime stays mounted the whole time; modes
+only move it between named grid areas and send it a `stage` message (the arena,
+one character, or one world room). The sidebar resizes from its left edge and the
+chat collapses to a strip (both remembered per browser); the stage has a
+full-screen button. Leaving the arena stops a playtest; Play returns to it.
+
+## Characters (art)
+
+**Characters** mode makes a character's look with AI, in stages. The main area
+shows the stage (stepper: Concepts / Rig / Animation) large, next to the *live*
+rig on the runtime's stage; the sidebar holds the inputs and actions. The AI loops
+within a stage on its own, and you pick between stages (or tick **Auto** to take
+its picks all the way):
 
 1. **Concepts**: a brief becomes a 2x2 concept sheet (cheap raster sketches,
    inspiration only). The AI marks its pick; click a design to choose it, or
@@ -269,21 +281,54 @@ AI loops within a stage on its own, and you pick between stages (or tick
    (blobs, ellipses, tapered strokes) on bones, pure data
    (`packages/core/src/art/rig.ts`). It works in the concept's own pixels over
    a grid; the pipeline renders the rig in the real runtime, lays it over the
-   concept, and lets the critic score and fix it (3 rounds, best kept).
+   concept, and lets the critic score and fix it (3 rounds, best kept). The
+   workbench's **Onion** slider draws the design behind the live rig, aligned
+   with the frame the rig was traced in; **Bones** shows the skeleton.
 3. **Animation**: clips per slot (idle, walk, run, windup, attack, hurt,
    jump, fall, fly) as keyframe tracks plus motion primitives (sway, bob,
    shift, pulse, squash, shake) (`clip.ts`), reviewed once from filmstrips.
-   Enemies pick a clip from their behavior's action; ▶ previews a clip in
-   the arena.
+   Pick a clip to play it on the stage; scrub the timeline, change the speed.
+   Enemies pick a clip from their behavior's action.
 
 One generic GDScript renderer (`game/scripts/art/rig_view.gd`) draws every
 rig: ink outlines, shading, glow, hand-drawn line boil, bending between
 bones. The art direction (style words, palette, outline) is project-wide.
 
-- **Cost:** about $0.015 per character with the defaults
-  (`openai/gpt-image-1-mini` at low quality for concepts,
+## Worlds
+
+**Worlds** mode makes places. A **biome** (an art asset) is paid for once: a
+painted backdrop made seamless, a 3x3 sheet of large structures and one of props
+(transparent, sliced and labelled automatically) and a ground texture (about
+$0.016 at **draft** quality; **final** spends more on the backdrop and pieces,
+about $0.035-0.05). A **room** is cheap data composed from the kit (about $0.003):
+placements on five parallax layers (far, mid, back, play, front), palette, fog,
+lights, light shafts and dust. The runtime adds the depth for free
+(`game/scripts/art/world_view.gd`): distant layers washed into the fog, 2D lights
+with halos, fog between layers, dust, foreground silhouettes that fade when the
+player is behind them.
+
+- **Workbench:** the live room full size (drag to pan, wheel to zoom; click a
+  piece to select it, drag it to move it: saved as an undoable edit), a layer bar
+  (show/hide layers, fog, lights, an **Exploded** view that tilts the layers
+  apart), and the kit shelf (click a piece to place it in the view). The sidebar
+  paints kits, repaints one part (or the whole kit at the other quality; the
+  biome's rooms are recomposed to fit new pieces), composes rooms, edits the
+  room's atmosphere and the selected piece.
+- **The arena:** a room *dresses* the arena (`sandbox.dressing`): Play happens
+  inside it, with the arena's own platforms textured. Rooms never change
+  collision; **Suggest layout** stores new platforms on the room, which you can
+  preview and accept (`applyRoomLayout`, one undo step).
+- **Chat:** the build assistant can queue `generateCharacterArt`,
+  `generateWorld` and `composeWorldRoom`; they start after its turn, each saved
+  as its own AI change, and its reply lists them as "queued: ...". It can also
+  edit rooms and placements directly.
+
+## Art jobs, settings and storage
+
+- **Cost:** about $0.015-0.02 per character and $0.016 per draft biome with the
+  defaults (`openai/gpt-image-1-mini` at low quality for images,
   `anthropic/claude-haiku-5.5` for everything else). Each job has a budget
-  (`STUDIO_ART_BUDGET`, default $0.25) and the tab shows what was spent.
+  (`STUDIO_ART_BUDGET`, default $0.25) and the sidebars show what was spent.
 - **Settings** (`.env`): `OPENROUTER_API_KEY` (required),
   `STUDIO_ART_IMAGE_MODEL`, `STUDIO_ART_IMAGE_QUALITY`,
   `STUDIO_ART_VISION_MODEL`, `STUDIO_ART_BUDGET`; `STUDIO_ART_BACKEND=fake`
@@ -291,13 +336,14 @@ bones. The art direction (style words, palette, outline) is project-wide.
 - **Storage:** images live in `<project>/files/` under content hashes; the
   project only references them, so undo is exact. Each finished stage is one
   AI change (one undo step). The job log is `<project>/art-jobs.jsonl`.
-- **API:** `POST /api/art/jobs {stage, characterId, brief?, feedback?, refine?, sheet?, cell?}`
-  (stages `concepts`, `choose`, `rig`, `animate`, `auto`), `GET /api/art`,
+- **API:** `POST /api/art/jobs {stage, characterId? | biomeId?, brief?, feedback?, ...}`
+  (character stages `concepts`, `choose`, `rig`, `animate`, `auto`; world
+  stages `worldKit`, `worldCompose`, `worldRepaint`), `GET /api/art`,
   `POST /api/art/cancel`, `GET /api/files/<ref>`.
-- **Rendering** for the critic runs the web export in headless Chromium
-  (`packages/server/src/art/renderer.ts`); `node scripts/render-rig.ts out.png`
-  renders the example rig. The chat can recolor parts, write clips and
-  change the art direction (art operations in `packages/core/src/art/operations.ts`).
-- **Extending:** assets share the concept stage and differ by
-  representation (`asset.ts`): characters are rigs; props, tiles and biome
-  kits (backgrounds) are meant to plug in as new asset kinds.
+- **Rendering** for critics and kit slicing runs the web export in headless
+  Chromium (`packages/server/src/art/renderer.ts`); `node scripts/render-rig.ts out.png`
+  renders the example rig, `node scripts/screenshot-mode.ts <url> <Mode> <out>`
+  screenshots a studio mode.
+- **Extending:** assets share one store and job runner and differ by kind
+  (`asset.ts`): characters are rigs, biomes are kits + rooms; props and tiles are
+  meant to plug in the same way.

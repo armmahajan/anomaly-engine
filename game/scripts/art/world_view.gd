@@ -218,6 +218,19 @@ func set_options(hidden: Array, fog: bool, lights: bool, exploded: bool) -> void
 	_update_layers()
 
 
+## Show or hide everything, including the parts on their own canvas layers (which ignore the
+## parent's visibility) and the scene-wide darkness tint.
+func set_shown(shown: bool) -> void:
+	visible = shown
+	if _distant_canvas != null:
+		_distant_canvas.visible = shown
+	if _ambient_node != null:
+		_ambient_node.visible = shown
+	for child in get_children():
+		if child is CanvasLayer:
+			child.visible = shown
+
+
 ## Foreground silhouettes fade while `point` (the player, global coordinates) is behind them,
 ## so they frame the view without hiding the player.
 func fade_front_around(point: Vector2, delta: float) -> void:

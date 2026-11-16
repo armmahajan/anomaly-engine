@@ -119,6 +119,19 @@ export function addRoom(project: ProjectSpec, input: unknown): OperationResult {
   return commit({ ...next.project, revision: project.revision, sandbox: { ...next.project.sandbox, dressing: { biome: found.biome.id, room: room.data.id } } });
 }
 
+export const SetRoomCompositionInput = z.strictObject({ assetId: Id, roomId: Id, composition: z.unknown() });
+
+/** Replace a room's whole composition (the pipeline recomposes rooms after their kit's pieces are repainted). */
+export function setRoomComposition(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(SetRoomCompositionInput, input, "setRoomComposition");
+  if (!p.ok) return p;
+  const found = findRoom(project, p.data.assetId, p.data.roomId);
+  if (!found.ok) return found;
+  const raw = p.data.composition as { placements?: { id?: string }[] };
+  const composition = raw?.placements ? { ...raw, placements: withPlacementIds(raw.placements) } : raw;
+  return withRoom(project, found, { ...found.room, composition }, `room "${p.data.roomId}"`);
+}
+
 // --- editing ----------------------------------------------------------------------
 
 export const UpdateRoomInput = z.strictObject({
@@ -273,6 +286,7 @@ export function applyRoomLayout(project: ProjectSpec, input: unknown): Operation
 export const worldOperations = {
   setBiomeKit,
   addRoom,
+  setRoomComposition,
   updateRoom,
   deleteRoom,
   updatePlacement,

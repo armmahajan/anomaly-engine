@@ -39,8 +39,11 @@ export function App({ session }: { session: Session }) {
     previewLayout: false,
   });
   const [worldSelected, setWorldSelected] = useState<string | null>(null);
-  // A click on a piece in the runtime selects it here.
+  // A click on a piece in the runtime selects it here; another room means nothing is selected.
   useEffect(() => setWorldSelected(state.worldPick), [state.worldPick]);
+  const shownRoom = currentWorld(state.project, worldUi);
+  const shownRoomKey = `${shownRoom.biome?.id}/${shownRoom.room?.id}`;
+  useEffect(() => setWorldSelected(null), [shownRoomKey]);
 
   useEffect(() => session.attachRuntime(frameRef.current!), [session]);
 

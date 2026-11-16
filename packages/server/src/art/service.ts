@@ -208,6 +208,16 @@ export class ArtService {
     }
   }
 
+  /** One recompose step per existing room of a biome (each its own cheap call and AI change). */
+  private recomposeRooms(ctx: ArtContext, biomeId: string): { stage: "worldCompose"; run: () => Promise<StageResult> }[] {
+    const biome = this.store.getState().project.art.assets.find((a) => a.id === biomeId);
+    if (!biome || biome.kind !== "biome") return [];
+    return biome.rooms.map((room) => ({
+      stage: "worldCompose" as const,
+      run: () => worldComposeStage(ctx, { biomeId, roomId: room.id }),
+    }));
+  }
+
   cancel(): { ok: true } {
     this.queue = [];
     this.running?.controller.abort();
@@ -259,12 +269,15 @@ export class ArtService {
             return result;
           },
         });
-        // A new biome gets its first room right away (one cheap call), so there is something to look at.
+        // A new biome gets its first room right away (one cheap call), so there is something to look at;
+        // a repainted one gets its rooms recomposed, since the new sheets hold different pieces.
         if (isNew) {
           stages.push({
             stage: "worldCompose",
             run: () => worldComposeStage(ctx, { biomeId: running.biomeId!, dressArena: request.dressArena }),
           });
+        } else {
+          stages.push(...this.recomposeRooms(ctx, request.biomeId!));
         }
         break;
       }
@@ -273,6 +286,7 @@ export class ArtService {
         break;
       case "worldRepaint":
         stages.push({ stage: "worldRepaint", run: () => worldRepaintStage(ctx, { biomeId: request.biomeId!, part: request.part!, feedback: request.feedback }) });
+        if (request.part === "structures" || request.part === "props") stages.push(...this.recomposeRooms(ctx, request.biomeId!));
         break;
       case "concepts":
         stages.push(conceptStep);

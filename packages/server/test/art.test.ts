@@ -163,6 +163,16 @@ describe("world jobs over HTTP", () => {
     await art.idle();
     const after = (await get<ProjectState>("/api/project")).project.art.assets.find((a) => a.id === biome.id)!;
     expect(after.kind === "biome" && after.rooms).toHaveLength(2);
+    expect((await get<ArtState>("/api/art")).jobs.at(-1)!.revisions).toHaveLength(1); // a backdrop doesn't move pieces
+
+    // New piece sheets hold different pieces, so every room is recomposed to fit them (same rooms, same ids).
+    expect(await post("/api/art/jobs", { stage: "worldRepaint", biomeId: biome.id, part: "props" })).toMatchObject({ ok: true });
+    await art.idle();
+    const repaint = (await get<ArtState>("/api/art")).jobs.at(-1)!;
+    expect(repaint).toMatchObject({ outcome: "committed" });
+    expect(repaint.revisions).toHaveLength(3);
+    const recomposed = (await get<ProjectState>("/api/project")).project.art.assets.find((a) => a.id === biome.id)!;
+    expect(recomposed.kind === "biome" && recomposed.rooms.map((r) => r.id)).toEqual(after.kind === "biome" ? after.rooms.map((r) => r.id) : []);
     expect(after.kind === "biome" && biome.kind === "biome" && after.kit!.backdrop).not.toBe(biome.kit!.backdrop);
   });
 

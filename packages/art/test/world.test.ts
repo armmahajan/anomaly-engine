@@ -102,6 +102,18 @@ describe("world stages", () => {
     expect(h.biome().kit!.backdrop).toBe(before.backdrop);
   });
 
+  it("recomposes an existing room in place", async () => {
+    const h = harness();
+    h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
+    h.commit((await worldComposeStage(h.ctx, { biomeId: h.biome().id, newLayout: true })).operations);
+    const room = h.biome().rooms[0]!;
+    const again = await worldComposeStage(h.ctx, { biomeId: h.biome().id, roomId: room.id });
+    expect(again.operations[0]!.name).toBe("setRoomComposition");
+    h.commit(again.operations);
+    expect(h.biome().rooms).toHaveLength(1);
+    expect(h.biome().rooms[0]).toMatchObject({ id: room.id, name: room.name, layout: room.layout });
+  });
+
   it("keeps the kit prompts free of characters and baked-in light sources in the ground", () => {
     const prompts = worldPrompts("a sunken garden", createDefaultProject().art.direction);
     expect(prompts.ground).toMatch(/no objects, no lanterns/);
