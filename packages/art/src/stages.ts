@@ -364,7 +364,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
 
   // Critique loop: render over the concept, score, revise. Keep the best scored rig.
   const rounds = ctx.rigRounds ?? 3;
-  let best: { rig: Rig; score: number; notes: string } | null = null;
+  let best: { rig: Rig; score: number; notes: string; frame: Frame } | null = null;
   let feedback = input.feedback?.trim();
   for (let round = 0; round < rounds; round++) {
     const frame = fitFrame(canvasRig, character.size);
@@ -373,7 +373,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
     ctx.log({ text: `render ${round + 1}`, file: await ctx.files.put(views.overlay, "png") });
     if (ctx.remaining() < CRITIQUE_RESERVE) {
       ctx.log({ text: "budget nearly used; stopping the critique loop" });
-      if (!best) best = { rig, score: 0, notes: "not reviewed (budget)" };
+      if (!best) best = { rig, score: 0, notes: "not reviewed (budget)", frame };
       break;
     }
     const prompt = rigCritiquePrompt({ character, brief: asset.brief, rig: canvasRig, warnings: views.warnings, canvas: size });
@@ -395,7 +395,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
     feedback = undefined; // applied once
     const notes = critique.issues.join("; ");
     ctx.log({ text: `score ${critique.score}/10${notes ? `: ${notes}` : ""}` });
-    if (!best || critique.score > best.score) best = { rig, score: critique.score, notes };
+    if (!best || critique.score > best.score) best = { rig, score: critique.score, notes, frame };
     if (critique.score >= 8 && round > 0) break;
     const revised = Rig.safeParse(critique.rig);
     if (!revised.success) {
@@ -409,7 +409,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
   const preview = await ctx.files.put((await renderRest(ctx, best.rig)).png, "png");
   return {
     operations: [
-      { name: "setRig", input: { assetId: asset.id, rig: best.rig, preview: { file: preview, score: best.score, notes: best.notes.slice(0, 2000) } } },
+      { name: "setRig", input: { assetId: asset.id, rig: best.rig, preview: { file: preview, score: best.score, notes: best.notes.slice(0, 2000), frame: best.frame } } },
     ],
     summary: `built ${character.name}'s rig (score ${best.score}/10)`,
   };

@@ -6,6 +6,7 @@ import { ChatPanel } from "./ChatPanel.tsx";
 import { WikiMain, WikiSidebar, type WikiNav } from "./WikiView.tsx";
 import { ProgressionMain, ProgressionSidebar, type ProgressionNav } from "./ProgressionView.tsx";
 import { ArtPanel } from "./ArtPanel.tsx";
+import { CharacterBench } from "./CharacterBench.tsx";
 import { fileUrl } from "./api.ts";
 import { useChatOpen, useSidebarWidth } from "./layout.ts";
 
@@ -101,23 +102,10 @@ export function App({ session }: { session: Session }) {
     setTab(next);
   };
 
-  // Tell the runtime what to show for this mode.
+  // Tell the runtime what to show for this mode (workbenches drive their own stage).
   useEffect(() => {
-    if (tab === "characters" && selected) {
-      session.setStage({
-        mode: "character",
-        characterId: selected.id,
-        clip: null,
-        time: null,
-        speed: 1,
-        flip: false,
-        bones: false,
-        onion: { image: null, alpha: 0 },
-      });
-    } else {
-      session.setStage({ mode: "game" });
-    }
-  }, [session, tab, selected?.id, state.runtimeStatus]);
+    if (tab === "arena" || tab === "wiki") session.setStage({ mode: "game" });
+  }, [session, tab, state.runtimeStatus]);
 
   const openWikiPage = (pageId: string) => {
     setWikiNav({ pageId, editing: null });
@@ -226,6 +214,9 @@ export function App({ session }: { session: Session }) {
           ⛶
         </button>
       </main>
+      {tab === "characters" && selected && (
+        <CharacterBench key={`${selected.id}:${state.runtimeStatus}`} character={selected} project={project} art={state.art} session={session} />
+      )}
       {tab === "wiki" && (
         <main className="wiki-pane">
           <WikiMain project={project} session={session} nav={wikiNav} setNav={setWikiNav} locked={locked} onOpenCharacter={openCharacter} />

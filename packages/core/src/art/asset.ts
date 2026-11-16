@@ -51,6 +51,11 @@ export const Preview = z.strictObject({
   /** 0-10 likeness/quality score from the critic, if one ran. */
   score: z.number().min(0).max(10).optional(),
   notes: z.string().max(2000).optional(),
+  /**
+   * How the rig sits on the chosen design: rig = (design px - anchor) * scale.
+   * Lets the studio draw the design behind the rig, exactly aligned (onion skin).
+   */
+  frame: z.strictObject({ scale: z.number().positive(), anchor: z.tuple([z.number(), z.number()]) }).optional(),
 });
 
 const assetBase = {

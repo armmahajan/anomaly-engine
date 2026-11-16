@@ -99,9 +99,13 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 	if time != null:
 		_rig.pose_at(float(time))
 
+	# onion.image: base64 PNG to load, "" to clear, null to keep the current one (it is sent once, not per frame).
 	var onion = stage.get("onion", {})
 	var image = onion.get("image") if typeof(onion) == TYPE_DICTIONARY else null
-	if image != null and str(image) != _onion_image:
+	if image != null and str(image) == "":
+		_onion.texture = null
+		_onion_image = ""
+	elif image != null and str(image) != _onion_image:
 		_onion_image = str(image)
 		var img := Image.new()
 		if img.load_png_from_buffer(Marshalls.base64_to_raw(_onion_image)) == OK:

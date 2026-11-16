@@ -72,3 +72,9 @@ export function subscribeToServer(
   };
   return () => source.close();
 }
+export async function fileBase64(ref: string): Promise<string> {
+  const bytes = new Uint8Array(await (await fetch(fileUrl(ref))).arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}

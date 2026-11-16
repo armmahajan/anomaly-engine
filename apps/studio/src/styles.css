@@ -1279,3 +1279,229 @@ body.resizing iframe {
     opacity: 0.2;
   }
 }
+
+/* --- Characters workbench ------------------------------------------------- */
+
+.studio.mode-characters {
+  grid-template-areas:
+    "bar bar bar bar"
+    "top top side chat"
+    "design stage side chat"
+    "bottom bottom side chat";
+}
+
+/* The bench's parts sit directly in the studio grid, around the runtime stage. */
+.bench {
+  display: contents;
+}
+
+.bench-top {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.stepper {
+  display: flex;
+  gap: 4px;
+}
+
+.stepper button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 120px;
+  padding: 4px 10px;
+  background: transparent;
+}
+
+.stepper button small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stepper button.selected {
+  border-color: var(--accent);
+  background: #1f2433;
+}
+
+.stepper button.working small::after {
+  content: " · working…";
+  color: var(--accent);
+}
+
+.stage-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stage-tools label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bench-design {
+  grid-area: design;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  background: #15181f;
+  border-right: 1px solid var(--border);
+}
+
+.bench-sheet {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  max-width: min(100%, 78vh);
+  margin: 0 auto;
+}
+
+.bench-sheet .art-badge {
+  font-size: 12px;
+}
+
+.bench-caption {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+}
+
+.bench-figure {
+  margin: 0 auto;
+  max-width: min(100%, 72vh);
+}
+
+.bench-figure img {
+  width: 100%;
+  border-radius: 6px;
+  background: #d8d6cf;
+}
+
+.bench-figure figcaption {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bench-hidden-preview {
+  display: none;
+}
+
+.bench-clips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.bench-clips li {
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.bench-clips li.selected {
+  border-color: var(--accent);
+}
+
+.bench-clips button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  background: transparent;
+  border-color: transparent;
+}
+
+.bench-clips small {
+  color: var(--muted);
+}
+
+.bench-clips img {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+}
+
+.bench-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 200px;
+  color: var(--muted);
+  text-align: center;
+  padding: 24px;
+}
+
+.bench-bottom {
+  grid-area: bottom;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.bench-bottom:empty {
+  display: none;
+}
+
+.bench-notes {
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.sheet-strip {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+
+.sheet-strip button {
+  flex: none;
+  padding: 2px;
+  background: transparent;
+}
+
+.sheet-strip button.selected {
+  border-color: var(--accent);
+}
+
+.sheet-strip img {
+  display: block;
+  height: 72px;
+  border-radius: 3px;
+}
+
+.timeline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.timeline input[type="range"] {
+  flex: 1;
+}
+
+.timeline-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 90px;
+}
+
+.art-panel h2 {
+  margin-bottom: 4px;
+}

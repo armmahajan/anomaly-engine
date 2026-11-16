@@ -54,7 +54,10 @@ export type Stage =
       flip: boolean;
       /** Draw bones and pivots over the rig. */
       bones: boolean;
-      /** The design image (base64 PNG) drawn behind the rig, aligned to it, at `alpha` (0 = hidden). */
+      /**
+       * The design image drawn behind the rig, aligned to it, at `alpha` (0 = hidden).
+       * image: base64 PNG to load, "" to clear, null to keep the current one (send it once, not with every frame).
+       */
       onion: { image: string | null; alpha: number };
     }
   | StageWorld;
