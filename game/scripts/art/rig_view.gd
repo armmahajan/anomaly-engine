@@ -18,6 +18,13 @@ const GLOW_LAYERS := [[0.18, 0.28], [0.4, 0.13], [0.7, 0.06]]
 var warnings: Array[String] = []
 ## Freeze time (render service sets poses explicitly).
 var manual_time := false
+## Playback rate (stage previews).
+var speed := 1.0
+## Draw bones and pivots on top (stage previews).
+var show_bones := false:
+	set(value):
+		show_bones = value
+		queue_redraw()
 
 var _bones := {}  # id -> {parent, pivot}
 var _bone_order: Array[String] = []
@@ -72,7 +79,7 @@ func pose_at(seconds: float, boil_frame := 0) -> void:
 func _process(delta: float) -> void:
 	if manual_time:
 		return
-	_time += delta
+	_time += delta * speed
 	if _boil_amount > 0.0:
 		_boil_timer += delta
 		if _boil_timer >= 1.0 / BOIL_FPS:
@@ -361,7 +368,14 @@ func _visible_at(keys: Array, t: float) -> bool:
 
 # --- draw --------------------------------------------------------------------
 
+## Seconds into the current clip (for the studio's timeline).
+func clip_time() -> float:
+	return _time
+
+
 func _draw() -> void:
+	if show_bones:
+		_draw_bones.call_deferred()
 	for part in _parts:
 		if _hidden.has(part.id):
 			continue
@@ -382,3 +396,26 @@ func _draw() -> void:
 			for i in poly.size():
 				out[i] = (xf * poly[i]).lerp(xf2 * poly[i], weights[i])
 			draw_polygon(out, layer[1])
+
+
+var _bone_overlay: Node2D = null
+
+
+func _draw_bones() -> void:
+	if _bone_overlay == null:
+		_bone_overlay = Node2D.new()
+		_bone_overlay.z_index = 1
+		_bone_overlay.draw.connect(_paint_bones)
+		add_child(_bone_overlay)
+	_bone_overlay.visible = show_bones
+	_bone_overlay.queue_redraw()
+
+
+func _paint_bones() -> void:
+	var width := 1.2 / maxf(absf(global_scale.y), 0.01)
+	for id in _bone_order:
+		var at: Vector2 = _pose.get(id, Transform2D.IDENTITY).origin
+		var parent = _bones[id].parent
+		if parent != null and _pose.has(parent):
+			_bone_overlay.draw_line(_pose[parent].origin, at, Color(1.0, 0.3, 0.6, 0.85), width * 1.5)
+		_bone_overlay.draw_circle(at, width * 2.2, Color(1.0, 0.85, 0.2))

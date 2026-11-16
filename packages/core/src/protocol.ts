@@ -15,7 +15,7 @@ import type { Rig } from "./art/rig.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -32,7 +32,48 @@ export type StudioToRuntime =
   /** Render frames of a rig into one PNG contact sheet (left to right, then down). Works without a loaded project. */
   | ({ type: "renderRig" } & RenderRigRequest)
   /** Edit mode only: make every spawn of a character play `clip` (null = back to normal). */
-  | { type: "previewClip"; characterId: string; clip: string | null };
+  | { type: "previewClip"; characterId: string; clip: string | null }
+  /** What the runtime shows (studio modes). Ignored while playing; `game` is the arena. */
+  | { type: "stage"; stage: Stage };
+
+/**
+ * The runtime's stage: the arena (`game`), one character large on a neutral
+ * stage (Characters mode), or a world room (Worlds mode).
+ */
+export type Stage =
+  | { mode: "game" }
+  | {
+      mode: "character";
+      characterId: string;
+      /** Clip to show (null = rest pose). */
+      clip: string | null;
+      /** Seconds into the clip to hold, or null to play continuously. */
+      time: number | null;
+      speed: number;
+      /** Face left instead of right. */
+      flip: boolean;
+      /** Draw bones and pivots over the rig. */
+      bones: boolean;
+      /** The design image (base64 PNG) drawn behind the rig, aligned to it, at `alpha` (0 = hidden). */
+      onion: { image: string | null; alpha: number };
+    }
+  | StageWorld;
+
+export interface StageWorld {
+  mode: "world";
+  /** Biome asset whose kit is drawn. */
+  biomeId: string;
+  /** Room (dressing) of that biome to show. */
+  roomId: string;
+  /** Kit images by file ref, base64. */
+  images: Record<string, string>;
+  /** Layers to hide. */
+  hidden: string[];
+  fog: boolean;
+  lights: boolean;
+  /** Tilt the layers apart to show how the depth is built. */
+  exploded: boolean;
+}
 
 export interface RenderRigRequest {
   requestId: string;
@@ -87,6 +128,8 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     seed: z.number().nullable(),
     /** Times the player has died (and the run restarted) since play began. */
     deaths: z.number(),
+    /** What the runtime is showing (see Stage). */
+    stage: z.enum(["game", "character", "world"]).default("game"),
     entities: z.array(EntityState),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),

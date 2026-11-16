@@ -14,7 +14,7 @@ test("art: concepts -> pick -> rig -> animate, then the charger is drawn by its 
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
   await page.getByTestId("character-charger").click();
-  await page.getByRole("tab", { name: "Art" }).click();
+  await page.getByRole("tab", { name: "Characters" }).click();
   const panel = page.getByTestId("art-panel");
 
   await panel.getByLabel("What should Charger look like?").fill("a horned beetle that charges");
@@ -42,6 +42,7 @@ test("art: concepts -> pick -> rig -> animate, then the charger is drawn by its 
   await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
   await expect.poll(async () => (await runtimeState(page)).entities.find((e) => e.characterId === "charger")?.behaviorState).toBeTruthy();
   await page.getByRole("button", { name: "■ Stop" }).click();
+  await page.getByRole("tab", { name: "Characters" }).click();
 
   const last = page.getByTestId("art-job");
   await expect(last).toContainText("committed");
@@ -51,7 +52,7 @@ test("art: concepts -> pick -> rig -> animate, then the charger is drawn by its 
 test("art: auto runs every stage in one go", async ({ page }) => {
   await openStudio(page);
   await page.getByTestId("character-crawler").click();
-  await page.getByRole("tab", { name: "Art" }).click();
+  await page.getByRole("tab", { name: "Characters" }).click();
   const panel = page.getByTestId("art-panel");
   await panel.getByLabel("What should Crawler look like?").fill("a pale grub");
   await panel.getByLabel("Auto").check();

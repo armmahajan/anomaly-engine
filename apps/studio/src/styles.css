@@ -735,28 +735,9 @@ button.toggled {
   font-weight: normal;
   text-transform: none;
   letter-spacing: 0;
+}
+
 /* --- art ------------------------------------------------------------------ */
-
-.side-tabs {
-  display: flex;
-  gap: 4px;
-  margin: 12px 0 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.side-tabs button {
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: none;
-  color: var(--muted);
-  padding: 4px 8px;
-}
-
-.side-tabs button.selected {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
 
 .swatch-img {
   width: 22px;
@@ -1178,4 +1159,123 @@ button.toggled {
 
 .edge.selected .edge-label-bg {
   stroke: var(--accent);
+/* --- modes and the workbench layout -----------------------------------------
+   One grid; modes only rearrange named areas. The game iframe (.viewport) is
+   never moved in the DOM (that would reboot it), only placed in an area. */
+
+.studio {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) var(--side-w, 320px) var(--chat-w, 320px);
+  grid-template-rows: 44px auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "bar bar bar bar"
+    "top top side chat"
+    "stage stage side chat"
+    "bottom bottom side chat";
+}
+
+.studio.chat-closed {
+  --chat-w: 44px;
+}
+
+.studio.mode-wiki,
+.studio.mode-progression {
+  grid-template-areas:
+    "bar bar bar bar"
+    "stage stage side chat"
+    "stage stage side chat"
+    "stage stage side chat";
+}
+
+.toolbar {
+  grid-area: bar;
+}
+
+.viewport,
+.wiki-pane {
+  grid-area: stage;
+}
+
+.sidebar {
+  grid-area: side;
+  position: relative;
+}
+
+.chat {
+  grid-area: chat;
+  min-width: 0;
+}
+
+.side-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.side-resize:hover {
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.resizing iframe {
+  pointer-events: none;
+}
+
+.fullscreen-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 7px;
+  font-size: 14px;
+  opacity: 0.55;
+  background: rgb(0 0 0 / 0.5);
+}
+
+.fullscreen-button:hover {
+  opacity: 1;
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chat-head h2 {
+  margin: 0;
+}
+
+.chat-toggle {
+  padding: 1px 6px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.chat-collapsed {
+  padding: 8px 4px;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-busy {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: chat-busy 1s ease-in-out infinite alternate;
+}
+
+@keyframes chat-busy {
+  to {
+    opacity: 0.2;
+  }
 }

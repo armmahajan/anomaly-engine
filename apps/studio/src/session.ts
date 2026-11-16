@@ -5,6 +5,7 @@ import {
   PROTOCOL_VERSION,
   type AgentId,
   type ArtJobRequest,
+  type Stage,
   type ArtState,
   type ChangeResult,
   type ChatState,
@@ -43,6 +44,7 @@ export interface RuntimeSnapshot {
   revision: number;
   seed: number | null;
   deaths: number;
+  stage: Stage["mode"];
   entities: EntityState[];
 }
 
@@ -172,6 +174,7 @@ export class Session {
         this.requestedRevision = null;
         this.set({ runtimeStatus: "ready", mode: "edit", loadedRevision: null });
         this.syncRuntime();
+        this.bridge.send({ type: "stage", stage: this.stage });
         return;
       case "loaded":
         this.set({ loadedRevision: message.revision });
@@ -313,6 +316,15 @@ export class Session {
   };
 
   /** Edit mode: play `clip` on every spawn of a character (null = back to its behavior). */
+  /** What the runtime shows (the studio's mode). Re-sent if the runtime reboots. */
+  private stage: Stage = { mode: "game" };
+
+  setStage = (stage: Stage): boolean => {
+    this.stage = stage;
+    if (this.state.runtimeStatus !== "ready") return false;
+    return this.bridge.send({ type: "stage", stage });
+  };
+
   previewClip = (characterId: string, clip: string | null): boolean => {
     if (this.state.runtimeStatus !== "ready" || this.state.mode !== "edit") return false;
     return this.bridge.send({ type: "previewClip", characterId, clip });
@@ -360,7 +372,7 @@ export class Session {
   };
 
   getRuntimeState = async (): Promise<RuntimeSnapshot> => {
-    const { mode, revision, seed, deaths, entities } = await this.bridge.requestState();
-    return { mode, revision, seed, deaths, entities };
+    const { mode, revision, seed, deaths, stage, entities } = await this.bridge.requestState();
+    return { mode, revision, seed, deaths, stage, entities };
   };
 }

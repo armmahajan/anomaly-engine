@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeRuntimeMessage, encodeStudioMessage, RUNTIME_SOURCE } from "../src/index.ts";
+import { decodeRuntimeMessage, encodeStudioMessage, PROTOCOL_VERSION, RUNTIME_SOURCE } from "../src/index.ts";
 
 const wrap = (message: unknown) => JSON.stringify({ source: RUNTIME_SOURCE, message });
 
@@ -25,7 +25,7 @@ describe("encodeStudioMessage", () => {
   it("wraps messages in a versioned envelope", () => {
     expect(JSON.parse(encodeStudioMessage({ type: "play", seed: 7 }))).toEqual({
       source: "anomaly-studio",
-      protocolVersion: 6,
+      protocolVersion: PROTOCOL_VERSION,
       message: { type: "play", seed: 7 },
     });
   });

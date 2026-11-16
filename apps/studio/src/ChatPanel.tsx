@@ -33,9 +33,12 @@ interface Props {
   canUndo: boolean;
   playing: boolean;
   connected: boolean;
+  /** Collapsed to a thin strip (more room for the workbench). */
+  open: boolean;
+  onToggle: () => void;
 }
 
-export function ChatPanel({ session, agent, chat, revision, canUndo, playing, connected }: Props) {
+export function ChatPanel({ session, agent, chat, revision, canUndo, playing, connected, open, onToggle }: Props) {
   const text = AGENT_TEXT[agent];
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -61,9 +64,25 @@ export function ChatPanel({ session, agent, chat, revision, canUndo, playing, co
     }
   };
 
+  if (!open) {
+    return (
+      <aside className="chat chat-collapsed" aria-label="Chat" data-testid={`chat-${agent}`}>
+        <button type="button" className="chat-toggle" onClick={onToggle} title={`Open the ${text.title.toLowerCase()}`} aria-label="Open chat">
+          💬
+        </button>
+        {chat.running && <span className="chat-busy" title="The AI is working" />}
+      </aside>
+    );
+  }
+
   return (
     <aside className="chat" aria-label="Chat" data-testid={`chat-${agent}`}>
-      <h2>{text.title}</h2>
+      <div className="chat-head">
+        <h2>{text.title}</h2>
+        <button type="button" className="chat-toggle" onClick={onToggle} title="Collapse the chat" aria-label="Collapse chat">
+          ⇥
+        </button>
+      </div>
       <div className="chat-log" ref={logRef}>
         {chat.entries.length === 0 && !busy && (
           <p className="hint">{text.hint}</p>

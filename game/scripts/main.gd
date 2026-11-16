@@ -3,7 +3,7 @@ extends Node2D
 ## builds the sandbox scene from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 6
+const PROTOCOL_VERSION := 7
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -16,6 +16,7 @@ const HudScript := preload("res://scripts/hud.gd")
 const HIT_STOP_FRAMES := 3
 const RenderService := preload("res://scripts/art/render_service.gd")
 const WorldView := preload("res://scripts/art/world_view.gd")
+const StageView := preload("res://scripts/art/stage_view.gd")
 
 var _project: Dictionary = {}
 var _mode := "edit"
@@ -104,6 +105,7 @@ func handle_message(message: Dictionary) -> void:
 				return
 			_project = project
 			_build_world()
+			_apply_stage()
 			_send({"type": "loaded", "revision": int(_project.revision)})
 		"play":
 			if _project.is_empty():
@@ -111,6 +113,8 @@ func handle_message(message: Dictionary) -> void:
 			else:
 				_seed_run(int(message.get("seed", 0)))
 				_deaths = 0
+				_stage = {"mode": "game"}  # play always happens in the arena
+				_apply_stage()
 				_set_mode("play")
 			_send({"type": "modeChanged", "mode": _mode})
 		"stop":
@@ -118,6 +122,7 @@ func handle_message(message: Dictionary) -> void:
 			_seed = null
 			_deaths = 0
 			_set_mode("edit")
+			_apply_stage()
 			_send({"type": "modeChanged", "mode": _mode})
 		"getState":
 			_send({
@@ -127,12 +132,21 @@ func handle_message(message: Dictionary) -> void:
 				"revision": int(_project.get("revision", -1)),
 				"seed": _seed,
 				"deaths": _deaths,
+				"stage": str(_stage.get("mode", "game")),
 				"entities": _entity_states(),
 			})
 		"renderRig", "renderWorld":
 			_render_service.render(message, _send)
 		"previewWorld":
 			_preview_world(message)
+		"stage":
+			var stage = message.get("stage")
+			if typeof(stage) != TYPE_DICTIONARY:
+				_error("invalid_stage", "stage must be an object")
+				return
+			_stage = stage
+			if _mode != "play":
+				_apply_stage()
 		"previewClip":
 			var character_id := str(message.get("characterId", ""))
 			var clip = message.get("clip")
@@ -404,3 +418,34 @@ func _process(delta: float) -> void:
 	var half := view.x / WorldView.fit_zoom(_world_scene, view) / 2.0
 	var x := lerpf(half, float(_world_scene.get("width", 2400)) - half, t)
 	WorldView.aim(_world_camera, _world_preview, _world_scene, view, x)
+
+
+# --- stages (studio modes) -------------------------------------------------------
+
+var _stage: Dictionary = {"mode": "game"}
+var _stage_view: Node2D = null
+
+
+## Show what the studio's mode asks for: the arena, one character, or a world room.
+func _apply_stage() -> void:
+	var mode := str(_stage.get("mode", "game"))
+	if mode != "character" and _stage_view != null:
+		_stage_view.queue_free()
+		_stage_view = null
+	if _world != null:
+		_world.visible = mode == "game"
+	match mode:
+		"game":
+			if _mode == "play" and _player != null:
+				_player.camera.make_current()
+			else:
+				_edit_camera.make_current()
+		"character":
+			if _project.is_empty():
+				return
+			if _stage_view == null:
+				_stage_view = StageView.new()
+				add_child(_stage_view)
+			var problem: String = _stage_view.apply(_project, _stage)
+			if problem != "":
+				_send({"type": "error", "code": "stage", "message": problem})

@@ -5,11 +5,15 @@ import { Inspector } from "./Inspector.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { WikiMain, WikiSidebar, type WikiNav } from "./WikiView.tsx";
 import { ProgressionMain, ProgressionSidebar, type ProgressionNav } from "./ProgressionView.tsx";
-
-type Tab = "arena" | "wiki" | "progression";
-const TAB_LABEL: Record<Tab, string> = { arena: "Arena", wiki: "Wiki", progression: "Progression" };
 import { ArtPanel } from "./ArtPanel.tsx";
 import { fileUrl } from "./api.ts";
+import { useChatOpen, useSidebarWidth } from "./layout.ts";
+
+/** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
+type Tab = "arena" | "characters" | "wiki" | "progression";
+const TAB_LABEL: Record<Tab, string> = { arena: "Arena", characters: "Characters", wiki: "Wiki", progression: "Progression" };
+/** Design documents (the director's tabs): the game is hidden and the chat is the director's. */
+const DESIGN_TABS: readonly Tab[] = ["wiki", "progression"];
 
 const ENEMY_COLORS = ["#5f9e6e", "#d08c3a", "#4f8fbf", "#b8577d", "#9c9a3f"];
 
@@ -20,7 +24,8 @@ export function App({ session }: { session: Session }) {
   const [tab, setTab] = useState<Tab>("arena");
   const [wikiNav, setWikiNav] = useState<WikiNav>({ pageId: null, editing: null });
   const [progressionNav, setProgressionNav] = useState<ProgressionNav>({ selected: null, creating: null });
-  const [sideTab, setSideTab] = useState<"stats" | "art">("stats");
+  const [sidebarWidth, startResize] = useSidebarWidth();
+  const [chatOpen, setChatOpen] = useChatOpen();
 
   useEffect(() => session.attachRuntime(frameRef.current!), [session]);
 
@@ -90,11 +95,29 @@ export function App({ session }: { session: Session }) {
     if (report(await session.resetProject())) setSelectedId("crawler");
   };
 
-  /** Design documents are edited while the game is stopped: opening one ends a playtest. */
+  /** Only the arena plays: opening any other mode ends a playtest. */
   const openTab = (next: Tab) => {
     if (next !== "arena" && playing) session.stop();
     setTab(next);
   };
+
+  // Tell the runtime what to show for this mode.
+  useEffect(() => {
+    if (tab === "characters" && selected) {
+      session.setStage({
+        mode: "character",
+        characterId: selected.id,
+        clip: null,
+        time: null,
+        speed: 1,
+        flip: false,
+        bones: false,
+        onion: { image: null, alpha: 0 },
+      });
+    } else {
+      session.setStage({ mode: "game" });
+    }
+  }, [session, tab, selected?.id, state.runtimeStatus]);
 
   const openWikiPage = (pageId: string) => {
     setWikiNav({ pageId, editing: null });
@@ -109,11 +132,13 @@ export function App({ session }: { session: Session }) {
   const progression = project.progression;
   const drafts: Record<Tab, number> = {
     arena: 0,
+    characters: 0,
     wiki: project.wiki.pages.filter((p) => p.status === "draft").length,
     progression: [...progression.regions, ...progression.abilities, ...progression.connections, ...progression.beats].filter((i) => i.status === "draft").length,
   };
   const checks = tab === "progression" ? progressionReport(project) : null;
-  const agent = tab === "arena" ? "build" : "narrative";
+  const design = DESIGN_TABS.includes(tab);
+  const agent = design ? "narrative" : "build";
   const problem = state.lastProblem && (
     <div className="problem" role="alert">
       {state.lastProblem}
@@ -132,7 +157,10 @@ export function App({ session }: { session: Session }) {
   };
 
   return (
-    <div className="studio">
+    <div
+      className={`studio mode-${tab}${chatOpen ? "" : " chat-closed"}`}
+      style={{ "--side-w": `${sidebarWidth}px` } as React.CSSProperties}
+    >
       <header className="toolbar">
         <span className="title">{state.project.name}</span>
         <nav className="tabs" role="tablist">
@@ -182,10 +210,21 @@ export function App({ session }: { session: Session }) {
         </span>
       </header>
 
-      {/* The game stays mounted (and sized) behind the other tabs so it never reboots. */}
-      <main className={`viewport${tab === "arena" ? "" : " offstage"}`} aria-hidden={tab !== "arena"}>
+      {/* The game stays mounted (and sized) in every mode so it never reboots; modes only move it. */}
+      <main className={`viewport${design ? " offstage" : ""}`} aria-hidden={design}>
         <iframe ref={frameRef} src="/game/index.html" title="Game" className="game-frame" />
-        {!playing && state.runtimeStatus === "ready" && <div className="edit-badge">Edit mode — press Play to test</div>}
+        {tab === "arena" && !playing && state.runtimeStatus === "ready" && (
+          <div className="edit-badge">Edit mode — press Play to test</div>
+        )}
+        <button
+          type="button"
+          className="fullscreen-button"
+          title="Full screen"
+          aria-label="Full screen"
+          onClick={() => void frameRef.current?.requestFullscreen?.()}
+        >
+          ⛶
+        </button>
       </main>
       {tab === "wiki" && (
         <main className="wiki-pane">
@@ -218,6 +257,7 @@ export function App({ session }: { session: Session }) {
         </aside>
       ) : (
       <aside className="sidebar">
+        <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
         <section>
           <h2>Characters</h2>
           <ul className="character-list">
@@ -259,26 +299,10 @@ export function App({ session }: { session: Session }) {
             </button>
           </div>
         </section>
-        {selected && (
-          <div className="side-tabs" role="tablist">
-            {(["stats", "art"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                role="tab"
-                aria-selected={sideTab === t}
-                className={sideTab === t ? "selected" : ""}
-                onClick={() => setSideTab(t)}
-              >
-                {t === "stats" ? "Stats & behavior" : "Art"}
-              </button>
-            ))}
-          </div>
-        )}
-        {selected && sideTab === "art" && (
+        {selected && tab === "characters" && (
           <ArtPanel key={selected.id} character={selected} project={project} art={state.art} session={session} locked={playing || Object.values(state.chats).some((c) => c.running !== null)} />
         )}
-        {selected && sideTab === "stats" && (
+        {selected && tab === "arena" && (
           <Inspector
             key={selected.id}
             character={selected}
@@ -305,6 +329,8 @@ export function App({ session }: { session: Session }) {
         canUndo={state.canUndo}
         playing={playing}
         connected={state.serverConnected}
+        open={chatOpen}
+        onToggle={() => setChatOpen(!chatOpen)}
       />
     </div>
   );
