@@ -77,6 +77,8 @@ export class ArtService {
   private jobs: ArtJobSummary[];
   private totalCost: number;
   private running: Running | null = null;
+  /** Jobs waiting to start (queued from chat turns). */
+  private queue: unknown[] = [];
   private listeners = new Set<(state: ArtState) => void>();
 
   private constructor(store: ProjectStore, options: ArtServiceOptions, jobs: ArtJobSummary[], totalCost: number) {
@@ -125,6 +127,7 @@ export class ArtService {
         activity: r.activity,
       },
       jobs: this.jobs,
+      queued: this.queue.length,
       totalCost: this.totalCost,
     };
   }
@@ -169,7 +172,44 @@ export class ArtService {
     return { ok: true, jobId: running.id };
   }
 
+  /**
+   * Start jobs one after another (from a chat turn, after it released the lock).
+   * A job that can't start is logged as failed, so the creator sees why.
+   */
+  enqueue(requests: unknown[]): void {
+    this.queue.push(...requests);
+    this.emit();
+    void this.startNext();
+  }
+
+  private async startNext(): Promise<void> {
+    while (!this.running && this.queue.length > 0) {
+      const request = this.queue.shift();
+      const started = await this.start(request);
+      if (!started.ok) {
+        const parsed = ArtJobRequest.safeParse(request);
+        const failed: ArtJobSummary = {
+          id: `art_${Date.now().toString(36)}`,
+          stage: parsed.success ? parsed.data.stage : "concepts",
+          characterId: parsed.success ? parsed.data.characterId : undefined,
+          biomeId: parsed.success ? parsed.data.biomeId : undefined,
+          at: new Date().toISOString(),
+          outcome: "failed",
+          cost: 0,
+          summary: "nothing saved",
+          error: `could not start: ${started.error.message}`,
+          revisions: [],
+          activity: [],
+        };
+        this.jobs = [...this.jobs, failed].slice(-RECENT_JOBS);
+        await appendFile(this.path, JSON.stringify(failed) + "\n");
+        this.emit();
+      }
+    }
+  }
+
   cancel(): { ok: true } {
+    this.queue = [];
     this.running?.controller.abort();
     return { ok: true };
   }
@@ -306,6 +346,7 @@ export class ArtService {
     this.totalCost += running.cost;
     this.jobs = [...this.jobs, summary].slice(-RECENT_JOBS);
     await appendFile(this.path, JSON.stringify(summary) + "\n");
+    void this.startNext();
     console.info(`[art] ${request.stage} ${request.characterId ?? running.biomeId ?? "new biome"}: ${outcome}, ~$${running.cost.toFixed(4)}${error ? ` (${error})` : ""}`);
     this.emit();
   }

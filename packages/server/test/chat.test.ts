@@ -40,6 +40,7 @@ const waitForCancel: TurnRunner = (request) =>
         reply: "",
         project: request.project,
         operations: [],
+        jobs: [],
         usage: { promptTokens: 0, completionTokens: 0 },
       }),
     ),

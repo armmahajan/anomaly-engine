@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeImageModel, FakeRenderer, FakeVisionModel } from "@anomaly/art";
 import type { ArtState, ChangeResult, ProjectState } from "@anomaly/core";
-import type { TurnRunner } from "@anomaly/agent";
+import { callTools, FakeModel, runAgentTurn, say, toolCall, type TurnRunner } from "@anomaly/agent";
 import { createProjectServer, type ArtService } from "../src/index.ts";
 
 const TOKEN = "test-token";
@@ -21,12 +21,12 @@ let base: string;
 let art: ArtService;
 let vision: FakeVisionModel;
 
-async function start(options: { budget?: number; models?: boolean } = {}) {
+async function start(options: { budget?: number; models?: boolean; runner?: TurnRunner } = {}) {
   dir = await mkdtemp(join(tmpdir(), "anomaly-art-"));
   vision = new FakeVisionModel();
   const created = await createProjectServer(dir, {
     token: TOKEN,
-    runner: noChat,
+    runner: options.runner ?? noChat,
     art: {
       models: options.models === false ? null : { image: new FakeImageModel(), vision },
       renderer: new FakeRenderer(),
@@ -171,5 +171,51 @@ describe("world jobs over HTTP", () => {
     expect((await post("/api/art/jobs", { stage: "worldKit" })).error?.code).toBe("invalid_request");
     expect((await post("/api/art/jobs", { stage: "worldCompose", biomeId: "nope" })).error?.code).toBe("not_found");
     expect((await post("/api/art/jobs", { stage: "rig" })).error?.code).toBe("invalid_request");
+  });
+});
+
+describe("art jobs from the chat", () => {
+  it("a chat turn queues a world; it runs after the turn as its own AI changes", async () => {
+    await rm(dir, { recursive: true, force: true });
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    await start({
+      runner: (request) =>
+        runAgentTurn({
+          ...request,
+          model: new FakeModel([callTools(toolCall("generateWorld", { theme: "a sunken garden of giant ferns" })), say("Painting a sunken garden.")]),
+        }),
+    });
+    expect(await post("/api/chat", { message: "make me a sunken garden world" })).toMatchObject({ ok: true });
+    await expect.poll(async () => (await get<ArtState>("/api/art")).jobs.length, { timeout: 10_000 }).toBe(1);
+    await art.idle();
+    const job = (await get<ArtState>("/api/art")).jobs.at(-1)!;
+    expect(job).toMatchObject({ stage: "worldKit", outcome: "committed" });
+    const { project } = await get<ProjectState>("/api/project");
+    expect(project.art.assets.find((a) => a.kind === "biome")?.name).toBe("A sunken garden of giant ferns");
+    const chat = await get<{ entries: { role: string; changes?: string[] }[] }>("/api/chat");
+    expect(chat.entries.at(-1)?.changes).toEqual([expect.stringMatching(/^queued: paint world/)]);
+  });
+
+  it("the art tools refuse when art generation is off", async () => {
+    await rm(dir, { recursive: true, force: true });
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    let result: unknown;
+    await start({
+      models: false,
+      runner: async (request) => {
+        const turn = await runAgentTurn({
+          ...request,
+          model: new FakeModel([callTools(toolCall("generateWorld", { theme: "a garden" })), say("ok")]),
+          onEvent: (e) => {
+            if (e.type === "tool_result") result = e.result;
+          },
+        });
+        return turn;
+      },
+    });
+    await post("/api/chat", { message: "world please" });
+    await expect.poll(() => result, { timeout: 10_000 }).toMatchObject({ ok: false, error: { code: "unavailable" } });
   });
 });

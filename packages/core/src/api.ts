@@ -217,6 +217,8 @@ export const ArtState = z.object({
     .nullable(),
   /** Recent jobs, newest last. */
   jobs: z.array(ArtJobSummary),
+  /** Jobs waiting to start (queued by the chat). */
+  queued: z.number().default(0),
   /** USD spent on art in this project. */
   totalCost: z.number(),
 });

@@ -36,6 +36,8 @@ export async function createProjectServer(
   };
   const files = new FileStore(dir);
   const art = options.art ? await ArtService.open(store, { ...options.art, files }) : null;
+  // The build assistant can queue art jobs; they run on the art service after its turn.
+  chats.build.art = art;
   const auth = createAuthMiddleware(options.token);
   const api = createApiHandler(store, chats, art ? { service: art, files } : undefined);
   return { store, chat: chats.build, chats, art, handler: (req, res, next) => auth(req, res, () => api(req, res, next)) };

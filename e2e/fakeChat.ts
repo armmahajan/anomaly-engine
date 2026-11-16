@@ -50,8 +50,15 @@ const fakeWiki: TurnRunner = (request) =>
     ]),
   });
 
-/** Scripted build assistant: "crawler speed N" sets the Crawler's patrol speed. */
+/** Scripted build assistant: "world: <theme>" queues a world; "crawler speed N" sets the Crawler's patrol speed. */
 const fakeBuilder: TurnRunner = (request) => {
+  const world = /^world: (.+)$/i.exec(request.userMessage.trim());
+  if (world) {
+    return runAgentTurn({
+      ...request,
+      model: new FakeModel([callTools(toolCall("generateWorld", { theme: world[1] })), say(`Painting ${world[1]}: it will show in Worlds in about a minute.`)]),
+    });
+  }
   const speed = Number(/\d+/.exec(request.userMessage)?.[0] ?? 150);
   return runAgentTurn({
     ...request,

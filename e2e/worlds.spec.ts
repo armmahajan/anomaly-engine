@@ -79,3 +79,14 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
 
   expect(consoleErrors).toEqual([]);
 });
+
+test("worlds: the build assistant queues a world from chat; it appears in Worlds", async ({ page }) => {
+  test.setTimeout(120_000);
+  await openStudio(page);
+  await page.getByRole("tab", { name: "Worlds" }).click();
+  await page.getByLabel("Message").fill("world: a sunken garden of giant ferns");
+  await page.getByLabel("Message").press("Enter");
+  await expect(page.getByTestId("chat-reply").last()).toContainText("queued: paint world");
+  await expect(page.getByTestId("world-panel").getByRole("button", { name: /sunken garden/i }).first()).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByTestId("piece-p0_lantern")).toBeVisible({ timeout: 30_000 });
+});

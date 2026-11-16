@@ -50,9 +50,28 @@ export function summarizeProject(project: ProjectSpec): string {
       ? `Player abilities in arena playtests: ${sandbox.playerAbilities.join(", ") || "none"}. With them the player jumps ${Math.round(reach.maxHeight)} px high and crosses gaps up to ${Math.round(reach.maxGap(0))} px between platforms at the same height${reach.climbsWalls ? "; climbs walls" : ""}${reach.breaksFloors ? "; smashes breakable platforms" : ""}.`
       : "",
     "Characters:",
-    ...project.characters.map((c) => describeCharacter(project, c)),
+    ...project.characters.map((c) => describeCharacter(project, c) + (c.appearance ? ` Drawn by art asset "${c.appearance}".` : " No art yet (a colored box).")),
+    ...artSummary(project),
     warnings.length ? `Warnings:\n${warnings.map((w) => `- ${w.message}`).join("\n")}` : "Warnings: none",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** Biomes, their rooms and the arena's dressing, so the agent can refer to them. */
+function artSummary(project: ProjectSpec): string[] {
+  const biomes = project.art.assets.filter((a) => a.kind === "biome");
+  if (biomes.length === 0) return ["Worlds: none yet (generateWorld makes one)."];
+  const dressing = project.sandbox.dressing;
+  return [
+    "Worlds (biomes):",
+    ...biomes.map((b) =>
+      b.kind === "biome"
+        ? `- ${b.id} "${b.name}": ${b.kit ? `${b.kit.quality} kit, ${b.kit.pieces.length} pieces (${b.kit.pieces.map((p) => p.id).join(", ")})` : "no kit yet"}; rooms: ${
+            b.rooms.map((r) => `${r.id} (${r.composition.placements.length} placements${r.layout ? ", suggests a layout" : ""})`).join(", ") || "none"
+          }`
+        : "",
+    ),
+    dressing ? `The arena is dressed with ${dressing.biome} / ${dressing.room}.` : "The arena is plain (not dressed).",
+  ];
 }

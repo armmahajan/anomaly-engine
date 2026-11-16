@@ -33,7 +33,7 @@ export async function runClaudeCodeTurn(options: ClaudeCodeTurnOptions): Promise
   const emit = emitter(options);
   const turn: TurnState = {
     request: options,
-    draft: new Draft(options.project),
+    draft: new Draft(options.project, options.artAvailable),
     messages: [{ role: "user", content: options.userMessage }],
     usage: { promptTokens: 0, completionTokens: 0 },
     reply: "",

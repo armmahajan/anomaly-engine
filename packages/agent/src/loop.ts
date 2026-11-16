@@ -18,7 +18,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
   const emit = emitter(options);
   const turn: TurnState = {
     request: options,
-    draft: new Draft(project),
+    draft: new Draft(project, options.artAvailable),
     messages: [{ role: "user", content: userMessage }],
     usage: { promptTokens: 0, completionTokens: 0 },
     reply: "",

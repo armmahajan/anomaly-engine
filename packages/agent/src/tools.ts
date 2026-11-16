@@ -29,6 +29,7 @@ import {
   SetDressingInput,
   ApplyRoomLayoutInput,
   Clip,
+  ArtJobRequest,
   type OperationCall,
   type OperationName,
   type ProjectSpec,
@@ -53,10 +54,15 @@ export class Draft {
   readonly base: ProjectSpec;
   current: ProjectSpec;
   readonly calls: OperationCall[] = [];
+  /** Art/world jobs queued this turn; they start after the turn ends (each its own AI change). */
+  readonly jobs: ArtJobRequest[] = [];
+  /** Whether art generation is configured (else the art tools refuse). */
+  artAvailable: boolean;
 
-  constructor(base: ProjectSpec) {
+  constructor(base: ProjectSpec, artAvailable = false) {
     this.base = base;
     this.current = base;
+    this.artAvailable = artAvailable;
   }
 
   get changed(): boolean {
@@ -100,14 +106,13 @@ const writeDescriptions: Record<BuildOperation, string> = {
   setClip:
     "Create, replace or delete (clip: null) an animation clip on a character asset. Slot names (idle, walk, run, windup, attack, hurt, jump, fall, fly) are used automatically.",
   setStateClip: "Make a behavior state play a specific clip instead of its automatic slot (clipId null = automatic).",
-  updateRoom:
-    "Change a world room's name or atmosphere: palette (ambient darkness, fog, light, shadow colors), fog density per layer, dust, light shafts or extra lights.",
+  updateRoom: "Change a world room's name or atmosphere: palette colors, fog density per layer (0-1), dust.",
   deleteRoom: "Delete a world room (the arena goes back to plain if it was dressed with it).",
-  updatePlacement: "Move, re-layer (far/mid/back/play/front), scale or flip one placed piece in a world room, by placement id.",
-  addPlacement: "Place a biome kit piece in a world room (x = room x it is seen at; y = its bottom, or its top for hanging pieces).",
+  updatePlacement: "Move, re-layer, scale or flip one placed piece in a world room.",
+  addPlacement: "Place a biome kit piece in a room (x = room x; y = its bottom, or top if hanging).",
   removePlacement: "Remove one placed piece from a world room, by placement id.",
-  setDressing: "Dress the arena with a biome room (art only; collision stays the arena's platforms), or biomeId null for the plain arena.",
-  applyRoomLayout: "Accept a room's suggested platform layout: the arena's platforms become it and the arena is dressed with that room.",
+  setDressing: "Dress the arena with a biome room (art only), or biomeId null for the plain arena.",
+  applyRoomLayout: "Accept a room's suggested layout: the arena's platforms become it.",
 };
 
 /** Precise parameter schemas for the model; the operations themselves accept `unknown` and validate. */
@@ -135,11 +140,13 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
       .record(z.string(), z.unknown())
       .nullable()
       .describe(
-        'null deletes. Else {"duration": s, "loop": bool, "tracks": [{"bone", "property": "rotate"|"x"|"y"|"scaleX"|"scaleY", "keys": [[t 0..1, value], ...], "ease": "smooth"|"linear"|"step"}], "motions": [{"type": "sway"|"bob"|"shift"|"pulse", "bone", "degrees" (sway) or "amount", "cycles": int, "phase": 0..1} | {"type": "squash", "bone", "amount", "at", "width"} | {"type": "shake", "bone", "amount"}], "visibility": [{"part", "keys": [[t, bool]]}]}. Values are offsets from rest: degrees clockwise, px (y down), scale multipliers. Use getCharacter / the asset to see bone ids.',
+        'null deletes. {duration, loop, tracks: [{bone, property: rotate|x|y|scaleX|scaleY, keys: [[t 0..1, value]], ease}], motions: [{type: sway|bob|shift|pulse|squash|shake, bone, degrees|amount, cycles, phase}], visibility: [{part, keys: [[t, bool]]}]}; values are offsets from rest.',
+
       ),
   }),
   setStateClip: SetStateClipInput,
-  updateRoom: UpdateRoomInput,
+  // Light shafts and extra lights stay workbench-only, to keep the tool list small.
+  updateRoom: UpdateRoomInput.extend({ changes: UpdateRoomInput.shape.changes.omit({ rays: true, lights: true }) }),
   deleteRoom: DeleteRoomInput,
   updatePlacement: UpdatePlacementInput,
   addPlacement: AddPlacementInput,
@@ -216,7 +223,87 @@ export interface Toolset {
 
 export const toolset = (specs: ToolSpec[]): Toolset => ({ specs, byName: new Map(specs.map((t) => [t.name, t])) });
 
-export const BUILD_TOOLS = toolset([...readTools, ...(Object.keys(writeSchemas) as BuildOperation[]).map(writeTool)]);
+// --- art jobs (queued: they run after the turn, each saved as its own AI change) ---------------
+
+const GenerateCharacterArtInput = z.strictObject({
+  characterId: Id,
+  brief: z.string().max(2000).optional().describe("Its look; needed the first time."),
+});
+const GenerateWorldInput = z.strictObject({
+  theme: z.string().min(3).max(2000).describe("What the place is."),
+  name: z.string().max(80).optional(),
+  quality: z.enum(["draft", "final"]).default("draft").describe("draft ~$0.02, final ~$0.05"),
+  dressArena: z.boolean().default(true),
+});
+const ComposeWorldRoomInput = z.strictObject({
+  biomeId: Id,
+  direction: z.string().max(1000).optional(),
+  newLayout: z.boolean().default(false).describe("Also suggest platforms (creator accepts)."),
+  dressArena: z.boolean().default(false),
+});
+
+function queue(draft: Draft, job: ArtJobRequest, note: string): unknown {
+  if (!draft.artAvailable) {
+    return { ok: false, error: { code: "unavailable", message: "art generation is not configured (no model key); tell the creator" } };
+  }
+  const parsed = ArtJobRequest.safeParse(job);
+  if (!parsed.success) return { ok: false, error: { code: "invalid_input", message: parsed.error.issues.map((i) => i.message).join("; ") } };
+  draft.jobs.push(job);
+  return { ok: true, note: `Queued: ${note}. It starts when you finish this turn and shows in the Characters/Worlds workbench; it is not done yet, so say so.` };
+}
+
+const artTools: ToolSpec[] = [
+  {
+    name: "generateCharacterArt",
+    description:
+      "Queue a character's whole art pipeline (concepts, design, rig, animations; ~$0.02, ~2 min).",
+    schema: GenerateCharacterArtInput,
+    run: (draft, args) => {
+      const p = GenerateCharacterArtInput.safeParse(args);
+      if (!p.success) return { ok: false, error: { code: "invalid_input", message: p.error.issues.map((i) => i.message).join("; ") } };
+      const character = draft.current.characters.find((c) => c.id === p.data.characterId);
+      if (!character) return { ok: false, error: { code: "not_found", message: `no character "${p.data.characterId}"` } };
+      const hasBrief = Boolean(p.data.brief?.trim()) || draft.current.art.assets.some((a) => a.id === character.appearance);
+      if (!hasBrief) return { ok: false, error: { code: "invalid_input", message: "give a brief: what it should look like" } };
+      return queue(draft, { stage: "auto", characterId: character.id, brief: p.data.brief?.trim() || undefined }, `art for ${character.name}`);
+    },
+  },
+  {
+    name: "generateWorld",
+    description:
+      "Queue a new biome: a painted kit plus a first room around the arena (~1 min).",
+    schema: GenerateWorldInput,
+    run: (draft, args) => {
+      const p = GenerateWorldInput.safeParse(args);
+      if (!p.success) return { ok: false, error: { code: "invalid_input", message: p.error.issues.map((i) => i.message).join("; ") } };
+      return queue(
+        draft,
+        { stage: "worldKit", brief: p.data.theme, name: p.data.name, quality: p.data.quality, dressArena: p.data.dressArena },
+        `a ${p.data.quality} world "${p.data.name ?? p.data.theme.slice(0, 40)}"`,
+      );
+    },
+  },
+  {
+    name: "composeWorldRoom",
+    description: "Queue another room from a biome's kit (~$0.003).",
+    schema: ComposeWorldRoomInput,
+    run: (draft, args) => {
+      const p = ComposeWorldRoomInput.safeParse(args);
+      if (!p.success) return { ok: false, error: { code: "invalid_input", message: p.error.issues.map((i) => i.message).join("; ") } };
+      const biome = draft.current.art.assets.find((a) => a.id === p.data.biomeId && a.kind === "biome");
+      if (!biome) return { ok: false, error: { code: "not_found", message: `no biome "${p.data.biomeId}"` } };
+      return queue(
+        draft,
+        { stage: "worldCompose", biomeId: biome.id, feedback: p.data.direction, newLayout: p.data.newLayout, dressArena: p.data.dressArena },
+        `a new room for ${biome.name}`,
+      );
+    },
+  },
+];
+
+export const ART_TOOL_NAMES = artTools.map((t) => t.name);
+
+export const BUILD_TOOLS = toolset([...readTools, ...(Object.keys(writeSchemas) as BuildOperation[]).map(writeTool), ...artTools]);
 
 function jsonSchema(schema: z.ZodType): Record<string, unknown> {
   const { $schema: _ignored, ...rest } = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<

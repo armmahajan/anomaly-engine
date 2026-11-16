@@ -1,6 +1,7 @@
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  type ArtJobRequest,
   ChatEntry,
   ChatRequest,
   fail,
@@ -12,6 +13,7 @@ import {
 } from "@anomaly/core";
 import { buildAgent, type AgentEvent, type AgentProfile, type ChatMessage, type TurnRunner } from "@anomaly/agent";
 import type { ProjectStore } from "./projectStore.ts";
+import type { ArtService } from "./art/service.ts";
 
 const HISTORY_ENTRIES = 20;
 
@@ -24,6 +26,20 @@ interface Running {
 }
 
 /** One agent's conversation about the project and its running turn. One AI turn runs at a time across all agents (the store's lock). */
+/** Plain-language one-liner for a queued art job. */
+export function describeJob(job: ArtJobRequest): string {
+  switch (job.stage) {
+    case "worldKit":
+      return `queued: paint world "${(job.name ?? job.brief ?? job.biomeId ?? "").slice(0, 40)}" (${job.quality ?? "draft"})`;
+    case "worldCompose":
+      return `queued: compose a room for ${job.biomeId}`;
+    case "worldRepaint":
+      return `queued: repaint ${job.biomeId} ${job.part}`;
+    default:
+      return `queued: art for ${job.characterId}`;
+  }
+}
+
 export class ChatService {
   private readonly store: ProjectStore;
   private readonly runner: TurnRunner;
@@ -31,6 +47,8 @@ export class ChatService {
   private readonly path: string;
   private entries: ChatEntry[];
   private running: Running | null = null;
+  /** Art jobs queued by turns go here (set by createProjectServer). */
+  art: ArtService | null = null;
   private listeners = new Set<(state: ChatState) => void>();
 
   private constructor(store: ProjectStore, runner: TurnRunner, agent: AgentProfile, entries: ChatEntry[]) {
@@ -127,6 +145,7 @@ export class ChatService {
     };
 
     let entry: ChatEntry;
+    let queuedJobs: ArtJobRequest[] = [];
     try {
       const result = await this.runner({
         project: this.store.getState().project,
@@ -136,14 +155,16 @@ export class ChatService {
         commit: (operations, baseRevision) => this.store.applyBatch({ operations, baseRevision, author: "ai" }),
         onEvent,
         agent: this.agent,
+        artAvailable: this.art?.getState().available ?? false,
       });
+      queuedJobs = ["committed", "no_changes"].includes(result.outcome) ? result.jobs : [];
       entry = {
         role: "assistant",
         at: new Date().toISOString(),
         text: result.reply,
         outcome: result.outcome,
         revision: result.outcome === "committed" ? result.project.revision : null,
-        changes: result.operations.map(describeCall),
+        changes: [...result.operations.map(describeCall), ...queuedJobs.map(describeJob)],
         usage: result.usage,
         ...(error && ["commit_failed", "step_limit", "model_error"].includes(result.outcome) ? { error } : {}),
       };
@@ -163,6 +184,8 @@ export class ChatService {
     this.store.endAiTurn();
     this.running = null;
     await this.append(entry);
+    // Art jobs start now that the turn released the lock.
+    if (queuedJobs.length > 0) this.art?.enqueue(queuedJobs);
     const { promptTokens, completionTokens, cost } = entry.usage;
     console.info(
       `[chat:${this.agent.id}] ${entry.outcome}, ${entry.changes.length} change(s), ${promptTokens} in / ${completionTokens} out` +

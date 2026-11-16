@@ -193,7 +193,12 @@ export function JobLog({
           )}
         </div>
       )}
-      {running && !mine && <p className="hint">The AI is working on {running.characterId === subject ? subject : running.characterId}.</p>}
+      {running && !mine && <p className="hint">The AI is working on {running.characterId ?? running.biomeId ?? "a new biome"}.</p>}
+      {art.queued > 0 && (
+        <p className="hint" data-testid="art-queued">
+          {art.queued} more art job{art.queued > 1 ? "s" : ""} queued.
+        </p>
+      )}
     </>
   );
 }
