@@ -8,6 +8,8 @@ import { ProgressionMain, ProgressionSidebar, type ProgressionNav } from "./Prog
 
 type Tab = "arena" | "wiki" | "progression";
 const TAB_LABEL: Record<Tab, string> = { arena: "Arena", wiki: "Wiki", progression: "Progression" };
+import { ArtPanel } from "./ArtPanel.tsx";
+import { fileUrl } from "./api.ts";
 
 const ENEMY_COLORS = ["#5f9e6e", "#d08c3a", "#4f8fbf", "#b8577d", "#9c9a3f"];
 
@@ -18,6 +20,7 @@ export function App({ session }: { session: Session }) {
   const [tab, setTab] = useState<Tab>("arena");
   const [wikiNav, setWikiNav] = useState<WikiNav>({ pageId: null, editing: null });
   const [progressionNav, setProgressionNav] = useState<ProgressionNav>({ selected: null, creating: null });
+  const [sideTab, setSideTab] = useState<"stats" | "art">("stats");
 
   useEffect(() => session.attachRuntime(frameRef.current!), [session]);
 
@@ -226,7 +229,14 @@ export function App({ session }: { session: Session }) {
                   className={c.id === selectedId ? "selected" : ""}
                   onClick={() => setSelectedId(c.id)}
                 >
-                  <span className="swatch" style={{ background: c.color }} />
+                  {(() => {
+                    const look = project.art.assets.find((a) => a.id === c.appearance);
+                    return look?.kind === "character" && look.preview ? (
+                      <img className="swatch-img" src={fileUrl(look.preview.file)} alt="" />
+                    ) : (
+                      <span className="swatch" style={{ background: c.color }} />
+                    );
+                  })()}
                   {c.name}
                   <span className="kind">{c.kind}</span>
                 </button>
@@ -250,6 +260,25 @@ export function App({ session }: { session: Session }) {
           </div>
         </section>
         {selected && (
+          <div className="side-tabs" role="tablist">
+            {(["stats", "art"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={sideTab === t}
+                className={sideTab === t ? "selected" : ""}
+                onClick={() => setSideTab(t)}
+              >
+                {t === "stats" ? "Stats & behavior" : "Art"}
+              </button>
+            ))}
+          </div>
+        )}
+        {selected && sideTab === "art" && (
+          <ArtPanel key={selected.id} character={selected} project={project} art={state.art} session={session} locked={playing || Object.values(state.chats).some((c) => c.running !== null)} />
+        )}
+        {selected && sideTab === "stats" && (
           <Inspector
             key={selected.id}
             character={selected}

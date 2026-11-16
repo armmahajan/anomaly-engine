@@ -54,6 +54,9 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		_window = JavaScriptBridge.get_interface("window")
 		_origin = str(_window.location.origin)
+		# The art pipeline opens a render-only page (?render): only redraw when asked.
+		if str(_window.location.search).contains("render"):
+			OS.low_processor_usage_mode = true
 		_on_message_ref = JavaScriptBridge.create_callback(_on_js_message)
 		_window.addEventListener("message", _on_message_ref)
 	_send({

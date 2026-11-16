@@ -25,6 +25,8 @@ export default defineConfig({
       STUDIO_DATA_DIR: `${process.cwd()}/${E2E_DATA_DIR}`,
       STUDIO_TOKEN: E2E_TOKEN,
       STUDIO_CHAT_BACKEND: "fake",
+      // Scripted art models (no spend); renders still go through the real runtime.
+      STUDIO_ART_BACKEND: "fake",
     },
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,

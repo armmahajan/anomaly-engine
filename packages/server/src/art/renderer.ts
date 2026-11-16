@@ -44,6 +44,8 @@ export interface ComposeRequest {
 
 const ORIGIN = "http://localhost:47913";
 const BOOT_TIMEOUT_MS = 60_000;
+/** Close the browser after this long without work: an idle Godot page still redraws every frame. */
+const IDLE_CLOSE_MS = 30_000;
 const RENDER_TIMEOUT_MS = 30_000;
 
 const MIME: Record<string, string> = {
@@ -61,14 +63,38 @@ export class BrowserRenderer implements Renderer {
   private waiters = new Map<string, (m: Extract<RuntimeToStudio, { type: "rendered" }>) => void>();
   private ready: (() => void) | null = null;
   private readonly gameDir: string;
+  private active = 0;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** `gameDir`: the web export (apps/studio/public/game). */
   constructor(gameDir: string) {
     this.gameDir = gameDir;
   }
 
-  async renderRig(request: Omit<RenderRigRequest, "requestId">): Promise<RenderedImage> {
-    const page = await this.open();
+  renderRig(request: Omit<RenderRigRequest, "requestId">): Promise<RenderedImage> {
+    return this.withPage((page) => this.render(page, request));
+  }
+
+  crop(image: Buffer, region: { x: number; y: number; width: number; height: number }, maxSize: number): Promise<Buffer> {
+    return this.withPage((page) => this.cropOn(page, image, region, maxSize));
+  }
+
+  compose(request: ComposeRequest): Promise<Buffer> {
+    return this.withPage((page) => this.composeOn(page, request));
+  }
+
+  private async withPage<T>(work: (page: Page) => Promise<T>): Promise<T> {
+    this.active++;
+    clearTimeout(this.idleTimer);
+    try {
+      return await work(await this.open());
+    } finally {
+      this.active--;
+      if (this.active === 0) this.idleTimer = setTimeout(() => void this.close(), IDLE_CLOSE_MS);
+    }
+  }
+
+  private async render(page: Page, request: Omit<RenderRigRequest, "requestId">): Promise<RenderedImage> {
     const requestId = `render_${this.nextId++}`;
     const reply = new Promise<Extract<RuntimeToStudio, { type: "rendered" }>>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -93,8 +119,12 @@ export class BrowserRenderer implements Renderer {
     };
   }
 
-  async crop(image: Buffer, region: { x: number; y: number; width: number; height: number }, maxSize: number): Promise<Buffer> {
-    const page = await this.open();
+  private async cropOn(
+    page: Page,
+    image: Buffer,
+    region: { x: number; y: number; width: number; height: number },
+    maxSize: number,
+  ): Promise<Buffer> {
     const base64 = await page.evaluate(
       async ({ data, region, maxSize }) => {
         const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
@@ -119,8 +149,7 @@ export class BrowserRenderer implements Renderer {
     return Buffer.from(base64, "base64");
   }
 
-  async compose(request: ComposeRequest): Promise<Buffer> {
-    const page = await this.open();
+  private async composeOn(page: Page, request: ComposeRequest): Promise<Buffer> {
     const base64 = await page.evaluate(
       async ({ width, height, background, layers, grid }) => {
         const canvas = new OffscreenCanvas(width, height);
@@ -174,6 +203,7 @@ export class BrowserRenderer implements Renderer {
   }
 
   async close(): Promise<void> {
+    clearTimeout(this.idleTimer);
     const browser = this.browser;
     this.browser = null;
     this.page = null;
@@ -221,7 +251,7 @@ export class BrowserRenderer implements Renderer {
         resolve();
       };
     });
-    await page.goto(`${ORIGIN}/index.html`);
+    await page.goto(`${ORIGIN}/index.html?render=1`);
     await booted;
     return page;
   }
