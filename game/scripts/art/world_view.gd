@@ -24,10 +24,11 @@ float noise(vec2 p) {
 	vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
 	return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
 }
-float fbm(vec2 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
+// 4 octaves, no domain warp: fog covers the whole screen several times over, so keep it cheap.
+float fbm(vec2 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
 void fragment() {
-	vec2 p = UV * vec2(6.0, 2.0) + vec2(TIME * speed, 0.0);
-	float n = fbm(p + fbm(p * 0.7 - TIME * speed * 0.5));
+	vec2 p = UV * vec2(6.0, 2.0) + vec2(TIME * speed, TIME * speed * 0.3);
+	float n = fbm(p);
 	float low = smoothstep(0.15, 1.0, UV.y);  // thicker near the ground
 	COLOR = vec4(fog_color.rgb, clamp(density * (0.35 + 0.9 * n) * (0.45 + 0.75 * low), 0.0, 1.0));
 }
@@ -71,6 +72,8 @@ void fragment() {
 
 ## Center of the view the layers are parallaxed against (set by the owner each frame).
 var focus := Vector2.ZERO
+## Draw the vignette (off when dressing the arena, so the HUD stays clean).
+var vignette := true
 var warnings: Array[String] = []
 
 var _scene: Dictionary = {}
@@ -166,7 +169,12 @@ func build(scene: Dictionary, textures: Dictionary, view_size: Vector2) -> void:
 	for ray in scene.get("rays", []):
 		_add_ray(ray, Color(str(palette.get("light", "#ffd9a0"))), height)
 	_add_dust(scene.get("dust", {}), width, height)
-	_add_vignette(Color(str(palette.get("shadow", "#05070a"))))
+	if vignette:
+		_add_vignette(Color(str(palette.get("shadow", "#05070a"))))
+	# Characters (z 0) walk between the room's layers: back and play behind them, front in front.
+	_layers["back"].z_index = -20
+	_layers["play"].z_index = -10
+	_layers["front"].z_index = 20
 	_update_layers()
 
 
@@ -208,6 +216,16 @@ func set_options(hidden: Array, fog: bool, lights: bool, exploded: bool) -> void
 			node.skew = 0.0
 			node.modulate = Color.WHITE
 	_update_layers()
+
+
+## Foreground silhouettes fade while `point` (the player, global coordinates) is behind them,
+## so they frame the view without hiding the player.
+func fade_front_around(point: Vector2, delta: float) -> void:
+	for sprite in _sprites:
+		if sprite.get_meta("layer") != "front":
+			continue
+		var covers := sprite.get_rect().grow(12.0).has_point(sprite.to_local(point))
+		sprite.modulate.a = move_toward(sprite.modulate.a, 0.3 if covers else 1.0, delta * 3.0)
 
 
 ## The placement under a point (global/world coordinates), front-most first; "" if none.

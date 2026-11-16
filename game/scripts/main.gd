@@ -134,6 +134,7 @@ func handle_message(message: Dictionary) -> void:
 				"seed": _seed,
 				"deaths": _deaths,
 				"stage": str(_stage.get("mode", "game")),
+				"dressed": _dressing_view != null,
 				"entities": _entity_states(),
 			})
 		"renderRig", "renderWorld":
@@ -142,6 +143,9 @@ func handle_message(message: Dictionary) -> void:
 			var images = message.get("images")
 			if typeof(images) == TYPE_DICTIONARY:
 				_textures.merge(WorldView.textures_from(images), true)
+				# The arena's dressing may have been waiting for these.
+				if _mode == "edit" and _dressing_view == null and not _dressing_scene().is_empty():
+					_build_world()
 				_apply_stage()
 		"stage":
 			var stage = message.get("stage")
@@ -198,10 +202,23 @@ func _build_world() -> void:
 	add_child(_world)
 
 	var platform_color := Color(sandbox.platformColor)
+	# A dressed arena: the biome room draws the platforms (textured) and everything around them.
+	var dressing := _dressing_scene()
+	_dressing_view = null
+	if not dressing.is_empty():
+		_dressing_view = WorldView.new()
+		_dressing_view.process_mode = Node.PROCESS_MODE_ALWAYS  # parallax follows the edit camera too
+		_dressing_view.vignette = false
+		_world.add_child(_dressing_view)
+		_dressing_view.build(dressing, _textures, Vector2(sandbox.width, sandbox.height) * 1.5)
 	var solids := []
 	for rect in sandbox.platforms:
 		var breakable := bool(rect.get("breakable", false))
 		var body := _make_platform(rect, platform_color, breakable)
+		# Dressed: the dressing draws the ground, so hide the plain box. Breakable platforms keep their
+		# own look (the dressing leaves them out), since they can disappear.
+		if _dressing_view != null and not breakable:
+			body.get_child(1).visible = false
 		_world.add_child(body)
 		solids.append({"x": float(rect.x), "y": float(rect.y), "w": float(rect.width), "h": float(rect.height), "breakable": breakable, "body": body})
 
@@ -422,3 +439,54 @@ func _apply_stage() -> void:
 				_world_stage.send = _send
 				add_child(_world_stage)
 			_world_stage.apply(_stage, _textures)
+
+
+# --- the dressed arena ------------------------------------------------------------
+
+var _dressing_view: Node2D = null
+
+
+## The arena's dressing as a world scene (core worldSceneFor), or {} if none / images not here yet.
+func _dressing_scene() -> Dictionary:
+	if _project.is_empty():
+		return {}
+	var sandbox: Dictionary = _project.sandbox
+	var dressing = sandbox.get("dressing")
+	if typeof(dressing) != TYPE_DICTIONARY:
+		return {}
+	var biome = null
+	for asset in _project.get("art", {}).get("assets", []):
+		if asset.get("id") == dressing.get("biome") and asset.get("kind") == "biome":
+			biome = asset
+	if biome == null or typeof(biome.get("kit")) != TYPE_DICTIONARY:
+		return {}
+	var room = null
+	for r in biome.get("rooms", []):
+		if r.get("id") == dressing.get("room"):
+			room = r
+	if room == null:
+		return {}
+	var kit: Dictionary = biome.kit
+	for ref in [kit.backdrop, kit.ground]:
+		if not _textures.has(ref):
+			return {}
+	var scene: Dictionary = room.composition.duplicate()
+	scene.merge({
+		"name": room.name,
+		"width": maxf(960.0, float(sandbox.width)),
+		"height": maxf(360.0, float(sandbox.height)),
+		"backdrop": kit.backdrop,
+		"ground": kit.ground,
+		"pieces": kit.pieces,
+		"platforms": sandbox.platforms.filter(func(p): return float(p.width) >= 8.0 and float(p.height) >= 8.0 and not bool(p.get("breakable", false))),
+	}, true)
+	return scene
+
+
+func _process(delta: float) -> void:
+	if _dressing_view != null and is_instance_valid(_dressing_view):
+		var camera := get_viewport().get_camera_2d()
+		if camera != null:
+			_dressing_view.focus = camera.get_screen_center_position()
+		if _player != null and is_instance_valid(_player):
+			_dressing_view.fade_front_around(_player.center(), delta)

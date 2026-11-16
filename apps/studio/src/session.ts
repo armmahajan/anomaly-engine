@@ -48,6 +48,7 @@ export interface RuntimeSnapshot {
   seed: number | null;
   deaths: number;
   stage: Stage["mode"];
+  dressed: boolean;
   entities: EntityState[];
 }
 
@@ -141,6 +142,12 @@ export class Session {
     // The runtime never needs the design documents.
     const runtimeProject = { ...project, wiki: { pages: [] }, progression: { abilities: [], regions: [], connections: [], beats: [] } };
     if (this.bridge.send({ type: "load", project: runtimeProject })) this.requestedRevision = project.revision;
+    // A dressed arena needs its biome's images (sent once; the runtime redraws when they arrive).
+    const dressing = project.sandbox.dressing;
+    const biome = dressing && project.art.assets.find((a) => a.id === dressing.biome);
+    if (biome?.kind === "biome" && biome.kit) {
+      void this.sendImages([biome.kit.backdrop, biome.kit.ground, ...biome.kit.pieces.map((p) => p.file)]);
+    }
   }
 
   // --- runtime lifecycle ---
@@ -437,7 +444,7 @@ export class Session {
   };
 
   getRuntimeState = async (): Promise<RuntimeSnapshot> => {
-    const { mode, revision, seed, deaths, stage, entities } = await this.bridge.requestState();
-    return { mode, revision, seed, deaths, stage, entities };
+    const { mode, revision, seed, deaths, stage, dressed, entities } = await this.bridge.requestState();
+    return { mode, revision, seed, deaths, stage, dressed, entities };
   };
 }

@@ -136,6 +136,8 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     deaths: z.number(),
     /** What the runtime is showing (see Stage). */
     stage: z.enum(["game", "character", "world"]).default("game"),
+    /** The arena is drawn with its biome dressing. */
+    dressed: z.boolean().default(false),
     entities: z.array(EntityState),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),

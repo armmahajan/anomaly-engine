@@ -19,6 +19,7 @@ async function fromRuntime(page: Page, message: unknown) {
 }
 
 test("worlds: paint a kit, see the room, place and move pieces, accept a suggested layout, dress the arena", async ({ page }) => {
+  test.setTimeout(180_000);
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
   await page.getByRole("tab", { name: "Worlds" }).click();
@@ -66,6 +67,15 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   // Undo puts the arena back.
   await page.getByRole("button", { name: "↶ Undo" }).click();
   await expect.poll(async () => (await project(page)).sandbox.platforms).toEqual(platforms);
+
+  // The arena is drawn with the room, and the game still plays in it.
+  await page.getByRole("tab", { name: "Arena" }).click();
+  await expect.poll(async () => (await runtimeState(page)).dressed).toBe(true);
+  await page.getByRole("button", { name: "▶ Play" }).click();
+  await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
+  await expect.poll(async () => (await runtimeState(page)).entities.find((e) => e.characterId === "charger")?.behaviorState).toBeTruthy();
+  expect((await runtimeState(page)).dressed).toBe(true);
+  await page.getByRole("button", { name: "■ Stop" }).click();
 
   expect(consoleErrors).toEqual([]);
 });
