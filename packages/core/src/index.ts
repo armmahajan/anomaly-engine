@@ -9,3 +9,6 @@ export * from "./history.ts";
 export * from "./api.ts";
 export * from "./protocol.ts";
 export * from "./defaultProject.ts";
+export * from "./wiki/wiki.ts";
+export * from "./wiki/operations.ts";
+export * from "./wiki/gaps.ts";

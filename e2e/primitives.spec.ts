@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { collectConsoleErrors, commitField, openStudio, projectRevision, runtimeState, waitForRuntimeAfter, type Snapshot } from "./helpers.ts";
+import { collectConsoleErrors, commitField, openStudio, projectRevision, runtimeState, waitForRuntimeAfter, resetProject, type Snapshot } from "./helpers.ts";
 import { castOperations, FLOOR } from "./primitiveCast.ts";
 
 /** Play with `seed` and sample the runtime every frame-ish for `ms`, inside the page. */
@@ -19,9 +19,7 @@ const playAndSample = (page: Page, seed: number, ms: number) =>
     { seed, ms },
   );
 
-test.afterEach(async ({ page }) => {
-  await page.request.post("/api/reset", { data: { baseRevision: await projectRevision(page) } });
-});
+test.afterEach(({ page }) => resetProject(page));
 
 test("every new action and condition runs in the browser build", async ({ page }) => {
   test.setTimeout(90_000);

@@ -13,7 +13,7 @@ import { ProjectSpec } from "./schema.ts";
  *   POST /api/undo      UndoRequest      -> ChangeResult
  *   POST /api/playtest  PlaytestRequest  -> PlaytestResult
  *   POST /api/reset     ResetRequest     -> ChangeResult  (backs up, then starts a fresh project)
- *   GET  /api/chat                 -> ChatState
+ *   GET  /api/chat?agent=build|narrative -> ChatState (agent defaults to build)
  *   POST /api/chat      ChatRequest      -> { ok } (the turn runs in the background)
  *   POST /api/chat/cancel          -> { ok }
  *   GET  /api/events?clientId=…    -> server-sent events, `data:` = ServerEvent
@@ -53,6 +53,10 @@ export const PlaytestRequest = z.strictObject({
 export const ResetRequest = z.strictObject({ baseRevision: z.number().int().min(0) });
 
 export const ChatRequest = z.strictObject({ message: z.string().trim().min(1).max(4000) });
+
+/** The studio's AI agents, each with its own chat: build assistant (arena) and narrative director (wiki). */
+export const AgentId = z.enum(["build", "narrative"]);
+export type AgentId = z.infer<typeof AgentId>;
 
 export interface ProjectState {
   project: ProjectSpec;
@@ -109,7 +113,7 @@ export const ChatState = z.object({
 });
 export type ChatState = z.infer<typeof ChatState>;
 
-export const ChatEvent = z.object({ type: z.literal("chat"), chat: ChatState });
+export const ChatEvent = z.object({ type: z.literal("chat"), agent: AgentId, chat: ChatState });
 export type ChatEvent = z.infer<typeof ChatEvent>;
 
 export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent]);

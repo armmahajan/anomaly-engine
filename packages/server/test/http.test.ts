@@ -91,7 +91,9 @@ describe("project HTTP API", () => {
     };
 
     expect(await nextEvent()).toMatchObject({ type: "project", project: { revision: 0 }, cause: null });
-    expect(await nextEvent()).toEqual({ type: "chat", chat: { entries: [], running: null, undone: [] } });
+    const idle = { entries: [], running: null, undone: [] };
+    expect(await nextEvent()).toEqual({ type: "chat", agent: "build", chat: idle });
+    expect(await nextEvent()).toEqual({ type: "chat", agent: "narrative", chat: idle });
     await post("/api/ops", op(150, 0));
     expect(await nextEvent()).toMatchObject({ project: { revision: 1 }, cause: { author: "user" } });
     await reader.cancel();

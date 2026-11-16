@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDefaultProject } from "@anomaly/core";
-import { callTools, FakeModel, runAgentTurn, say, toolCall, type TurnRunner } from "@anomaly/agent";
+import { callTools, FakeModel, narrativeAgent, runAgentTurn, say, toolCall, type TurnRunner } from "@anomaly/agent";
 import { ChatService, ProjectStore } from "../src/index.ts";
 
 let dir: string;
@@ -109,5 +109,34 @@ describe("ChatService", () => {
 
     const [backup] = await readdir(join(dir, "backups"));
     expect((await readdir(join(dir, "backups", backup!))).sort()).toEqual(["chat.jsonl", "history.jsonl", "project.json"]);
+  });
+
+  it("each agent keeps its own conversation, and only one AI turn runs at a time across them", async () => {
+    const seen: string[] = [];
+    const drafter: TurnRunner = (request) => {
+      seen.push(request.agent!.id);
+      return runAgentTurn({
+        ...request,
+        model: new FakeModel([
+          callTools(toolCall("createWikiPage", { page: { id: "overview", kind: "overview", title: "Drowned Lamp" } })),
+          say("Drafted the overview."),
+        ]),
+      });
+    };
+    const build = await ChatService.open(store, waitForCancel);
+    const narrative = await ChatService.open(store, drafter, narrativeAgent);
+
+    await build.send({ message: "think forever" });
+    expect(await narrative.send({ message: "a drowned kingdom" })).toMatchObject({ ok: false, error: { code: "locked" } });
+    build.cancel();
+    await build.idle();
+
+    expect(await narrative.send({ message: "a drowned kingdom" })).toEqual({ ok: true });
+    await narrative.idle();
+    expect(seen).toEqual(["narrative"]);
+    expect(narrative.getState().entries.at(-1)).toMatchObject({ outcome: "committed", changes: ["drafted page overview"] });
+    expect(store.getState().project.wiki.pages).toEqual([expect.objectContaining({ id: "overview", status: "draft" })]);
+    expect(build.getState().entries.map((e) => e.role)).toEqual(["user", "assistant"]);
+    expect((await readdir(dir)).sort()).toEqual(["chat.jsonl", "history.jsonl", "narrative-chat.jsonl", "project.json"]);
   });
 });

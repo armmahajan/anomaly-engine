@@ -3,6 +3,9 @@ import { newEnemyCharacter, uniqueId, type ChangeResult } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { Inspector } from "./Inspector.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
+import { WikiMain, WikiSidebar, type WikiNav } from "./WikiView.tsx";
+
+type Tab = "arena" | "wiki";
 
 const ENEMY_COLORS = ["#5f9e6e", "#d08c3a", "#4f8fbf", "#b8577d", "#9c9a3f"];
 
@@ -10,6 +13,8 @@ export function App({ session }: { session: Session }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>("crawler");
+  const [tab, setTab] = useState<Tab>("arena");
+  const [wikiNav, setWikiNav] = useState<WikiNav>({ pageId: null, editing: null });
 
   useEffect(() => session.attachRuntime(frameRef.current!), [session]);
 
@@ -26,7 +31,7 @@ export function App({ session }: { session: Session }) {
   }, [session]);
 
   const playing = state.mode === "play";
-  const aiBusy = state.chat.running !== null;
+  const aiBusy = Object.values(state.chats).some((c) => c.running !== null);
   const locked = playing || aiBusy;
   const { project } = state;
   const selected = project.characters.find((c) => c.id === selectedId) ?? null;
@@ -79,7 +84,34 @@ export function App({ session }: { session: Session }) {
     if (report(await session.resetProject())) setSelectedId("crawler");
   };
 
+  /** The wiki is edited while the game is stopped: opening it ends a playtest. */
+  const openTab = (next: Tab) => {
+    if (next === "wiki" && playing) session.stop();
+    setTab(next);
+  };
+
+  const openWikiPage = (pageId: string) => {
+    setWikiNav({ pageId, editing: null });
+    openTab("wiki");
+  };
+
+  const openCharacter = (characterId: string) => {
+    setSelectedId(characterId);
+    setTab("arena");
+  };
+
+  const drafts = project.wiki.pages.filter((p) => p.status === "draft").length;
+  const problem = state.lastProblem && (
+    <div className="problem" role="alert">
+      {state.lastProblem}
+      <button type="button" onClick={() => session.dismissProblem()}>
+        dismiss
+      </button>
+    </div>
+  );
+
   const onPlay = async (seed?: number) => {
+    setTab("arena");
     if (await session.play(seed)) {
       frameRef.current?.focus();
       frameRef.current?.contentWindow?.focus();
@@ -90,6 +122,14 @@ export function App({ session }: { session: Session }) {
     <div className="studio">
       <header className="toolbar">
         <span className="title">{state.project.name}</span>
+        <nav className="tabs" role="tablist">
+          {(["arena", "wiki"] as const).map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "selected" : ""} onClick={() => openTab(t)}>
+              {t === "arena" ? "Arena" : "Wiki"}
+              {t === "wiki" && drafts > 0 && <span className="tab-count">{drafts}</span>}
+            </button>
+          ))}
+        </nav>
         <button type="button" onClick={() => void onPlay()} disabled={!session.canPlay()}>
           ▶ Play
         </button>
@@ -129,11 +169,23 @@ export function App({ session }: { session: Session }) {
         </span>
       </header>
 
-      <main className="viewport">
+      {/* The game stays mounted (and sized) behind the wiki so it never reboots. */}
+      <main className={`viewport${tab === "arena" ? "" : " offstage"}`} aria-hidden={tab !== "arena"}>
         <iframe ref={frameRef} src="/game/index.html" title="Game" className="game-frame" />
         {!playing && state.runtimeStatus === "ready" && <div className="edit-badge">Edit mode — press Play to test</div>}
       </main>
+      {tab === "wiki" && (
+        <main className="wiki-pane">
+          <WikiMain project={project} session={session} nav={wikiNav} setNav={setWikiNav} locked={locked} onOpenCharacter={openCharacter} />
+        </main>
+      )}
 
+      {tab === "wiki" ? (
+        <aside className="sidebar">
+          <WikiSidebar project={project} nav={wikiNav} setNav={setWikiNav} locked={locked} />
+          {problem}
+        </aside>
+      ) : (
       <aside className="sidebar">
         <section>
           <h2>Characters</h2>
@@ -178,21 +230,19 @@ export function App({ session }: { session: Session }) {
             session={session}
             locked={locked}
             lockHint={aiBusy ? "The AI is editing. Wait for it or cancel." : "Stop the playtest to edit."}
+            wikiPageId={project.wiki.pages.find((p) => p.characterId === selected.id)?.id}
+            onOpenWiki={openWikiPage}
           />
         )}
-        {state.lastProblem && (
-          <div className="problem" role="alert">
-            {state.lastProblem}
-            <button type="button" onClick={() => session.dismissProblem()}>
-              dismiss
-            </button>
-          </div>
-        )}
+        {problem}
       </aside>
+      )}
 
       <ChatPanel
+        key={tab}
         session={session}
-        chat={state.chat}
+        agent={tab === "wiki" ? "narrative" : "build"}
+        chat={state.chats[tab === "wiki" ? "narrative" : "build"]}
         revision={project.revision}
         canUndo={state.canUndo}
         playing={playing}

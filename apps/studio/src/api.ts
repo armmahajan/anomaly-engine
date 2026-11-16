@@ -1,5 +1,6 @@
 import {
   fail,
+  type AgentId,
   type BatchRequest,
   ServerEvent,
   type ChangeResult,
@@ -37,8 +38,8 @@ export const applyOperation = (request: OperationRequest) => post<ChangeResult>(
 export const applyBatch = (request: BatchRequest) => post<ChangeResult>("/api/batch", request);
 export const undo = (request: UndoRequest) => post<ChangeResult>("/api/undo", request);
 export const resetProject = (baseRevision: number) => post<ChangeResult>("/api/reset", { baseRevision });
-export const sendChat = (message: string) => post<{ ok: true }>("/api/chat", { message });
-export const cancelChat = () => post<{ ok: true }>("/api/chat/cancel", {});
+export const sendChat = (agent: AgentId, message: string) => post<{ ok: true }>(`/api/chat?agent=${agent}`, { message });
+export const cancelChat = (agent: AgentId) => post<{ ok: true }>(`/api/chat/cancel?agent=${agent}`, {});
 export const setPlaytest = (active: boolean, clientId: string) =>
   post<PlaytestResult>("/api/playtest", { active, clientId });
 

@@ -1,4 +1,5 @@
 import { SCHEMA_VERSION, type EnemyCharacter, type ProjectSpec } from "./schema.ts";
+import { defaultWiki } from "./wiki/wiki.ts";
 
 /** Starter project: a sandbox arena with a player, a patroller and a charger. */
 export function createDefaultProject(): ProjectSpec {
@@ -94,6 +95,7 @@ export function createDefaultProject(): ProjectSpec {
         { id: "charger_1", characterId: "charger", x: 640, y: 660 },
       ],
     },
+    wiki: defaultWiki(),
   };
 }
 

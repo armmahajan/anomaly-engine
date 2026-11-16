@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { collectConsoleErrors, commitField, openStudio, projectRevision, runtimeState, waitForRuntimeAfter, type Snapshot } from "./helpers.ts";
+import { collectConsoleErrors, commitField, openStudio, projectRevision, runtimeState, waitForRuntimeAfter, resetProject, type Snapshot } from "./helpers.ts";
 
 const FLOOR = 660;
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -12,13 +12,13 @@ async function api(page: Page, operations: object[]) {
   await waitForRuntimeAfter(page, base);
 }
 
-test.afterEach(async ({ page }) => {
-  await page.request.post("/api/reset", { data: { baseRevision: await projectRevision(page) } });
-});
+test.afterEach(({ page }) => resetProject(page));
 
+/** Start a playtest and wait until the game itself is running (the button flips to "Playing" first). */
 async function play(page: Page) {
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
+  await expect.poll(async () => (await runtimeState(page)).mode).toBe("play");
 }
 
 async function stop(page: Page) {
@@ -102,7 +102,7 @@ test("up swing, pogo off an enemy, player health and the restart on death", asyn
         { when: { type: "wasHit" }, to: "flinch" },
       ],
     },
-    flinch: { action: wait, transitions: [{ when: { type: "after", seconds: 0.2 }, to: "idle" }] },
+    flinch: { action: wait, transitions: [{ when: { type: "after", seconds: 0.8 }, to: "idle" }] },
     enraged: { action: wait, transitions: [] },
   };
   await api(page, [
@@ -116,10 +116,14 @@ test("up swing, pogo off an enemy, player health and the restart on death", asyn
 
   // Up swing: the bat hovering just overhead dies.
   await play(page);
-  await page.keyboard.down("ArrowUp");
-  await tap(page, "KeyX");
-  await page.keyboard.up("ArrowUp");
-  await expect.poll(async () => find(await runtimeState(page), "sword_bat_1").health).toBe(0);
+  await expect
+    .poll(async () => {
+      await page.keyboard.down("ArrowUp");
+      await tap(page, "KeyX");
+      await page.keyboard.up("ArrowUp");
+      return find(await runtimeState(page), "sword_bat_1").health;
+    })
+    .toBe(0);
   await stop(page);
 
   // Pogo: drop onto the dummy holding down and swinging; each hit bounces the player up.

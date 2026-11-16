@@ -1,6 +1,7 @@
 import type { ChangeResult, OperationCall, ProjectSpec } from "@anomaly/core";
 import type { ChatMessage, Usage } from "./messages.ts";
 import type { Draft } from "./tools.ts";
+import type { AgentProfile } from "./profile.ts";
 
 export type AgentEvent =
   | { type: "assistant_text"; text: string }
@@ -20,6 +21,8 @@ export interface TurnRequest {
   commit: (operations: OperationCall[], baseRevision: number) => Promise<ChangeResult>;
   signal?: AbortSignal;
   onEvent?: (event: AgentEvent) => void;
+  /** Which agent runs the turn (its instructions and tools). Default: the build assistant. */
+  agent?: AgentProfile;
 }
 
 export interface AgentTurnResult {

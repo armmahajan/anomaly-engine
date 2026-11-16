@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Character, EnemyStats, PlayerStats, ProjectSpec, type EnemyCharacter } from "./schema.ts";
 import { Id } from "./common.ts";
 import type { Transition } from "./behavior.ts";
+import { wikiOperations } from "./wiki/operations.ts";
 
 /**
  * Project operations: pure functions (project, untrusted input) -> result.
@@ -415,6 +416,7 @@ const operations = {
   addSpawn,
   moveSpawn,
   removeSpawn,
+  ...wikiOperations,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;
 
 export type OperationName = keyof typeof operations;

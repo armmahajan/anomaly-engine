@@ -10,7 +10,7 @@ import {
   type OperationCall,
   type OperationError,
 } from "@anomaly/core";
-import type { AgentEvent, ChatMessage, TurnRunner } from "@anomaly/agent";
+import { buildAgent, type AgentEvent, type AgentProfile, type ChatMessage, type TurnRunner } from "@anomaly/agent";
 import type { ProjectStore } from "./projectStore.ts";
 
 const HISTORY_ENTRIES = 20;
@@ -23,19 +23,21 @@ interface Running {
   done: Promise<void>;
 }
 
-/** The project's AI conversation (<dir>/chat.jsonl) and its one running turn. */
+/** One agent's conversation about the project and its running turn. One AI turn runs at a time across all agents (the store's lock). */
 export class ChatService {
   private readonly store: ProjectStore;
   private readonly runner: TurnRunner;
+  readonly agent: AgentProfile;
   private readonly path: string;
   private entries: ChatEntry[];
   private running: Running | null = null;
   private listeners = new Set<(state: ChatState) => void>();
 
-  private constructor(store: ProjectStore, runner: TurnRunner, entries: ChatEntry[]) {
+  private constructor(store: ProjectStore, runner: TurnRunner, agent: AgentProfile, entries: ChatEntry[]) {
     this.store = store;
     this.runner = runner;
-    this.path = join(store.dir, "chat.jsonl");
+    this.agent = agent;
+    this.path = chatPath(store, agent);
     this.entries = entries;
     let undone = store.undoneRevisions().join();
     store.subscribe(() => {
@@ -47,10 +49,10 @@ export class ChatService {
     });
   }
 
-  static async open(store: ProjectStore, runner: TurnRunner): Promise<ChatService> {
+  static async open(store: ProjectStore, runner: TurnRunner, agent: AgentProfile = buildAgent): Promise<ChatService> {
     let raw = "";
     try {
-      raw = await readFile(join(store.dir, "chat.jsonl"), "utf8");
+      raw = await readFile(chatPath(store, agent), "utf8");
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     }
@@ -65,7 +67,7 @@ export class ChatService {
           return [];
         }
       });
-    return new ChatService(store, runner, entries);
+    return new ChatService(store, runner, agent, entries);
   }
 
   getState(): ChatState {
@@ -133,6 +135,7 @@ export class ChatService {
         signal: running.controller.signal,
         commit: (operations, baseRevision) => this.store.applyBatch({ operations, baseRevision, author: "ai" }),
         onEvent,
+        agent: this.agent,
       });
       entry = {
         role: "assistant",
@@ -162,7 +165,7 @@ export class ChatService {
     await this.append(entry);
     const { promptTokens, completionTokens, cost } = entry.usage;
     console.info(
-      `[chat] ${entry.outcome}, ${entry.changes.length} change(s), ${promptTokens} in / ${completionTokens} out` +
+      `[chat:${this.agent.id}] ${entry.outcome}, ${entry.changes.length} change(s), ${promptTokens} in / ${completionTokens} out` +
         (cost === undefined ? "" : `, ~$${cost.toFixed(4)}`),
     );
   }
@@ -177,6 +180,11 @@ export class ChatService {
     const state = this.getState();
     for (const listener of this.listeners) listener(state);
   }
+}
+
+/** The build assistant keeps the original chat.jsonl; other agents get <agent>-chat.jsonl. */
+function chatPath(store: ProjectStore, agent: AgentProfile): string {
+  return join(store.dir, agent.id === "build" ? "chat.jsonl" : `${agent.id}-chat.jsonl`);
 }
 
 function toHistory(entries: ChatEntry[]): ChatMessage[] {
@@ -209,6 +217,14 @@ export function describeCall({ name, input }: OperationCall): string {
       return `moved ${i.spawnId}`;
     case "removeSpawn":
       return `removed ${i.spawnId}`;
+    case "createWikiPage":
+      return `drafted page ${(i as { page?: { id?: string } }).page?.id}`;
+    case "updateWikiPage":
+      return `edited page ${i.pageId}`;
+    case "acceptWikiPage":
+      return `accepted page ${i.pageId}`;
+    case "deleteWikiPage":
+      return `deleted page ${i.pageId}`;
     default:
       return name;
   }

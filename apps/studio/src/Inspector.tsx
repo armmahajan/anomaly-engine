@@ -68,12 +68,22 @@ interface Props {
   session: Session;
   locked: boolean;
   lockHint?: string;
+  /** This character's wiki page, if it has one. */
+  wikiPageId?: string;
+  onOpenWiki?: (pageId: string) => void;
 }
 
-export function Inspector({ character, spawns, defaultSpawn, session, locked, lockHint }: Props) {
+export function Inspector({ character, spawns, defaultSpawn, session, locked, lockHint, wikiPageId, onOpenWiki }: Props) {
   return (
     <section className="inspector">
-      <h2>{character.name}</h2>
+      <h2 className="inspector-title">
+        {character.name}
+        {wikiPageId && onOpenWiki && (
+          <button type="button" className="wiki-link" onClick={() => onOpenWiki(wikiPageId)}>
+            Wiki page →
+          </button>
+        )}
+      </h2>
       {locked && lockHint && <p className="hint">{lockHint}</p>}
       <h3>Stats</h3>
       {Object.entries(character.stats).map(([stat, value]) => (

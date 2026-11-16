@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ChatActivity, ChatEntry, ChatState } from "@anomaly/core";
+import type { AgentId, ChatActivity, ChatEntry, ChatState } from "@anomaly/core";
 import type { Session } from "./session.ts";
 
 type AssistantEntry = Extract<ChatEntry, { role: "assistant" }>;
@@ -11,8 +11,22 @@ const OUTCOME_NOTE: Partial<Record<AssistantEntry["outcome"], string>> = {
   model_error: "The AI request failed. Nothing was saved.",
 };
 
+const AGENT_TEXT: Record<AgentId, { title: string; hint: string; placeholder: string }> = {
+  build: {
+    title: "Build assistant",
+    hint: "Describe a change, e.g. “make the Charger wind up longer and hit harder”.",
+    placeholder: "Describe a change…",
+  },
+  narrative: {
+    title: "Narrative director",
+    hint: "Describe your game: the world, the tone, who the player is, how it ends. The director fills in the gaps as drafts for you to review.",
+    placeholder: "Describe your game's direction…",
+  },
+};
+
 interface Props {
   session: Session;
+  agent: AgentId;
   chat: ChatState;
   /** Current project revision and whether the latest change can be undone. */
   revision: number;
@@ -21,7 +35,8 @@ interface Props {
   connected: boolean;
 }
 
-export function ChatPanel({ session, chat, revision, canUndo, playing, connected }: Props) {
+export function ChatPanel({ session, agent, chat, revision, canUndo, playing, connected }: Props) {
+  const text = AGENT_TEXT[agent];
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
@@ -35,7 +50,7 @@ export function ChatPanel({ session, chat, revision, canUndo, playing, connected
     const message = draft.trim();
     if (!message || busy) return;
     setSending(true);
-    if (await session.sendChat(message)) setDraft("");
+    if (await session.sendChat(agent, message)) setDraft("");
     setSending(false);
   };
 
@@ -47,11 +62,11 @@ export function ChatPanel({ session, chat, revision, canUndo, playing, connected
   };
 
   return (
-    <aside className="chat" aria-label="Chat">
-      <h2>Chat</h2>
+    <aside className="chat" aria-label="Chat" data-testid={`chat-${agent}`}>
+      <h2>{text.title}</h2>
       <div className="chat-log" ref={logRef}>
         {chat.entries.length === 0 && !busy && (
-          <p className="hint">Describe a change, e.g. “make the Charger wind up longer and hit harder”.</p>
+          <p className="hint">{text.hint}</p>
         )}
         {chat.entries.map((entry, i) =>
           entry.role === "user" ? (
@@ -68,14 +83,14 @@ export function ChatPanel({ session, chat, revision, canUndo, playing, connected
             />
           ),
         )}
-        {chat.running && <Working activity={chat.running.activity} onCancel={() => void session.cancelChat()} />}
+        {chat.running && <Working activity={chat.running.activity} onCancel={() => void session.cancelChat(agent)} />}
       </div>
       <div className="chat-input">
         <textarea
           aria-label="Message"
           rows={3}
           value={draft}
-          placeholder={playing ? "Describe a change (sending stops the playtest)" : "Describe a change…"}
+          placeholder={playing ? `${text.placeholder.replace("…", "")} (sending stops the playtest)` : text.placeholder}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
           disabled={!connected}

@@ -1,5 +1,5 @@
 import { createDefaultProject } from "@anomaly/core";
-import type { TurnRunner } from "@anomaly/agent";
+import { buildAgent, narrativeAgent, type TurnRunner } from "@anomaly/agent";
 import { createAuthMiddleware } from "./auth.ts";
 import { ChatService } from "./chat.ts";
 import { createApiHandler, type Middleware } from "./http.ts";
@@ -7,7 +7,7 @@ import { ProjectStore } from "./projectStore.ts";
 
 export { ProjectStore } from "./projectStore.ts";
 export { ChatService, describeCall } from "./chat.ts";
-export { createApiHandler, type Middleware } from "./http.ts";
+export { createApiHandler, type Chats, type Middleware } from "./http.ts";
 export { createAuthMiddleware, generateToken, loadOrCreateToken, TOKEN_COOKIE, TOKEN_HEADER } from "./auth.ts";
 
 /**
@@ -17,10 +17,13 @@ export { createAuthMiddleware, generateToken, loadOrCreateToken, TOKEN_COOKIE, T
 export async function createProjectServer(
   dir: string,
   options: { token: string; runner: TurnRunner },
-): Promise<{ store: ProjectStore; chat: ChatService; handler: Middleware }> {
+): Promise<{ store: ProjectStore; chat: ChatService; chats: { build: ChatService; narrative: ChatService }; handler: Middleware }> {
   const store = await ProjectStore.open(dir, createDefaultProject);
-  const chat = await ChatService.open(store, options.runner);
+  const chats = {
+    build: await ChatService.open(store, options.runner, buildAgent),
+    narrative: await ChatService.open(store, options.runner, narrativeAgent),
+  };
   const auth = createAuthMiddleware(options.token);
-  const api = createApiHandler(store, chat);
-  return { store, chat, handler: (req, res, next) => auth(req, res, () => api(req, res, next)) };
+  const api = createApiHandler(store, chats);
+  return { store, chat: chats.build, chats, handler: (req, res, next) => auth(req, res, () => api(req, res, next)) };
 }

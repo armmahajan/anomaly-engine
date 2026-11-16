@@ -142,7 +142,10 @@ runtime control: `studio.updateCharacter(...)`, `studio.applyOperation(name, inp
 
 ## Chat
 
-The chat panel (right) changes the game from plain-language requests.
+The chat panel (right) follows the tab: on **Arena** it is the build
+assistant, which changes the game from plain-language requests; on **Wiki**
+it is the narrative director (see below). Each agent keeps its own
+conversation.
 
 - **Backend:** your local Claude Code login, through the Claude Agent SDK
   (`packages/agent/src/claudeCode.ts`). The AI can only call the game tools:
@@ -151,21 +154,48 @@ The chat panel (right) changes the game from plain-language requests.
   API key (OpenRouter, later).
 - **Settings:** `STUDIO_CHAT_MODEL` (default `claude-sonnet-5-5`);
   `STUDIO_CHAT_BACKEND=fake` swaps in a scripted model (used by e2e).
-- **Turns:** one at a time. Each turn's changes are saved as one AI change
+- **Turns:** one at a time across both agents. Each turn's changes are saved as one AI change
   (one Undo). While a turn runs, user edits and playtests are locked; sending
   during a playtest stops it first. Cancel saves nothing.
-- **Storage:** the conversation and per-turn token/cost estimates live in
-  `<project>/chat.jsonl`; the server also logs one `[chat]` line per turn.
+- **Storage:** conversations and per-turn token/cost estimates live in
+  `<project>/chat.jsonl` (build) and `<project>/narrative-chat.jsonl`; the
+  server logs one `[chat:<agent>]` line per turn. The API picks an agent with
+  `?agent=build|narrative` (default build).
 - **Reset…** backs up the project folder to `<project>/backups/<time>/`, then
   starts from the starter project and an empty chat.
-- **Live test:** `ANOMALY_LIVE_CLAUDE=1 npx vitest run claudeCode.live`
+- **Live tests:** `ANOMALY_LIVE_CLAUDE=1 npx vitest run claudeCode.live narrative.live`
   (uses your Claude plan).
+
+## Wiki and the narrative director
+
+The **Wiki** tab is the game's bible: overview, characters, places,
+factions, lore, story beats, and any other kind you need (kinds are open:
+type a new one, e.g. `deity`, and it gets its own group). Pages have a
+summary, free-form fields, a Markdown body with `[[page_id]]` links, and can
+link to an in-game character (the inspector then shows "Wiki page →").
+
+- **Canon vs draft:** pages you write or edit are canon. The narrative
+  director's pages are drafts until you **Accept** (or **Discard**) them.
+- **The director** (`packages/agent/src/narrative/`) builds around your
+  direction: it fills small gaps itself, asks before major decisions
+  (antagonist, ending, twists), flags contradictions, and can't change or
+  delete canon unless you asked for that change (enforced in its tools).
+- **Gaps** (`packages/core/src/wiki/gaps.ts`): missing overview, broken links,
+  in-game characters without a page, pages for deleted characters. Shown in
+  the sidebar and given to the director.
+- Wiki edits are ordinary project operations (`createWikiPage`,
+  `updateWikiPage`, `acceptWikiPage`, `deleteWikiPage`), so Undo covers them.
+  The wiki is not sent to the game runtime. Later, the **Architect** agent
+  will build the game from it.
 
 ## Agent internals
 
 `packages/agent`:
 
-- **Tools** (`tools.ts`): every core operation is a tool with the same name;
+- **Agents** (`profile.ts`): the build assistant and the narrative director,
+  each an instruction builder plus a tool set.
+- **Tools** (`tools.ts`): every core operation except the wiki's is a build
+  tool with the same name;
   parameter schemas are generated from the core Zod schemas (with field
   descriptions), plus read tools `getProjectSummary`, `getCharacter`,
   `listPrimitives`. Errors list valid ids; writes report lint warnings

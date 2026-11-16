@@ -1,8 +1,8 @@
 import { createSdkMcpServer, query, tool, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { ChatMessage } from "./messages.ts";
-import { buildSystemPrompt } from "./prompt.ts";
-import { Draft, executeTool, isOk, TOOL_SCHEMAS } from "./tools.ts";
+import { buildAgent } from "./profile.ts";
+import { Draft, executeTool, isOk, toolSchemas } from "./tools.ts";
 import { emitter, finishTurn, stopTurn, type AgentTurnResult, type TurnRequest, type TurnState } from "./turn.ts";
 
 /**
@@ -39,8 +39,10 @@ export async function runClaudeCodeTurn(options: ClaudeCodeTurnOptions): Promise
     reply: "",
   };
 
+  const agent = options.agent ?? buildAgent;
+  const schemas = toolSchemas(agent.tools);
   let callCount = 0;
-  const tools = TOOL_SCHEMAS.map((t) =>
+  const tools = schemas.map((t) =>
     sdk.tool(
       t.name,
       t.description,
@@ -49,7 +51,7 @@ export async function runClaudeCodeTurn(options: ClaudeCodeTurnOptions): Promise
         const id = `call_${++callCount}`;
         const text = JSON.stringify(args);
         emit({ type: "tool_call", id, name: t.name, arguments: text });
-        const result = executeTool(turn.draft, t.name, text);
+        const result = executeTool(turn.draft, t.name, text, agent.tools);
         emit({ type: "tool_result", id, name: t.name, ok: isOk(result), result });
         return { content: [{ type: "text", text: JSON.stringify(result) }], isError: !isOk(result) };
       },
@@ -67,11 +69,11 @@ export async function runClaudeCodeTurn(options: ClaudeCodeTurnOptions): Promise
     const messages = sdk.query({
       prompt: renderPrompt(options.history, options.userMessage),
       options: {
-        systemPrompt: buildSystemPrompt(options.project),
+        systemPrompt: agent.systemPrompt(options.project),
         model: options.model ?? DEFAULT_CLAUDE_MODEL,
         mcpServers: { [SERVER]: sdk.createSdkMcpServer({ name: SERVER, version: "1.0.0", tools }) },
         tools: [],
-        allowedTools: TOOL_SCHEMAS.map((t) => claudeToolName(t.name)),
+        allowedTools: schemas.map((t) => claudeToolName(t.name)),
         permissionMode: "dontAsk",
         settingSources: [],
         strictMcpConfig: true,

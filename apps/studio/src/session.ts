@@ -3,6 +3,7 @@ import {
   CONDITION_TYPES,
   MAX_SEED,
   PROTOCOL_VERSION,
+  type AgentId,
   type ChangeResult,
   type ChatState,
   type EntityState,
@@ -28,7 +29,8 @@ export interface SessionState {
   /** Project revision the runtime has built its scene from. */
   loadedRevision: number | null;
   lastProblem: string | null;
-  chat: ChatState;
+  /** Each agent's conversation: build assistant (arena) and narrative director (wiki). */
+  chats: Record<AgentId, ChatState>;
   /** Seed of the current or most recent playtest. */
   seed: number | null;
 }
@@ -43,6 +45,8 @@ export interface RuntimeSnapshot {
 
 const BOOT_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 5_000;
+
+const idleChat: ChatState = { entries: [], running: null, undone: [] };
 
 const locked = (message: string): ChangeResult => ({ ok: false, error: { code: "locked", message, issues: [] } });
 
@@ -74,7 +78,7 @@ export class Session {
       runtimeStatus: "booting",
       loadedRevision: null,
       lastProblem: null,
-      chat: { entries: [], running: null, undone: [] },
+      chats: { build: idleChat, narrative: idleChat },
       seed: null,
     };
   }
@@ -99,7 +103,10 @@ export class Session {
   connectServer(): () => void {
     return api.subscribeToServer(
       this.clientId,
-      (event) => (event.type === "project" ? this.receiveProject(event) : this.set({ chat: event.chat })),
+      (event) =>
+        event.type === "project"
+          ? this.receiveProject(event)
+          : this.set({ chats: { ...this.state.chats, [event.agent]: event.chat } }),
       (connected) => {
         this.set({ serverConnected: connected });
         // The server drops our playtest lock when the stream drops; take it back.
@@ -119,7 +126,8 @@ export class Session {
   private syncRuntime(): void {
     const { runtimeStatus, mode, project } = this.state;
     if (runtimeStatus !== "ready" || mode !== "edit" || this.requestedRevision === project.revision) return;
-    if (this.bridge.send({ type: "load", project })) this.requestedRevision = project.revision;
+    // The runtime never needs the wiki.
+    if (this.bridge.send({ type: "load", project: { ...project, wiki: { pages: [] } } })) this.requestedRevision = project.revision;
   }
 
   // --- runtime lifecycle ---
@@ -207,7 +215,7 @@ export class Session {
 
   /** Apply any named core operation through the server. */
   /** True while an AI turn runs: the project is locked to everyone but the AI. */
-  aiBusy = (): boolean => this.state.chat.running !== null;
+  aiBusy = (): boolean => Object.values(this.state.chats).some((c) => c.running !== null);
 
   private editBlocked(): ChangeResult | null {
     if (this.state.mode !== "edit") return locked("stop the playtest before editing");
@@ -257,8 +265,8 @@ export class Session {
     return result;
   };
 
-  /** Send a chat message to the AI. A running playtest is stopped first. */
-  sendChat = async (message: string): Promise<boolean> => {
+  /** Send a chat message to one of the agents. A running playtest is stopped first. */
+  sendChat = async (agent: AgentId, message: string): Promise<boolean> => {
     if (this.state.mode === "play") {
       this.stop();
       if (!(await this.waitFor(() => this.state.mode === "edit", STOP_TIMEOUT_MS))) {
@@ -267,13 +275,13 @@ export class Session {
       }
     }
     await this.releasing;
-    const result = await api.sendChat(message);
+    const result = await api.sendChat(agent, message);
     if (!result.ok) this.reportProblem(`chat: ${result.error.message}`);
     return result.ok;
   };
 
-  cancelChat = async (): Promise<void> => {
-    await api.cancelChat();
+  cancelChat = async (agent: AgentId): Promise<void> => {
+    await api.cancelChat(agent);
   };
 
   private waitFor(predicate: () => boolean, timeoutMs: number): Promise<boolean> {

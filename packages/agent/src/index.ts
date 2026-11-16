@@ -6,3 +6,7 @@ export * from "./turn.ts";
 export * from "./loop.ts";
 export * from "./claudeCode.ts";
 export * from "./fakeModel.ts";
+export * from "./profile.ts";
+export * from "./narrative/summary.ts";
+export * from "./narrative/tools.ts";
+export * from "./narrative/prompt.ts";

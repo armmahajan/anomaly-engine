@@ -1,5 +1,5 @@
 import type { ChatMessage, ModelClient } from "./messages.ts";
-import { buildSystemPrompt } from "./prompt.ts";
+import { buildAgent } from "./profile.ts";
 import { Draft, executeTool, isOk, toolDefinitions } from "./tools.ts";
 import { emitter, finishTurn, stopTurn, type AgentTurnResult, type TurnRequest, type TurnState } from "./turn.ts";
 
@@ -23,8 +23,9 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
     usage: { promptTokens: 0, completionTokens: 0 },
     reply: "",
   };
-  const system: ChatMessage = { role: "system", content: buildSystemPrompt(project) };
-  const tools = toolDefinitions();
+  const agent = options.agent ?? buildAgent;
+  const system: ChatMessage = { role: "system", content: agent.systemPrompt(project) };
+  const tools = toolDefinitions(agent.tools);
 
   for (let step = 0; ; step++) {
     if (signal?.aborted) return stopTurn(turn, "cancelled", "cancelled by the creator.");
@@ -55,7 +56,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
 
     for (const call of calls) {
       emit({ type: "tool_call", id: call.id, name: call.function.name, arguments: call.function.arguments });
-      const result = executeTool(turn.draft, call.function.name, call.function.arguments);
+      const result = executeTool(turn.draft, call.function.name, call.function.arguments, agent.tools);
       emit({ type: "tool_result", id: call.id, name: call.function.name, ok: isOk(result), result });
       turn.messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
     }

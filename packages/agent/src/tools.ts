@@ -11,13 +11,13 @@ import {
   Id,
   lintProject,
   MoveSpawnInput,
-  OPERATION_NAMES,
   SpawnRef,
   UpdateBehaviorInput,
   UpdateCharacterInput,
   type OperationCall,
   type OperationName,
   type ProjectSpec,
+  type WikiOperationName,
 } from "@anomaly/core";
 import { describeCharacter, summarizeProject } from "./summary.ts";
 import type { ToolDefinition } from "./messages.ts";
@@ -48,14 +48,17 @@ export class Draft {
   }
 }
 
-interface ToolSpec {
+export interface ToolSpec {
   name: string;
   description: string;
   schema: z.ZodType;
   run: (draft: Draft, args: unknown) => unknown;
 }
 
-const writeDescriptions: Record<OperationName, string> = {
+/** The build assistant's write tools: every operation except the wiki's (the narrative director's). */
+type BuildOperation = Exclude<OperationName, WikiOperationName>;
+
+const writeDescriptions: Record<BuildOperation, string> = {
   createCharacter:
     "Create a new enemy type. It does not appear in the arena until you also call addSpawn. Give it a behavior built from the primitives (see listPrimitives).",
   duplicateCharacter: "Copy an existing enemy type under a new id (stats, look, behavior), e.g. to make a variant.",
@@ -71,7 +74,7 @@ const writeDescriptions: Record<OperationName, string> = {
 };
 
 /** Precise parameter schemas for the model; the operations themselves accept `unknown` and validate. */
-const writeSchemas: Record<OperationName, z.ZodType> = {
+const writeSchemas: Record<BuildOperation, z.ZodType> = {
   createCharacter: z.strictObject({ character: EnemyCharacter }),
   duplicateCharacter: DuplicateCharacterInput,
   deleteCharacter: CharacterRef,
@@ -83,32 +86,37 @@ const writeSchemas: Record<OperationName, z.ZodType> = {
   removeSpawn: SpawnRef,
 };
 
-function writeTool(name: OperationName): ToolSpec {
+/** Apply an operation to the draft and stage it for the end-of-turn commit. */
+export function stageOperation(draft: Draft, name: OperationName, args: unknown, warnings: (project: ProjectSpec) => string[]): unknown {
+  const result = applyOperation(draft.current, name, args);
+  if (!result.ok) return { ok: false, error: result.error };
+  draft.current = result.project;
+  draft.calls.push({ name, input: args });
+  return {
+    ok: true,
+    note: "Staged. All staged changes are saved together when you finish your turn.",
+    warnings: warnings(draft.current),
+  };
+}
+
+function writeTool(name: BuildOperation): ToolSpec {
   return {
     name,
     description: writeDescriptions[name],
     schema: writeSchemas[name],
-    run: (draft, args) => {
-      const result = applyOperation(draft.current, name, args);
-      if (!result.ok) return { ok: false, error: result.error };
-      draft.current = result.project;
-      draft.calls.push({ name, input: args });
-      return {
-        ok: true,
-        note: "Staged. All staged changes are saved together when you finish your turn.",
-        warnings: lintProject(draft.current).map((w) => w.message),
-      };
-    },
+    run: (draft, args) => stageOperation(draft, name, args, (p) => lintProject(p).map((w) => w.message)),
   };
 }
 
+export const projectSummaryTool: ToolSpec = {
+  name: "getProjectSummary",
+  description: "Readable summary of the game's characters, arena and behaviors, including changes staged this turn and any warnings.",
+  schema: z.strictObject({}),
+  run: (draft) => ({ ok: true, summary: summarizeProject(draft.current) }),
+};
+
 const readTools: ToolSpec[] = [
-  {
-    name: "getProjectSummary",
-    description: "Readable summary of the current project, including changes staged this turn and any warnings.",
-    schema: z.strictObject({}),
-    run: (draft) => ({ ok: true, summary: summarizeProject(draft.current) }),
-  },
+  projectSummaryTool,
   {
     name: "getCharacter",
     description: "Exact JSON of one character (including its full behavior) and its spawns.",
@@ -138,8 +146,15 @@ const readTools: ToolSpec[] = [
   },
 ];
 
-const tools: ToolSpec[] = [...readTools, ...OPERATION_NAMES.map(writeTool)];
-const byName = new Map(tools.map((t) => [t.name, t]));
+/** A set of tools one agent can use. */
+export interface Toolset {
+  specs: ToolSpec[];
+  byName: Map<string, ToolSpec>;
+}
+
+export const toolset = (specs: ToolSpec[]): Toolset => ({ specs, byName: new Map(specs.map((t) => [t.name, t])) });
+
+export const BUILD_TOOLS = toolset([...readTools, ...(Object.keys(writeSchemas) as BuildOperation[]).map(writeTool)]);
 
 function jsonSchema(schema: z.ZodType): Record<string, unknown> {
   const { $schema: _ignored, ...rest } = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<
@@ -150,8 +165,8 @@ function jsonSchema(schema: z.ZodType): Record<string, unknown> {
 }
 
 /** Tool definitions in OpenAI function-calling format. */
-export function toolDefinitions(): ToolDefinition[] {
-  return tools.map((t) => ({
+export function toolDefinitions(tools: Toolset = BUILD_TOOLS): ToolDefinition[] {
+  return tools.specs.map((t) => ({
     type: "function",
     function: { name: t.name, description: t.description, parameters: jsonSchema(t.schema) },
   }));
@@ -160,18 +175,21 @@ export function toolDefinitions(): ToolDefinition[] {
 export const READ_TOOL_NAMES = readTools.map((t) => t.name);
 
 /** Name, description and input schema of every tool (for SDKs that take Zod schemas). */
-export const TOOL_SCHEMAS: { name: string; description: string; schema: z.ZodType }[] = tools.map(
-  ({ name, description, schema }) => ({ name, description, schema }),
-);
+export const toolSchemas = (tools: Toolset): { name: string; description: string; schema: z.ZodType }[] =>
+  tools.specs.map(({ name, description, schema }) => ({ name, description, schema }));
+
+export const TOOL_SCHEMAS = toolSchemas(BUILD_TOOLS);
 
 export function isOk(result: unknown): boolean {
   return (result as { ok?: boolean }).ok === true;
 }
 
 /** Run one tool call against the draft. Never throws; failures become results the model can read. */
-export function executeTool(draft: Draft, name: string, rawArguments: string): unknown {
-  const tool = byName.get(name);
-  if (!tool) return { ok: false, error: { code: "unknown_tool", message: `no tool "${name}" (known: ${[...byName.keys()].join(", ")})` } };
+export function executeTool(draft: Draft, name: string, rawArguments: string, tools: Toolset = BUILD_TOOLS): unknown {
+  const tool = tools.byName.get(name);
+  if (!tool) {
+    return { ok: false, error: { code: "unknown_tool", message: `no tool "${name}" (known: ${[...tools.byName.keys()].join(", ")})` } };
+  }
   let args: unknown;
   try {
     args = rawArguments.trim() === "" ? {} : JSON.parse(rawArguments);

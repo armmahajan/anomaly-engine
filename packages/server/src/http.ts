@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
+import { AgentId, fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
 import type { ChatService } from "./chat.ts";
 import type { ProjectStore } from "./projectStore.ts";
 
@@ -21,11 +21,14 @@ const STATUS_FOR: Record<ErrorCode, number> = {
 };
 
 /** HTTP API over a ProjectStore. See packages/core/src/api.ts for the contract. */
-export function createApiHandler(store: ProjectStore, chat?: ChatService): Middleware {
+/** Chat services by agent; requests pick one with ?agent= (default: build). */
+export type Chats = Partial<Record<AgentId, ChatService>>;
+
+export function createApiHandler(store: ProjectStore, chats: Chats = {}): Middleware {
   return (req, res, next) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return next();
-    route(store, chat, req, res, url).catch((error: unknown) => {
+    route(store, chats, req, res, url).catch((error: unknown) => {
       console.error("[project-server]", error);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: { code: "internal", message: String(error), issues: [] } });
       else res.end();
@@ -35,7 +38,7 @@ export function createApiHandler(store: ProjectStore, chat?: ChatService): Middl
 
 async function route(
   store: ProjectStore,
-  chat: ChatService | undefined,
+  chats: Chats,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -47,7 +50,7 @@ async function route(
     case "GET /api/history":
       return sendJson(res, 200, { entries: store.getHistory() });
     case "GET /api/events":
-      return openEventStream(store, chat, req, res, url.searchParams.get("clientId"));
+      return openEventStream(store, chats, req, res, url.searchParams.get("clientId"));
     case "POST /api/ops":
       return respond(res, await withBody(req, (body) => store.applyOperation(body)));
     case "POST /api/batch":
@@ -58,10 +61,12 @@ async function route(
       return respond(res, await withBody(req, (body) => store.setPlaytest(body)));
     case "POST /api/reset": {
       const result = await withBody(req, (body) => store.reset(body));
-      if (result.ok) await chat?.reset();
+      if (result.ok) await Promise.all(Object.values(chats).map((c) => c.reset()));
       return respond(res, result);
     }
   }
+  const agent = AgentId.safeParse(url.searchParams.get("agent") ?? "build");
+  const chat = agent.success ? chats[agent.data] : undefined;
   if (chat) {
     switch (key) {
       case "GET /api/chat":
@@ -113,7 +118,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 /** Server-sent events: the current project and chat on connect, then every change. */
 function openEventStream(
   store: ProjectStore,
-  chat: ChatService | undefined,
+  chats: Chats,
   req: IncomingMessage,
   res: ServerResponse,
   clientId: string | null,
@@ -122,15 +127,17 @@ function openEventStream(
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
   const send = (event: ServerEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   send({ type: "project", ...store.getState(), cause: null });
-  if (chat) send({ type: "chat", chat: chat.getState() });
+  for (const chat of Object.values(chats)) send({ type: "chat", agent: chat.agent.id, chat: chat.getState() });
 
   const unsubscribeProject = store.subscribe(send);
-  const unsubscribeChat = chat?.subscribe((state) => send({ type: "chat", chat: state }));
+  const unsubscribeChats = Object.values(chats).map((chat) =>
+    chat.subscribe((state) => send({ type: "chat", agent: chat.agent.id, chat: state })),
+  );
   const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), HEARTBEAT_MS);
   req.on("close", () => {
     clearInterval(heartbeat);
     unsubscribeProject();
-    unsubscribeChat?.();
+    for (const unsubscribe of unsubscribeChats) unsubscribe();
     if (clientId) store.releasePlaytest(clientId);
   });
 }

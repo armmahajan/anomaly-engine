@@ -57,6 +57,22 @@ export function collectConsoleErrors(page: Page): string[] {
   return errors;
 }
 
+/**
+ * Test cleanup: start over from the starter project. Closing the page first
+ * releases a playtest a failed test may have left running (the server
+ * refuses to reset during one).
+ */
+export async function resetProject(page: Page) {
+  const request = page.context().request;
+  await page.close();
+  await expect
+    .poll(async () => {
+      const { project } = (await (await request.get("/api/project")).json()) as { project: { revision: number } };
+      return (await request.post("/api/reset", { data: { baseRevision: project.revision } })).ok();
+    })
+    .toBe(true);
+}
+
 /** Wait until the studio has seen a revision newer than `base` and the runtime has loaded it. */
 export async function waitForRuntimeAfter(page: Page, base: number) {
   await expect

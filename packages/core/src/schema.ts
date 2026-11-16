@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Behavior } from "./behavior.ts";
 import { Color, Id } from "./common.ts";
+import { defaultWiki, Wiki } from "./wiki/wiki.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -108,8 +109,18 @@ export const ProjectSpec = z
     revision: z.number().int().min(0),
     characters: z.array(Character).max(500),
     sandbox: Sandbox,
+    /** The game wiki (narrative, characters, lore). Older projects get an empty one. */
+    wiki: Wiki.default(defaultWiki),
   })
   .superRefine((project, ctx) => {
+    const pageIds = new Set<string>();
+    project.wiki.pages.forEach((p, i) => {
+      if (pageIds.has(p.id)) {
+        ctx.addIssue({ code: "custom", path: ["wiki", "pages", i, "id"], message: `duplicate wiki page id "${p.id}"` });
+      }
+      pageIds.add(p.id);
+    });
+
     const ids = new Set<string>();
     project.characters.forEach((c, i) => {
       if (ids.has(c.id)) {
