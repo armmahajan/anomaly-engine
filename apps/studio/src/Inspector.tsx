@@ -31,13 +31,14 @@ interface Props {
   defaultSpawn: { x: number; y: number };
   session: Session;
   locked: boolean;
+  lockHint?: string;
 }
 
-export function Inspector({ character, spawns, defaultSpawn, session, locked }: Props) {
+export function Inspector({ character, spawns, defaultSpawn, session, locked, lockHint }: Props) {
   return (
     <section className="inspector">
       <h2>{character.name}</h2>
-      {locked && <p className="hint">Stop the playtest to edit.</p>}
+      {locked && lockHint && <p className="hint">{lockHint}</p>}
       <h3>Stats</h3>
       {Object.entries(character.stats).map(([stat, value]) => (
         <NumberField

@@ -5,10 +5,20 @@ import { fetchProject, UnauthorizedError } from "./api.ts";
 import { Session } from "./session.ts";
 import "./styles.css";
 
-type StudioApi = Pick<
-  Session,
-  "getProject" | "applyOperation" | "applyBatch" | "updateCharacter" | "undo" | "play" | "stop" | "getRuntimeState"
->;
+const STUDIO_API = [
+  "getProject",
+  "applyOperation",
+  "applyBatch",
+  "updateCharacter",
+  "undo",
+  "play",
+  "stop",
+  "getRuntimeState",
+  "sendChat",
+  "cancelChat",
+  "resetProject",
+] as const;
+type StudioApi = Pick<Session, (typeof STUDIO_API)[number]>;
 
 declare global {
   interface Window {
@@ -22,8 +32,7 @@ const root = document.getElementById("root")!;
 async function start() {
   const session = new Session(await fetchProject());
   session.connectServer();
-  const { getProject, applyOperation, applyBatch, updateCharacter, undo, play, stop, getRuntimeState } = session;
-  window.studio = { getProject, applyOperation, applyBatch, updateCharacter, undo, play, stop, getRuntimeState };
+  window.studio = Object.fromEntries(STUDIO_API.map((key) => [key, session[key]])) as StudioApi;
 
   createRoot(root).render(
     <StrictMode>

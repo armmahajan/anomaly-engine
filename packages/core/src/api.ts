@@ -12,7 +12,11 @@ import { ProjectSpec } from "./schema.ts";
  *   POST /api/batch     BatchRequest     -> ChangeResult  (all-or-nothing, one revision)
  *   POST /api/undo      UndoRequest      -> ChangeResult
  *   POST /api/playtest  PlaytestRequest  -> PlaytestResult
- *   GET  /api/events?clientId=…    -> server-sent events, `data:` = ProjectEvent
+ *   POST /api/reset     ResetRequest     -> ChangeResult  (backs up, then starts a fresh project)
+ *   GET  /api/chat                 -> ChatState
+ *   POST /api/chat      ChatRequest      -> { ok } (the turn runs in the background)
+ *   POST /api/chat/cancel          -> { ok }
+ *   GET  /api/events?clientId=…    -> server-sent events, `data:` = ServerEvent
  *
  * Every edit names the revision it was based on (`baseRevision`) and is
  * rejected with `stale_revision` if the project has moved on since.
@@ -46,6 +50,10 @@ export const PlaytestRequest = z.strictObject({
   clientId: z.string().min(1).max(100),
 });
 
+export const ResetRequest = z.strictObject({ baseRevision: z.number().int().min(0) });
+
+export const ChatRequest = z.strictObject({ message: z.string().trim().min(1).max(4000) });
+
 export interface ProjectState {
   project: ProjectSpec;
   canUndo: boolean;
@@ -70,3 +78,39 @@ export const ProjectEvent = z.object({
   cause: z.object({ revision: z.number(), author: Author, summary: z.string() }).nullable(),
 });
 export type ProjectEvent = z.infer<typeof ProjectEvent>;
+
+export const ChatOutcome = z.enum(["committed", "no_changes", "commit_failed", "step_limit", "cancelled", "model_error"]);
+
+export const ChatEntry = z.discriminatedUnion("role", [
+  z.object({ role: z.literal("user"), at: z.string(), text: z.string() }),
+  z.object({
+    role: z.literal("assistant"),
+    at: z.string(),
+    text: z.string(),
+    outcome: ChatOutcome,
+    /** Revision the turn's changes were saved as (committed turns only). */
+    revision: z.number().nullable(),
+    changes: z.array(z.string()),
+    usage: z.object({ promptTokens: z.number(), completionTokens: z.number(), cost: z.number().optional() }),
+    error: z.string().optional(),
+  }),
+]);
+export type ChatEntry = z.infer<typeof ChatEntry>;
+
+export const ChatActivity = z.object({ kind: z.enum(["text", "tool"]), text: z.string(), ok: z.boolean().optional() });
+export type ChatActivity = z.infer<typeof ChatActivity>;
+
+export const ChatState = z.object({
+  entries: z.array(ChatEntry),
+  /** The turn in progress, if any. Edits and playtests are locked meanwhile. */
+  running: z.object({ activity: z.array(ChatActivity) }).nullable(),
+  /** Revisions that have since been undone. */
+  undone: z.array(z.number()).default([]),
+});
+export type ChatState = z.infer<typeof ChatState>;
+
+export const ChatEvent = z.object({ type: z.literal("chat"), chat: ChatState });
+export type ChatEvent = z.infer<typeof ChatEvent>;
+
+export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent]);
+export type ServerEvent = z.infer<typeof ServerEvent>;

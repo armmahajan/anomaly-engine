@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   applyBatch,
@@ -9,6 +9,7 @@ import {
   migrateProject,
   OperationRequest,
   PlaytestRequest,
+  ResetRequest,
   summarizeChange,
   toIssues,
   undoLast,
@@ -40,12 +41,15 @@ export class ProjectStore {
   private queue: Promise<unknown> = Promise.resolve();
   private listeners = new Set<(event: ProjectEvent) => void>();
   private playtestOwner: string | null = null;
-  private readonly dir: string;
+  private aiTurn = false;
+  readonly dir: string;
+  private readonly createInitial: () => ProjectSpec;
   private project: ProjectSpec;
   private history: HistoryEntry[];
 
-  private constructor(dir: string, project: ProjectSpec, history: HistoryEntry[]) {
+  private constructor(dir: string, createInitial: () => ProjectSpec, project: ProjectSpec, history: HistoryEntry[]) {
     this.dir = dir;
+    this.createInitial = createInitial;
     this.project = project;
     this.history = history;
   }
@@ -63,7 +67,7 @@ export class ProjectStore {
 
     if (raw === null) {
       const initial = createInitial();
-      const store = new ProjectStore(dir, initial, []);
+      const store = new ProjectStore(dir, createInitial, initial, []);
       await store.writeProject(initial);
       await writeFile(join(dir, "history.jsonl"), "");
       return store;
@@ -76,11 +80,15 @@ export class ProjectStore {
       throw new Error(`${projectPath} is not a valid project: ${details}`);
     }
     const history = await readHistory(join(dir, "history.jsonl"), validated.project.revision);
-    return new ProjectStore(dir, validated.project, history);
+    return new ProjectStore(dir, createInitial, validated.project, history);
   }
 
   getState(): ProjectState {
     return { project: this.project, canUndo: findUndoTarget(this.history) !== null };
+  }
+
+  undoneRevisions(): number[] {
+    return this.history.flatMap((e) => (e.change.kind === "undo" ? [e.change.undoes] : []));
   }
 
   getHistory(): HistorySummary[] {
@@ -104,7 +112,7 @@ export class ProjectStore {
       if (!parsed.success) return fail("invalid_request", "malformed operation request", toIssues(parsed.error));
       const { name, input, baseRevision, author } = parsed.data;
 
-      const blocked = this.checkEditable(baseRevision);
+      const blocked = this.checkEditable(baseRevision, author);
       if (blocked) return blocked;
 
       const result = applyOperation(this.project, name, input);
@@ -120,7 +128,7 @@ export class ProjectStore {
       if (!parsed.success) return fail("invalid_request", "malformed batch request", toIssues(parsed.error));
       const { operations, baseRevision, author } = parsed.data;
 
-      const blocked = this.checkEditable(baseRevision);
+      const blocked = this.checkEditable(baseRevision, author);
       if (blocked) return blocked;
 
       const result = applyBatch(this.project, operations);
@@ -137,7 +145,7 @@ export class ProjectStore {
       if (!parsed.success) return fail("invalid_request", "malformed undo request", toIssues(parsed.error));
       const { baseRevision, author } = parsed.data;
 
-      const blocked = this.checkEditable(baseRevision);
+      const blocked = this.checkEditable(baseRevision, author);
       if (blocked) return blocked;
 
       const result = undoLast(this.project, this.history);
@@ -153,6 +161,7 @@ export class ProjectStore {
       if (!parsed.success) return fail("invalid_request", "malformed playtest request", toIssues(parsed.error));
       const { active, clientId } = parsed.data;
       if (active) {
+        if (this.aiTurn) return fail("locked", "the AI is editing the project; wait for it or cancel");
         if (this.playtestOwner !== null && this.playtestOwner !== clientId) {
           return fail("locked", "another studio window is already playtesting");
         }
@@ -161,6 +170,44 @@ export class ProjectStore {
         this.playtestOwner = null;
       }
       return { ok: true, revision: this.project.revision };
+    });
+  }
+
+  /** Lock the project for an AI turn: only `author: "ai"` edits pass until `endAiTurn`. */
+  beginAiTurn(): Promise<{ ok: true } | { ok: false; error: OperationError }> {
+    return this.exclusive(async () => {
+      if (this.playtestOwner !== null) return fail("locked", "a playtest is running; stop it before chatting");
+      if (this.aiTurn) return fail("locked", "the AI is already working on a message");
+      this.aiTurn = true;
+      return { ok: true as const };
+    });
+  }
+
+  endAiTurn(): void {
+    this.aiTurn = false;
+  }
+
+  /** Back up the project folder to backups/<time>/, then replace the project with a fresh one. */
+  reset(request: unknown): Promise<ChangeResult> {
+    return this.exclusive(async () => {
+      const parsed = ResetRequest.safeParse(request);
+      if (!parsed.success) return fail("invalid_request", "malformed reset request", toIssues(parsed.error));
+      const blocked = this.checkEditable(parsed.data.baseRevision, "user");
+      if (blocked) return blocked;
+
+      const backup = join(this.dir, "backups", new Date().toISOString().replace(/[:.]/g, "-"));
+      await mkdir(backup, { recursive: true });
+      for (const entry of await readdir(this.dir, { withFileTypes: true })) {
+        if (entry.isFile()) await copyFile(join(this.dir, entry.name), join(backup, entry.name));
+      }
+
+      const next = { ...this.createInitial(), revision: this.project.revision + 1 };
+      await writeFile(join(this.dir, "history.jsonl"), "");
+      await this.writeProject(next);
+      this.project = next;
+      this.history = [];
+      this.emit({ revision: next.revision, author: "user", summary: "reset project" });
+      return { ok: true, ...this.getState() };
     });
   }
 
@@ -176,8 +223,9 @@ export class ProjectStore {
 
   // --- internals ---
 
-  private checkEditable(baseRevision: number): { ok: false; error: OperationError } | null {
+  private checkEditable(baseRevision: number, author: Author): { ok: false; error: OperationError } | null {
     if (this.playtestOwner !== null) return fail("locked", "a playtest is running; stop it before editing");
+    if (this.aiTurn && author !== "ai") return fail("locked", "the AI is editing the project; wait for it or cancel");
     if (baseRevision !== this.project.revision) {
       return fail(
         "stale_revision",
@@ -200,14 +248,13 @@ export class ProjectStore {
     this.project = next;
     this.history.push(entry);
 
-    const state = this.getState();
-    const event: ProjectEvent = {
-      type: "project",
-      ...state,
-      cause: { revision: next.revision, author, summary: summarizeChange(change) },
-    };
+    this.emit({ revision: next.revision, author, summary: summarizeChange(change) });
+    return { ok: true, ...this.getState() };
+  }
+
+  private emit(cause: ProjectEvent["cause"]): void {
+    const event: ProjectEvent = { type: "project", ...this.getState(), cause };
     for (const listener of this.listeners) listener(event);
-    return { ok: true, ...state };
   }
 
   private async writeProject(project: ProjectSpec): Promise<void> {

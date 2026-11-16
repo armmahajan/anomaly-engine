@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { newEnemyCharacter, uniqueId, type ChangeResult } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { Inspector } from "./Inspector.tsx";
+import { ChatPanel } from "./ChatPanel.tsx";
 
 const ENEMY_COLORS = ["#5f9e6e", "#d08c3a", "#4f8fbf", "#b8577d", "#9c9a3f"];
 
@@ -25,6 +26,8 @@ export function App({ session }: { session: Session }) {
   }, [session]);
 
   const playing = state.mode === "play";
+  const aiBusy = state.chat.running !== null;
+  const locked = playing || aiBusy;
   const { project } = state;
   const selected = project.characters.find((c) => c.id === selectedId) ?? null;
   const characterIds = project.characters.map((c) => c.id);
@@ -71,6 +74,11 @@ export function App({ session }: { session: Session }) {
     if (report(await session.applyOperation("deleteCharacter", { characterId: selected.id }))) setSelectedId("player");
   };
 
+  const resetProject = async () => {
+    if (!window.confirm("Start over from the starter project? The current project and chat are backed up first.")) return;
+    if (report(await session.resetProject())) setSelectedId("crawler");
+  };
+
   const onPlay = async () => {
     if (await session.play()) {
       frameRef.current?.focus();
@@ -91,13 +99,16 @@ export function App({ session }: { session: Session }) {
         <button
           type="button"
           onClick={() => void session.undo()}
-          disabled={playing || !state.canUndo}
+          disabled={locked || !state.canUndo}
           title="Undo (Ctrl/Cmd+Z)"
         >
           ↶ Undo
         </button>
+        <button type="button" onClick={() => void resetProject()} disabled={locked}>
+          Reset…
+        </button>
         <span className={`status status-${state.runtimeStatus}`} data-testid="runtime-status">
-          {statusText(state.runtimeStatus, state.mode)}
+          {aiBusy ? "AI is editing…" : statusText(state.runtimeStatus, state.mode)}
         </span>
         <span className="revision">rev {state.project.revision}</span>
         <span
@@ -133,17 +144,17 @@ export function App({ session }: { session: Session }) {
             ))}
           </ul>
           <div className="list-actions">
-            <button type="button" onClick={() => void addEnemy()} disabled={playing}>
+            <button type="button" onClick={() => void addEnemy()} disabled={locked}>
               + Enemy
             </button>
             <button
               type="button"
               onClick={() => void duplicateSelected()}
-              disabled={playing || selected?.kind !== "enemy"}
+              disabled={locked || selected?.kind !== "enemy"}
             >
               Duplicate
             </button>
-            <button type="button" onClick={() => void deleteSelected()} disabled={playing || selected?.kind !== "enemy"}>
+            <button type="button" onClick={() => void deleteSelected()} disabled={locked || selected?.kind !== "enemy"}>
               Delete
             </button>
           </div>
@@ -155,7 +166,8 @@ export function App({ session }: { session: Session }) {
             spawns={project.sandbox.spawns.filter((s) => s.characterId === selected.id)}
             defaultSpawn={defaultSpawn}
             session={session}
-            locked={playing}
+            locked={locked}
+            lockHint={aiBusy ? "The AI is editing. Wait for it or cancel." : "Stop the playtest to edit."}
           />
         )}
         {state.lastProblem && (
@@ -167,6 +179,15 @@ export function App({ session }: { session: Session }) {
           </div>
         )}
       </aside>
+
+      <ChatPanel
+        session={session}
+        chat={state.chat}
+        revision={project.revision}
+        canUndo={state.canUndo}
+        playing={playing}
+        connected={state.serverConnected}
+      />
     </div>
   );
 }

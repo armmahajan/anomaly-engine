@@ -85,10 +85,12 @@ export H="x-studio-token: $(cat .studio-token)"
 curl -s -H "$H" localhost:5173/api/project | jq .project.revision        # current revision, e.g. 3
 curl -s -H "$H" -X POST localhost:5173/api/ops -H 'content-type: application/json' -d '{
   "name": "updateCharacter",
-  "input": { "characterId": "crawler", "changes": { "stats": { "patrolSpeed": 250 } } },
+  "input": { "characterId": "crawler", "changes": { "stats": { "knockback": 500 } } },
   "baseRevision": 3, "author": "ai" }'
 curl -s -H "$H" -X POST localhost:5173/api/undo -H 'content-type: application/json' -d '{"baseRevision": 4}'
 curl -s -H "$H" localhost:5173/api/history
+curl -s -H "$H" -X POST localhost:5173/api/chat -H 'content-type: application/json' -d '{"message": "make the Crawler faster"}'
+curl -s -H "$H" localhost:5173/api/chat | jq '.entries[-1]'                # the reply, once done
 ```
 
 (With `npm run dev:remote`, use `curl -k https://…`.)
@@ -121,20 +123,39 @@ runtime control: `studio.updateCharacter(...)`, `studio.applyOperation(name, inp
 `studio.applyBatch([...])`, `studio.undo()`,
 `studio.play()`, `studio.stop()`, `await studio.getRuntimeState()`.
 
-## Agent (no model wired yet)
+## Chat
 
-`packages/agent` is everything the AI needs except the model connection:
+The chat panel (right) changes the game from plain-language requests.
+
+- **Backend:** your local Claude Code login, through the Claude Agent SDK
+  (`packages/agent/src/claudeCode.ts`). The AI can only call the game tools:
+  Claude Code's built-in tools, settings and MCP servers are all switched
+  off. This is for personal local use; anything other people use needs an
+  API key (OpenRouter, later).
+- **Settings:** `STUDIO_CHAT_MODEL` (default `claude-sonnet-5-5`);
+  `STUDIO_CHAT_BACKEND=fake` swaps in a scripted model (used by e2e).
+- **Turns:** one at a time. Each turn's changes are saved as one AI change
+  (one Undo). While a turn runs, user edits and playtests are locked; sending
+  during a playtest stops it first. Cancel saves nothing.
+- **Storage:** the conversation and per-turn token/cost estimates live in
+  `<project>/chat.jsonl`; the server also logs one `[chat]` line per turn.
+- **Reset…** backs up the project folder to `<project>/backups/<time>/`, then
+  starts from the starter project and an empty chat.
+- **Live test:** `ANOMALY_LIVE_CLAUDE=1 npx vitest run claudeCode.live`
+  (uses your Claude plan).
+
+## Agent internals
+
+`packages/agent`:
 
 - **Tools** (`tools.ts`): every core operation is a tool with the same name;
   parameter schemas are generated from the core Zod schemas (with field
   descriptions), plus read tools `getProjectSummary`, `getCharacter`,
   `listPrimitives`. Errors list valid ids; writes report lint warnings
-  (`packages/core/src/lint.ts`: spawns outside the arena or inside
-  platforms, unplaced enemies, unreachable or endless states).
-- **Turn loop** (`loop.ts`): user message → model → tool calls → … → reply.
-  Writes are staged on a draft and saved as **one batch** at the end of the
-  turn (one revision, one undo step, author `ai`). Step limits,
-  cancellation and model errors save nothing.
-- **Model interface** (`messages.ts`): OpenAI-compatible messages and tool
-  definitions, so the OpenRouter client is a thin adapter. `FakeModel`
-  replays scripted replies for tests (no network, no cost).
+  (`packages/core/src/lint.ts`).
+- **Turns** (`turn.ts`): any backend stages writes on a draft and saves them
+  as **one batch** at the end (author `ai`). Step limits, cancellation and
+  model errors save nothing.
+- **Backends:** `claudeCode.ts` (Agent SDK runs the tool loop) and `loop.ts`
+  (our own loop over an OpenAI-style `ModelClient`, ready for OpenRouter).
+  `FakeModel` replays scripted replies for tests.

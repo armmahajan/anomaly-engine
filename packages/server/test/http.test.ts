@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createProjectServer } from "../src/index.ts";
+import { callTools, FakeModel, runAgentTurn, say, toolCall, type TurnRunner } from "@anomaly/agent";
+import { createProjectServer, type ChatService } from "../src/index.ts";
 
 const TOKEN = "test-token";
 const auth = { "x-studio-token": TOKEN };
@@ -12,10 +13,19 @@ const auth = { "x-studio-token": TOKEN };
 let dir: string;
 let server: Server;
 let base: string;
+let chat: ChatService;
+
+const runner: TurnRunner = (request) =>
+  runAgentTurn({
+    ...request,
+    model: new FakeModel([callTools(toolCall("moveSpawn", { spawnId: "crawler_1", x: 900 })), say("Moved the Crawler.")]),
+  });
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "anomaly-http-"));
-  const { handler } = await createProjectServer(dir, { token: TOKEN });
+  const created = await createProjectServer(dir, { token: TOKEN, runner });
+  const handler = created.handler;
+  chat = created.chat;
   server = createServer((req, res) =>
     handler(req, res, () => {
       res.statusCode = 418;
@@ -71,13 +81,17 @@ describe("project HTTP API", () => {
     const res = await get("/api/events?clientId=test");
     expect(res.headers.get("content-type")).toBe("text/event-stream");
     const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
     const nextEvent = async () => {
-      let buffer = "";
       while (!buffer.includes("\n\n")) buffer += (await reader.read()).value ?? "";
-      return JSON.parse(buffer.trim().replace(/^data: /, ""));
+      const end = buffer.indexOf("\n\n");
+      const event = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      return JSON.parse(event.replace(/^data: /, ""));
     };
 
     expect(await nextEvent()).toMatchObject({ type: "project", project: { revision: 0 }, cause: null });
+    expect(await nextEvent()).toEqual({ type: "chat", chat: { entries: [], running: null, undone: [] } });
     await post("/api/ops", op(150, 0));
     expect(await nextEvent()).toMatchObject({ project: { revision: 1 }, cause: { author: "user" } });
     await reader.cancel();
@@ -126,5 +140,17 @@ describe("studio token", () => {
     expect(wrong.status).toBe(418); // passed through to the next handler, no cookie
     expect(wrong.headers.get("set-cookie")).toBeNull();
     expect((await fetch(`${base}/game/index.html`)).status).toBe(418);
+  });
+
+  it("runs chat turns and resets the project", async () => {
+    expect((await post("/api/chat", JSON.stringify({ message: "move the crawler" }))).status).toBe(200);
+    await chat.idle();
+    const state = await (await get("/api/chat")).json();
+    expect(state.entries.map((e: { role: string }) => e.role)).toEqual(["user", "assistant"]);
+    expect(state.entries[1]).toMatchObject({ outcome: "committed", revision: 1, changes: ["moved crawler_1"] });
+
+    const reset = await post("/api/reset", JSON.stringify({ baseRevision: 1 }));
+    expect(await reset.json()).toMatchObject({ ok: true, project: { revision: 2 }, canUndo: false });
+    expect(await (await get("/api/chat")).json()).toEqual({ entries: [], running: null, undone: [] });
   });
 });

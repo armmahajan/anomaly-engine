@@ -1,0 +1,113 @@
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createDefaultProject } from "@anomaly/core";
+import { callTools, FakeModel, runAgentTurn, say, toolCall, type TurnRunner } from "@anomaly/agent";
+import { ChatService, ProjectStore } from "../src/index.ts";
+
+let dir: string;
+let store: ProjectStore;
+
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "anomaly-chat-"));
+  store = await ProjectStore.open(dir, createDefaultProject);
+});
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true });
+});
+
+const fastCharger: TurnRunner = (request) =>
+  runAgentTurn({
+    ...request,
+    model: new FakeModel([
+      callTools(toolCall("duplicateCharacter", { characterId: "charger", newId: "fast_charger", name: "Fast Charger" })),
+      callTools(
+        toolCall("updateBehavior", { characterId: "fast_charger", stateId: "charge", action: { speed: 800 } }),
+        toolCall("addSpawn", { characterId: "fast_charger", x: 1100, y: 660 }),
+      ),
+      say("Added a Fast Charger."),
+    ]),
+  });
+
+/** Runs until cancelled. */
+const waitForCancel: TurnRunner = (request) =>
+  new Promise((resolve) =>
+    request.signal!.addEventListener("abort", () =>
+      resolve({
+        outcome: "cancelled",
+        messages: [],
+        reply: "",
+        project: request.project,
+        operations: [],
+        usage: { promptTokens: 0, completionTokens: 0 },
+      }),
+    ),
+  );
+
+const editPlayer = (author: "user" | "ai" = "user") =>
+  store.applyOperation({
+    name: "updateCharacter",
+    input: { characterId: "player", changes: { stats: { runSpeed: 400 } } },
+    baseRevision: store.getState().project.revision,
+    author,
+  });
+
+describe("ChatService", () => {
+  it("saves a turn as one AI change that a single undo reverts, and keeps the conversation", async () => {
+    const chat = await ChatService.open(store, fastCharger);
+    expect(await chat.send({ message: "Add a faster Charger" })).toEqual({ ok: true });
+    await chat.idle();
+
+    expect(chat.getState().entries.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "Added a Fast Charger.",
+      outcome: "committed",
+      revision: 1,
+      changes: ["copied charger as fast_charger", "tuned fast_charger › charge", "placed fast_charger"],
+    });
+    expect(store.getHistory()).toEqual([expect.objectContaining({ revision: 1, author: "ai" })]);
+    expect((await ChatService.open(store, fastCharger)).getState().entries).toHaveLength(2);
+
+    await store.undo({ baseRevision: 1 });
+    expect(store.getState().project.characters.map((c) => c.id)).not.toContain("fast_charger");
+    expect(chat.getState().undone).toEqual([1]);
+  });
+
+  it("locks edits and playtests during a turn; cancelling saves nothing", async () => {
+    const chat = await ChatService.open(store, waitForCancel);
+    await chat.send({ message: "think forever" });
+
+    expect(chat.getState().running).not.toBeNull();
+    expect(await editPlayer()).toMatchObject({ ok: false, error: { code: "locked" } });
+    expect(await store.setPlaytest({ active: true, clientId: "a" })).toMatchObject({ ok: false, error: { code: "locked" } });
+    expect(await chat.send({ message: "again" })).toMatchObject({ ok: false, error: { code: "locked" } });
+
+    chat.cancel();
+    await chat.idle();
+    expect(chat.getState()).toMatchObject({ running: null, entries: [{ role: "user" }, { outcome: "cancelled" }] });
+    expect(chat.getState().entries[1]).not.toHaveProperty("error");
+    expect((await editPlayer()).ok).toBe(true);
+  });
+
+  it("refuses to start a turn during a playtest", async () => {
+    const chat = await ChatService.open(store, fastCharger);
+    await store.setPlaytest({ active: true, clientId: "a" });
+    expect(await chat.send({ message: "hi" })).toMatchObject({ ok: false, error: { code: "locked" } });
+    expect(chat.getState().entries).toEqual([]);
+  });
+
+  it("reset backs up the project folder and starts fresh", async () => {
+    const chat = await ChatService.open(store, fastCharger);
+    await chat.send({ message: "Add a faster Charger" });
+    await chat.idle();
+
+    expect(await store.reset({ baseRevision: 1 })).toMatchObject({ ok: true, project: { revision: 2 }, canUndo: false });
+    await chat.reset();
+    expect(store.getState().project.characters.map((c) => c.id)).toEqual(["player", "crawler", "charger"]);
+    expect(chat.getState().entries).toEqual([]);
+
+    const [backup] = await readdir(join(dir, "backups"));
+    expect((await readdir(join(dir, "backups", backup!))).sort()).toEqual(["chat.jsonl", "history.jsonl", "project.json"]);
+  });
+});

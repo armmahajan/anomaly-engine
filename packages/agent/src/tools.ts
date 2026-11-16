@@ -159,6 +159,15 @@ export function toolDefinitions(): ToolDefinition[] {
 
 export const READ_TOOL_NAMES = readTools.map((t) => t.name);
 
+/** Name, description and input schema of every tool (for SDKs that take Zod schemas). */
+export const TOOL_SCHEMAS: { name: string; description: string; schema: z.ZodType }[] = tools.map(
+  ({ name, description, schema }) => ({ name, description, schema }),
+);
+
+export function isOk(result: unknown): boolean {
+  return (result as { ok?: boolean }).ok === true;
+}
+
 /** Run one tool call against the draft. Never throws; failures become results the model can read. */
 export function executeTool(draft: Draft, name: string, rawArguments: string): unknown {
   const tool = byName.get(name);

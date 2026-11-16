@@ -20,7 +20,12 @@ export default defineConfig({
   },
   webServer: {
     command: `rm -rf ${E2E_DATA_DIR} && npm run dev`,
-    env: { STUDIO_PORT: String(PORT), STUDIO_DATA_DIR: `${process.cwd()}/${E2E_DATA_DIR}`, STUDIO_TOKEN: E2E_TOKEN },
+    env: {
+      STUDIO_PORT: String(PORT),
+      STUDIO_DATA_DIR: `${process.cwd()}/${E2E_DATA_DIR}`,
+      STUDIO_TOKEN: E2E_TOKEN,
+      STUDIO_CHAT_BACKEND: "fake",
+    },
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
     timeout: 120_000,

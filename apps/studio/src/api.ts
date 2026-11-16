@@ -1,7 +1,7 @@
 import {
   fail,
   type BatchRequest,
-  ProjectEvent,
+  ServerEvent,
   type ChangeResult,
   type OperationRequest,
   type PlaytestResult,
@@ -36,13 +36,16 @@ export async function fetchProject(): Promise<ProjectState> {
 export const applyOperation = (request: OperationRequest) => post<ChangeResult>("/api/ops", request);
 export const applyBatch = (request: BatchRequest) => post<ChangeResult>("/api/batch", request);
 export const undo = (request: UndoRequest) => post<ChangeResult>("/api/undo", request);
+export const resetProject = (baseRevision: number) => post<ChangeResult>("/api/reset", { baseRevision });
+export const sendChat = (message: string) => post<{ ok: true }>("/api/chat", { message });
+export const cancelChat = () => post<{ ok: true }>("/api/chat/cancel", {});
 export const setPlaytest = (active: boolean, clientId: string) =>
   post<PlaytestResult>("/api/playtest", { active, clientId });
 
-/** Subscribe to project changes. EventSource reconnects on its own. */
-export function subscribeToProject(
+/** Subscribe to project and chat changes. EventSource reconnects on its own. */
+export function subscribeToServer(
   clientId: string,
-  onEvent: (event: ProjectEvent) => void,
+  onEvent: (event: ServerEvent) => void,
   onConnection: (connected: boolean) => void,
   onProblem: (problem: string) => void,
 ): () => void {
@@ -57,7 +60,7 @@ export function subscribeToProject(
       onProblem("ignored unreadable server event");
       return;
     }
-    const parsed = ProjectEvent.safeParse(json);
+    const parsed = ServerEvent.safeParse(json);
     if (parsed.success) onEvent(parsed.data);
     else onProblem(`ignored invalid server event: ${parsed.error.issues[0]?.message}`);
   };

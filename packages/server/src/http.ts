@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { fail, type ErrorCode, type ProjectEvent } from "@anomaly/core";
+import { fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
+import type { ChatService } from "./chat.ts";
 import type { ProjectStore } from "./projectStore.ts";
 
 export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
@@ -20,11 +21,11 @@ const STATUS_FOR: Record<ErrorCode, number> = {
 };
 
 /** HTTP API over a ProjectStore. See packages/core/src/api.ts for the contract. */
-export function createApiHandler(store: ProjectStore): Middleware {
+export function createApiHandler(store: ProjectStore, chat?: ChatService): Middleware {
   return (req, res, next) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return next();
-    route(store, req, res, url).catch((error: unknown) => {
+    route(store, chat, req, res, url).catch((error: unknown) => {
       console.error("[project-server]", error);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: { code: "internal", message: String(error), issues: [] } });
       else res.end();
@@ -32,7 +33,13 @@ export function createApiHandler(store: ProjectStore): Middleware {
   };
 }
 
-async function route(store: ProjectStore, req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+async function route(
+  store: ProjectStore,
+  chat: ChatService | undefined,
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
   const key = `${req.method} ${url.pathname}`;
   switch (key) {
     case "GET /api/project":
@@ -40,7 +47,7 @@ async function route(store: ProjectStore, req: IncomingMessage, res: ServerRespo
     case "GET /api/history":
       return sendJson(res, 200, { entries: store.getHistory() });
     case "GET /api/events":
-      return openEventStream(store, req, res, url.searchParams.get("clientId"));
+      return openEventStream(store, chat, req, res, url.searchParams.get("clientId"));
     case "POST /api/ops":
       return respond(res, await withBody(req, (body) => store.applyOperation(body)));
     case "POST /api/batch":
@@ -49,9 +56,23 @@ async function route(store: ProjectStore, req: IncomingMessage, res: ServerRespo
       return respond(res, await withBody(req, (body) => store.undo(body)));
     case "POST /api/playtest":
       return respond(res, await withBody(req, (body) => store.setPlaytest(body)));
-    default:
-      return sendJson(res, 404, fail("not_found", `no route ${key}`));
+    case "POST /api/reset": {
+      const result = await withBody(req, (body) => store.reset(body));
+      if (result.ok) await chat?.reset();
+      return respond(res, result);
+    }
   }
+  if (chat) {
+    switch (key) {
+      case "GET /api/chat":
+        return sendJson(res, 200, chat.getState());
+      case "POST /api/chat":
+        return respond(res, await withBody(req, (body) => chat.send(body)));
+      case "POST /api/chat/cancel":
+        return respond(res, chat.cancel());
+    }
+  }
+  sendJson(res, 404, fail("not_found", `no route ${key}`));
 }
 
 type Result = { ok: true } | { ok: false; error: { code: ErrorCode } };
@@ -89,18 +110,27 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-/** Server-sent events: the current project on connect, then every change. */
-function openEventStream(store: ProjectStore, req: IncomingMessage, res: ServerResponse, clientId: string | null) {
+/** Server-sent events: the current project and chat on connect, then every change. */
+function openEventStream(
+  store: ProjectStore,
+  chat: ChatService | undefined,
+  req: IncomingMessage,
+  res: ServerResponse,
+  clientId: string | null,
+) {
   // No `connection` header: it is illegal over HTTP/2 (used by the HTTPS dev server).
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
-  const send = (event: ProjectEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+  const send = (event: ServerEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   send({ type: "project", ...store.getState(), cause: null });
+  if (chat) send({ type: "chat", chat: chat.getState() });
 
-  const unsubscribe = store.subscribe(send);
+  const unsubscribeProject = store.subscribe(send);
+  const unsubscribeChat = chat?.subscribe((state) => send({ type: "chat", chat: state }));
   const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), HEARTBEAT_MS);
   req.on("close", () => {
     clearInterval(heartbeat);
-    unsubscribe();
+    unsubscribeProject();
+    unsubscribeChat?.();
     if (clientId) store.releasePlaytest(clientId);
   });
 }

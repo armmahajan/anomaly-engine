@@ -1,9 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createDefaultProject, type ChangeResult, type OperationCall, type ProjectSpec } from "@anomaly/core";
-import { ProjectStore } from "@anomaly/server";
+import { describe, expect, it } from "vitest";
+import { createDefaultProject, type ChangeResult, type OperationCall } from "@anomaly/core";
 import {
   callTools,
   FakeModel,
@@ -178,48 +174,5 @@ describe("runAgentTurn", () => {
     expect(result.outcome).toBe("no_changes");
     const toolMessages = result.messages.filter((m) => m.role === "tool").map((m) => JSON.parse(m.content as string));
     expect(toolMessages.map((m) => m.error.code)).toEqual(["invalid_arguments", "unknown_tool"]);
-  });
-});
-
-describe("runAgentTurn with the real project store", () => {
-  let dir: string;
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "anomaly-agent-"));
-  });
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  it("saves one AI-attributed history entry that a single undo reverts", async () => {
-    const store = await ProjectStore.open(dir, createDefaultProject);
-    const commit = (operations: OperationCall[], baseRevision: number) =>
-      store.applyBatch({ operations, baseRevision, author: "ai" });
-    const model = new FakeModel([
-      callTools(toolCall("duplicateCharacter", { characterId: "charger", newId: "fast_charger", name: "Fast Charger" })),
-      callTools(
-        toolCall("updateBehavior", { characterId: "fast_charger", stateId: "charge", action: { speed: 800 } }),
-        toolCall("addSpawn", { characterId: "fast_charger", x: 1100, y: 660 }),
-      ),
-      say("Added a Fast Charger (charge 800 px/s) at x 1100."),
-    ]);
-
-    const result = await runAgentTurn({
-      model,
-      project: store.getState().project,
-      history: [],
-      userMessage: "Add a faster version of the Charger",
-      commit,
-    });
-
-    expect(result.outcome).toBe("committed");
-    const saved: ProjectSpec = store.getState().project;
-    expect(saved.revision).toBe(1);
-    expect(saved.sandbox.spawns.map((s) => s.id)).toContain("fast_charger_1");
-    expect(store.getHistory()).toEqual([
-      expect.objectContaining({ author: "ai", summary: "batch: duplicateCharacter, updateBehavior, addSpawn" }),
-    ]);
-
-    await store.undo({ baseRevision: 1 });
-    expect(store.getState().project.characters.map((c) => c.id)).not.toContain("fast_charger");
   });
 });

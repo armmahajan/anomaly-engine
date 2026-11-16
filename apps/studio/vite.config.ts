@@ -3,6 +3,7 @@ import { defineConfig, type Plugin, type PreviewServer, type ViteDevServer } fro
 import react from "@vitejs/plugin-react";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import { createProjectServer, loadOrCreateToken } from "@anomaly/server";
+import { DEFAULT_CLAUDE_MODEL, runClaudeCodeTurn, type TurnRunner } from "@anomaly/agent";
 
 // Godot's web runtime only starts in a secure context (HTTPS or localhost).
 // For access from another machine, `npm run dev:remote` serves over HTTPS
@@ -11,12 +12,19 @@ const https = process.env.STUDIO_HTTPS === "1";
 const port = Number(process.env.STUDIO_PORT ?? 5173);
 const dataDir = process.env.STUDIO_DATA_DIR ?? fileURLToPath(new URL("../../projects/default", import.meta.url));
 const tokenFile = fileURLToPath(new URL("../../.studio-token", import.meta.url));
+const chatModel = process.env.STUDIO_CHAT_MODEL ?? DEFAULT_CLAUDE_MODEL;
+
+/** STUDIO_CHAT_BACKEND: "claude-code" (default; your local Claude Code login) or "fake" (e2e). */
+async function chatRunner(): Promise<TurnRunner> {
+  if (process.env.STUDIO_CHAT_BACKEND === "fake") return (await import("../../e2e/fakeChat.ts")).fakeChatRunner;
+  return (request) => runClaudeCodeTurn({ ...request, model: chatModel });
+}
 
 /** Serves the local project API (/api/*) from the same process and port, behind the studio token. */
 function projectApi(): Plugin {
   const mount = async (server: ViteDevServer | PreviewServer) => {
     const token = process.env.STUDIO_TOKEN ?? (await loadOrCreateToken(tokenFile));
-    const { handler } = await createProjectServer(dataDir, { token });
+    const { handler } = await createProjectServer(dataDir, { token, runner: await chatRunner() });
     server.middlewares.use(handler);
 
     // Print a ready-to-open link next to Vite's own URLs.

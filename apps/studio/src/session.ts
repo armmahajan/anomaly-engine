@@ -3,6 +3,7 @@ import {
   CONDITION_TYPES,
   PROTOCOL_VERSION,
   type ChangeResult,
+  type ChatState,
   type EntityState,
   type ProjectSpec,
   type ProjectState,
@@ -26,6 +27,7 @@ export interface SessionState {
   /** Project revision the runtime has built its scene from. */
   loadedRevision: number | null;
   lastProblem: string | null;
+  chat: ChatState;
 }
 
 export interface RuntimeSnapshot {
@@ -35,6 +37,9 @@ export interface RuntimeSnapshot {
 }
 
 const BOOT_TIMEOUT_MS = 30_000;
+const STOP_TIMEOUT_MS = 5_000;
+
+const locked = (message: string): ChangeResult => ({ ok: false, error: { code: "locked", message, issues: [] } });
 
 /**
  * One studio window: mirrors the server's project, relays edits to it,
@@ -51,6 +56,8 @@ export class Session {
   private bootTimer: ReturnType<typeof setTimeout> | undefined;
   /** Last revision we asked the runtime to load (avoids duplicate loads). */
   private requestedRevision: number | null = null;
+  /** Pending release of the playtest lock after leaving play. */
+  private releasing: Promise<unknown> = Promise.resolve();
   private readonly clientId = `studio_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
   constructor(initial: ProjectState) {
@@ -62,6 +69,7 @@ export class Session {
       runtimeStatus: "booting",
       loadedRevision: null,
       lastProblem: null,
+      chat: { entries: [], running: null, undone: [] },
     };
   }
 
@@ -81,11 +89,11 @@ export class Session {
 
   // --- server sync ---
 
-  /** Follow project changes from the server, whoever made them. */
+  /** Follow project and chat changes from the server, whoever made them. */
   connectServer(): () => void {
-    return api.subscribeToProject(
+    return api.subscribeToServer(
       this.clientId,
-      (event) => this.receiveProject(event),
+      (event) => (event.type === "project" ? this.receiveProject(event) : this.set({ chat: event.chat })),
       (connected) => {
         this.set({ serverConnected: connected });
         // The server drops our playtest lock when the stream drops; take it back.
@@ -152,7 +160,7 @@ export class Session {
         const leavingPlay = this.state.mode === "play" && message.mode === "edit";
         this.set({ mode: message.mode });
         if (leavingPlay) {
-          void api.setPlaytest(false, this.clientId);
+          this.releasing = api.setPlaytest(false, this.clientId);
           this.syncRuntime();
         }
         return;
@@ -192,10 +200,18 @@ export class Session {
   getProject = (): ProjectSpec => this.state.project;
 
   /** Apply any named core operation through the server. */
+  /** True while an AI turn runs: the project is locked to everyone but the AI. */
+  aiBusy = (): boolean => this.state.chat.running !== null;
+
+  private editBlocked(): ChangeResult | null {
+    if (this.state.mode !== "edit") return locked("stop the playtest before editing");
+    if (this.aiBusy()) return locked("the AI is editing the project; wait for it or cancel");
+    return null;
+  }
+
   applyOperation = async (name: string, input: unknown): Promise<ChangeResult> => {
-    if (this.state.mode !== "edit") {
-      return { ok: false, error: { code: "locked", message: "stop the playtest before editing", issues: [] } };
-    }
+    const blocked = this.editBlocked();
+    if (blocked) return blocked;
     const result = await api.applyOperation({ name, input, baseRevision: this.state.project.revision, author: "user" });
     if (result.ok) this.receiveProject(result);
     return result;
@@ -203,9 +219,8 @@ export class Session {
 
   /** Apply several operations atomically (one revision, one undo step); see core `applyBatch`. */
   applyBatch = async (operations: { name: string; input: unknown }[]): Promise<ChangeResult> => {
-    if (this.state.mode !== "edit") {
-      return { ok: false, error: { code: "locked", message: "stop the playtest before editing", issues: [] } };
-    }
+    const blocked = this.editBlocked();
+    if (blocked) return blocked;
     const result = await api.applyBatch({ operations, baseRevision: this.state.project.revision, author: "user" });
     if (result.ok) this.receiveProject(result);
     return result;
@@ -215,9 +230,8 @@ export class Session {
   updateCharacter = (input: unknown): Promise<ChangeResult> => this.applyOperation("updateCharacter", input);
 
   undo = async (): Promise<ChangeResult> => {
-    if (this.state.mode !== "edit") {
-      return { ok: false, error: { code: "locked", message: "stop the playtest before undoing", issues: [] } };
-    }
+    const blocked = this.editBlocked();
+    if (blocked) return blocked;
     const result = await api.undo({ baseRevision: this.state.project.revision, author: "user" });
     if (result.ok) this.receiveProject(result);
     return result;
@@ -225,7 +239,48 @@ export class Session {
 
   canPlay(): boolean {
     const s = this.state;
-    return s.runtimeStatus === "ready" && s.mode === "edit" && s.loadedRevision === s.project.revision;
+    return s.runtimeStatus === "ready" && s.mode === "edit" && !this.aiBusy() && s.loadedRevision === s.project.revision;
+  }
+
+  /** Back up the project on the server and start over from the starter project. */
+  resetProject = async (): Promise<ChangeResult> => {
+    const blocked = this.editBlocked();
+    if (blocked) return blocked;
+    const result = await api.resetProject(this.state.project.revision);
+    if (result.ok) this.receiveProject(result);
+    return result;
+  };
+
+  /** Send a chat message to the AI. A running playtest is stopped first. */
+  sendChat = async (message: string): Promise<boolean> => {
+    if (this.state.mode === "play") {
+      this.stop();
+      if (!(await this.waitFor(() => this.state.mode === "edit", STOP_TIMEOUT_MS))) {
+        this.reportProblem("could not stop the playtest to send the message");
+        return false;
+      }
+    }
+    await this.releasing;
+    const result = await api.sendChat(message);
+    if (!result.ok) this.reportProblem(`chat: ${result.error.message}`);
+    return result.ok;
+  };
+
+  cancelChat = async (): Promise<void> => {
+    await api.cancelChat();
+  };
+
+  private waitFor(predicate: () => boolean, timeoutMs: number): Promise<boolean> {
+    if (predicate()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = (value: boolean) => {
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(value);
+      };
+      const timer = setTimeout(() => done(false), timeoutMs);
+      const unsubscribe = this.subscribe(() => predicate() && done(true));
+    });
   }
 
   play = async (): Promise<boolean> => {
