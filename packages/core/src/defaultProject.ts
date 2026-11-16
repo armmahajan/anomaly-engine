@@ -2,6 +2,7 @@ import { SCHEMA_VERSION, type EnemyCharacter, type ProjectSpec } from "./schema.
 import { defaultWiki } from "./wiki/wiki.ts";
 import { defaultProgression } from "./progression/progression.ts";
 import { defaultAbilityTuning } from "./movement/params.ts";
+import { defaultArtSection } from "./art/asset.ts";
 
 /** Starter project: a sandbox arena with a player, a patroller and a charger. */
 export function createDefaultProject(): ProjectSpec {
@@ -105,6 +106,7 @@ export function createDefaultProject(): ProjectSpec {
     },
     wiki: defaultWiki(),
     progression: defaultProgression(),
+    art: defaultArtSection(),
   };
 }
 

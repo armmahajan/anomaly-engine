@@ -1,0 +1,631 @@
+{
+ "name": "fungal-cathedral",
+ "width": 2880,
+ "height": 720,
+ "backdrop": "bbf534215c1b7f85a3f9f1adfd84eeba.png",
+ "ground": "9cfab0927de17d9d59bb3ff35e09548e.png",
+ "pieces": [
+  {
+   "id": "s0_broken_stone_pillar",
+   "file": "39b9bcc30e50ec46d83695d7a6b17287.png",
+   "name": "broken stone pillar",
+   "kind": "structure",
+   "width": 191,
+   "height": 309,
+   "size": 400
+  },
+  {
+   "id": "s1_ruined_archway_wall",
+   "file": "feea14c5456628c153b8cb13e91ac03c.png",
+   "name": "ruined archway wall",
+   "kind": "structure",
+   "width": 291,
+   "height": 279,
+   "size": 400
+  },
+  {
+   "id": "s2_crumbling_stone_wall",
+   "file": "5957937c6189569c6de1059121fb999d.png",
+   "name": "crumbling stone wall",
+   "kind": "structure",
+   "width": 261,
+   "height": 279,
+   "size": 400
+  },
+  {
+   "id": "s3_dripping_stone_column",
+   "file": "7acf3329b6361d8395e48b855b278c5c.png",
+   "name": "dripping stone column",
+   "kind": "structure",
+   "width": 212,
+   "height": 341,
+   "size": 350
+  },
+  {
+   "id": "s4_melting_pillar_with_drips",
+   "file": "277b7e5e3d8a88ac6b26e699e7cf8be0.png",
+   "name": "melting pillar with drips",
+   "kind": "structure",
+   "width": 309,
+   "height": 341,
+   "size": 350
+  },
+  {
+   "id": "s5_mushroom_cap_stone_pillar",
+   "file": "40232f47a2583fff4bc249ceade98177.png",
+   "name": "mushroom-cap stone pillar",
+   "kind": "structure",
+   "width": 307,
+   "height": 341,
+   "size": 380
+  },
+  {
+   "id": "s6_ruined_arch_with_window",
+   "file": "97bc6e7795a4f112205de08277150b6b.png",
+   "name": "ruined arch with window",
+   "kind": "structure",
+   "width": 253,
+   "height": 313,
+   "size": 300
+  },
+  {
+   "id": "s7_arched_doorway_wall",
+   "file": "1fcd537a6d09b572b2ec7c56b0453fa8.png",
+   "name": "arched doorway wall",
+   "kind": "structure",
+   "width": 320,
+   "height": 312,
+   "size": 300
+  },
+  {
+   "id": "s8_broken_rubble_column",
+   "file": "80bb33363b30f47023cc8f95fad0c959.png",
+   "name": "broken rubble column",
+   "kind": "structure",
+   "width": 251,
+   "height": 308,
+   "size": 380
+  },
+  {
+   "id": "p0_hanging_lantern_cage",
+   "file": "f2bdec40030eaa233fbac330f24fc2fc.png",
+   "name": "hanging lantern cage",
+   "kind": "light",
+   "width": 198,
+   "height": 300,
+   "size": 55,
+   "glow": "#ffcc66"
+  },
+  {
+   "id": "p1_mushroom_cluster",
+   "file": "f10c148e828342db788988e986f47642.png",
+   "name": "mushroom cluster",
+   "kind": "decor",
+   "width": 284,
+   "height": 274,
+   "size": 55
+  },
+  {
+   "id": "p2_hanging_iron_chain",
+   "file": "a8560c411541086fb8411d2cb81a3e82.png",
+   "name": "hanging iron chain",
+   "kind": "hanging",
+   "width": 70,
+   "height": 276,
+   "size": 120
+  },
+  {
+   "id": "p3_rock_mound_with_boulder",
+   "file": "266e061584580eec719fae889a36fe8b.png",
+   "name": "rock mound with boulder",
+   "kind": "decor",
+   "width": 278,
+   "height": 341,
+   "size": 25
+  },
+  {
+   "id": "p4_rubble_mound",
+   "file": "5e10d433c923c00bfc312cf3178ef6e5.png",
+   "name": "rubble mound",
+   "kind": "decor",
+   "width": 301,
+   "height": 288,
+   "size": 30
+  },
+  {
+   "id": "p5_rock_with_flat_ledge",
+   "file": "bafff229041078d7a60b6fcff3f38d10.png",
+   "name": "rock with flat ledge",
+   "kind": "decor",
+   "width": 272,
+   "height": 286,
+   "size": 28
+  },
+  {
+   "id": "p6_stone_cross_grave_marker",
+   "file": "ed5945e83e54bf5cac4ae8f8fa65a5af.png",
+   "name": "stone cross grave marker",
+   "kind": "decor",
+   "width": 261,
+   "height": 281,
+   "size": 50
+  },
+  {
+   "id": "p7_arched_tombstone",
+   "file": "07df8f1980d1c0470774c7d9fb862a89.png",
+   "name": "arched tombstone",
+   "kind": "decor",
+   "width": 303,
+   "height": 235,
+   "size": 40
+  },
+  {
+   "id": "p8_rune_gravestone",
+   "file": "ea7f6e04e19f969b3c7561e8bb0da4ee.png",
+   "name": "rune gravestone",
+   "kind": "decor",
+   "width": 272,
+   "height": 245,
+   "size": 50
+  }
+ ],
+ "palette": {
+  "ambient": "#7890a8",
+  "fog": "#2a4a64",
+  "light": "#ffcc66",
+  "shadow": "#0a1622"
+ },
+ "platforms": [
+  {
+   "x": 0,
+   "y": 610,
+   "width": 2880,
+   "height": 110
+  },
+  {
+   "x": 380,
+   "y": 470,
+   "width": 220,
+   "height": 30
+  },
+  {
+   "x": 800,
+   "y": 370,
+   "width": 200,
+   "height": 30
+  },
+  {
+   "x": 1280,
+   "y": 450,
+   "width": 260,
+   "height": 30
+  },
+  {
+   "x": 1800,
+   "y": 340,
+   "width": 220,
+   "height": 30
+  },
+  {
+   "x": 2250,
+   "y": 470,
+   "width": 240,
+   "height": 30
+  }
+ ],
+ "placements": [
+  {
+   "piece": "s1_ruined_archway_wall",
+   "layer": "mid",
+   "x": 150,
+   "y": 610,
+   "scale": 1.4,
+   "flip": false
+  },
+  {
+   "piece": "s3_dripping_stone_column",
+   "layer": "mid",
+   "x": 520,
+   "y": 610,
+   "scale": 1.3,
+   "flip": false
+  },
+  {
+   "piece": "s6_ruined_arch_with_window",
+   "layer": "mid",
+   "x": 900,
+   "y": 610,
+   "scale": 1.5,
+   "flip": false
+  },
+  {
+   "piece": "s0_broken_stone_pillar",
+   "layer": "mid",
+   "x": 1350,
+   "y": 610,
+   "scale": 1.6,
+   "flip": true
+  },
+  {
+   "piece": "s5_mushroom_cap_stone_pillar",
+   "layer": "mid",
+   "x": 1700,
+   "y": 610,
+   "scale": 1.4,
+   "flip": false
+  },
+  {
+   "piece": "s2_crumbling_stone_wall",
+   "layer": "mid",
+   "x": 2080,
+   "y": 610,
+   "scale": 1.5,
+   "flip": false
+  },
+  {
+   "piece": "s7_arched_doorway_wall",
+   "layer": "mid",
+   "x": 2480,
+   "y": 610,
+   "scale": 1.4,
+   "flip": true
+  },
+  {
+   "piece": "s4_melting_pillar_with_drips",
+   "layer": "mid",
+   "x": 2800,
+   "y": 610,
+   "scale": 1.3,
+   "flip": false
+  },
+  {
+   "piece": "s8_broken_rubble_column",
+   "layer": "back",
+   "x": 60,
+   "y": 610,
+   "scale": 0.8,
+   "flip": false
+  },
+  {
+   "piece": "s2_crumbling_stone_wall",
+   "layer": "back",
+   "x": 1160,
+   "y": 610,
+   "scale": 0.6,
+   "flip": true
+  },
+  {
+   "piece": "s0_broken_stone_pillar",
+   "layer": "back",
+   "x": 2420,
+   "y": 610,
+   "scale": 0.7,
+   "flip": false
+  },
+  {
+   "piece": "p4_rubble_mound",
+   "layer": "back",
+   "x": 250,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p6_stone_cross_grave_marker",
+   "layer": "back",
+   "x": 560,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p7_arched_tombstone",
+   "layer": "back",
+   "x": 760,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "back",
+   "x": 1000,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p3_rock_mound_with_boulder",
+   "layer": "back",
+   "x": 1500,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p8_rune_gravestone",
+   "layer": "back",
+   "x": 1960,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p5_rock_with_flat_ledge",
+   "layer": "back",
+   "x": 2200,
+   "y": 610,
+   "scale": 1,
+   "flip": true
+  },
+  {
+   "piece": "p0_hanging_lantern_cage",
+   "layer": "play",
+   "x": 480,
+   "y": 470,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p0_hanging_lantern_cage",
+   "layer": "play",
+   "x": 900,
+   "y": 370,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p0_hanging_lantern_cage",
+   "layer": "play",
+   "x": 1900,
+   "y": 340,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p0_hanging_lantern_cage",
+   "layer": "play",
+   "x": 2330,
+   "y": 470,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "play",
+   "x": 300,
+   "y": 0,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "play",
+   "x": 1100,
+   "y": 0,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "play",
+   "x": 1650,
+   "y": 0,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "play",
+   "x": 2100,
+   "y": 0,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "play",
+   "x": 2700,
+   "y": 0,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 120,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 180,
+   "y": 610,
+   "scale": 1.2,
+   "flip": false
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 620,
+   "y": 610,
+   "scale": 1,
+   "flip": true
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 1120,
+   "y": 610,
+   "scale": 1.1,
+   "flip": false
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 1600,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 2050,
+   "y": 610,
+   "scale": 1.2,
+   "flip": true
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 2500,
+   "y": 610,
+   "scale": 1,
+   "flip": false
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 2780,
+   "y": 610,
+   "scale": 1.1,
+   "flip": false
+  },
+  {
+   "piece": "p5_rock_with_flat_ledge",
+   "layer": "play",
+   "x": 1400,
+   "y": 450,
+   "scale": 0.8,
+   "flip": false
+  },
+  {
+   "piece": "p6_stone_cross_grave_marker",
+   "layer": "play",
+   "x": 1880,
+   "y": 340,
+   "scale": 0.8,
+   "flip": false
+  },
+  {
+   "piece": "p1_mushroom_cluster",
+   "layer": "play",
+   "x": 2380,
+   "y": 470,
+   "scale": 0.8,
+   "flip": false
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "front",
+   "x": 40,
+   "y": 0,
+   "scale": 1.2,
+   "flip": false
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "front",
+   "x": 720,
+   "y": 0,
+   "scale": 1.3,
+   "flip": true
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "front",
+   "x": 1400,
+   "y": 0,
+   "scale": 1.2,
+   "flip": false
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "front",
+   "x": 2100,
+   "y": 0,
+   "scale": 1.3,
+   "flip": true
+  },
+  {
+   "piece": "p2_hanging_iron_chain",
+   "layer": "front",
+   "x": 2840,
+   "y": 0,
+   "scale": 1.2,
+   "flip": false
+  },
+  {
+   "piece": "s3_dripping_stone_column",
+   "layer": "front",
+   "x": 1000,
+   "y": 780,
+   "scale": 1.6,
+   "flip": true
+  },
+  {
+   "piece": "s8_broken_rubble_column",
+   "layer": "front",
+   "x": 1900,
+   "y": 780,
+   "scale": 1.8,
+   "flip": false
+  },
+  {
+   "piece": "s5_mushroom_cap_stone_pillar",
+   "layer": "front",
+   "x": 2600,
+   "y": 780,
+   "scale": 1.5,
+   "flip": false
+  }
+ ],
+ "lights": [
+  {
+   "x": 1000,
+   "y": 300,
+   "color": "#ffcc66",
+   "energy": 0.6,
+   "radius": 260
+  },
+  {
+   "x": 2000,
+   "y": 560,
+   "color": "#88ccff",
+   "energy": 0.4,
+   "radius": 300
+  }
+ ],
+ "fog": {
+  "mid": 0.5,
+  "back": 0.4,
+  "play": 0.25
+ },
+ "rays": [
+  {
+   "x": 500,
+   "width": 160,
+   "angle": 0.12,
+   "alpha": 0.18
+  },
+  {
+   "x": 1400,
+   "width": 220,
+   "angle": -0.08,
+   "alpha": 0.14
+  },
+  {
+   "x": 2300,
+   "width": 180,
+   "angle": 0.1,
+   "alpha": 0.16
+  }
+ ],
+ "dust": {
+  "color": "#bfe6ff",
+  "amount": 110
+ }
+}

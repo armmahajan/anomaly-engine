@@ -4,6 +4,7 @@ import { Color, Id } from "./common.ts";
 import { defaultWiki, Wiki } from "./wiki/wiki.ts";
 import { defaultProgression, Progression, progressionIssues } from "./progression/progression.ts";
 import { AbilityTuning, MovementAbility } from "./movement/params.ts";
+import { ArtSection, defaultArtSection } from "./art/asset.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -55,6 +56,7 @@ const characterBase = {
   name: z.string().min(1).max(80).describe("Display name."),
   color: Color.describe("Body color, #rrggbb (placeholder art)."),
   size: Size.describe("Collision box in px."),
+  appearance: Id.optional().describe("Id of the character art asset that draws it (art.assets); without one it is a colored box."),
 };
 
 export const PlayerCharacter = z.strictObject({
@@ -126,10 +128,28 @@ export const ProjectSpec = z
     wiki: Wiki.default(defaultWiki),
     /** Regions, abilities and gates. Older projects get an empty one. */
     progression: Progression.default(defaultProgression),
+    /** Art direction and generated assets. Older projects get the defaults. */
+    art: ArtSection.default(defaultArtSection),
   })
   .superRefine((project, ctx) => {
     for (const issue of progressionIssues(project.progression, project.characters)) ctx.addIssue({ code: "custom", ...issue });
 
+    const assetIds = new Set<string>();
+    project.art.assets.forEach((a, i) => {
+      if (assetIds.has(a.id)) {
+        ctx.addIssue({ code: "custom", path: ["art", "assets", i, "id"], message: `duplicate asset id "${a.id}"` });
+      }
+      assetIds.add(a.id);
+    });
+    project.characters.forEach((c, i) => {
+      if (c.appearance !== undefined && !project.art.assets.some((a) => a.id === c.appearance && a.kind === "character")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["characters", i, "appearance"],
+          message: `unknown character asset "${c.appearance}"`,
+        });
+      }
+    });
     const pageIds = new Set<string>();
     project.wiki.pages.forEach((p, i) => {
       if (pageIds.has(p.id)) {

@@ -1,0 +1,111 @@
+import { z } from "zod";
+import { Id } from "../common.ts";
+
+/**
+ * Animation clips: keyframed bone tracks plus *motions*, small parameterized
+ * animation primitives (sway, bob, pulse...) that the runtime evaluates.
+ * Motions are cheap for the AI to write and hard to get wrong; keyframes
+ * cover anything specific (a leg cycle, a strike).
+ *
+ * Time inside a clip is normalized: 0 = start, 1 = end (`duration` seconds).
+ * All values are offsets from the rest pose: rotate in degrees (clockwise,
+ * the character faces right), x/y in px, scale as a multiplier (1 = rest).
+ */
+
+const T = z.number().min(0).max(1).describe("Normalized time, 0..1.");
+
+export const TrackProperty = z.enum(["rotate", "x", "y", "scaleX", "scaleY"]);
+export type TrackProperty = z.infer<typeof TrackProperty>;
+
+export const Track = z.strictObject({
+  bone: Id,
+  property: TrackProperty,
+  keys: z
+    .array(z.tuple([T, z.number().min(-2000).max(2000)]))
+    .min(1)
+    .max(32)
+    .describe("[t, value] pairs in time order. For a looping clip, make the last value equal the first."),
+  ease: z.enum(["smooth", "linear", "step"]).default("smooth"),
+});
+export type Track = z.infer<typeof Track>;
+
+const Cycles = z.number().int().min(1).max(16).default(1).describe("Whole cycles per clip (whole numbers loop seamlessly).");
+const Phase = z.number().min(0).max(1).default(0).describe("Offset within a cycle, 0..1 (e.g. 0.5 for the opposite leg).");
+
+export const Motion = z
+  .discriminatedUnion("type", [
+    z
+      .strictObject({ type: z.literal("sway"), bone: Id, degrees: z.number().min(-180).max(180), cycles: Cycles, phase: Phase })
+      .describe("Rotate back and forth by ±degrees (sine): legs, tails, antennae, wings, breathing heads."),
+    z
+      .strictObject({ type: z.literal("bob"), bone: Id, amount: z.number().min(-200).max(200), cycles: Cycles, phase: Phase })
+      .describe("Move up and down by ±amount px (sine): body bounce in walk/idle, hovering."),
+    z
+      .strictObject({ type: z.literal("shift"), bone: Id, amount: z.number().min(-200).max(200), cycles: Cycles, phase: Phase })
+      .describe("Move forward and back by ±amount px (sine): leg steps, head thrusts."),
+    z
+      .strictObject({ type: z.literal("pulse"), bone: Id, amount: z.number().min(-1).max(1), cycles: Cycles, phase: Phase })
+      .describe("Scale up and down by ±amount (0.05 = 5%): breathing, throbbing."),
+    z
+      .strictObject({
+        type: z.literal("squash"),
+        bone: Id,
+        amount: z.number().min(-0.8).max(0.8).describe("+ squashes (shorter and wider), - stretches."),
+        at: T.describe("When the squash peaks."),
+        width: z.number().min(0.02).max(1).default(0.25).describe("How long it lasts, as a fraction of the clip."),
+      })
+      .describe("One squash-and-stretch pulse that keeps volume: landings, impacts, wind-ups."),
+    z
+      .strictObject({ type: z.literal("shake"), bone: Id, amount: z.number().min(0).max(50).describe("px") })
+      .describe("Fast jitter: rage, wind-up tension, being hurt."),
+  ])
+  .describe("An animation primitive, added on top of keyframed tracks.");
+export type Motion = z.infer<typeof Motion>;
+
+export const PartVisibility = z.strictObject({
+  part: Id,
+  keys: z.array(z.tuple([T, z.boolean()])).min(1).max(32).describe("[t, visible] pairs: the part shows/hides at each t."),
+});
+
+export const Clip = z.strictObject({
+  duration: z.number().min(0.05).max(10).describe("Seconds."),
+  loop: z.boolean().describe("Loop (idle, walk, run, fly) or play once and hold the last frame (attack, hurt)."),
+  tracks: z.array(Track).max(64).default([]),
+  motions: z.array(Motion).max(64).default([]),
+  visibility: z.array(PartVisibility).max(32).default([]).describe("Show/hide parts over time: blinks, smears, effects."),
+});
+export type Clip = z.infer<typeof Clip>;
+
+/**
+ * Clip slots the runtime looks for, by situation. Enemies map their current
+ * behavior action to a slot (falling back along the list); a character's
+ * `stateClips` can point a specific behavior state at any clip instead.
+ */
+export const CLIP_SLOTS = {
+  idle: "Standing still (also the fallback for everything).",
+  walk: "Patrolling or moving slowly.",
+  run: "Chasing or moving fast.",
+  windup: "Telegraphing an attack: a readable anticipation pose.",
+  attack: "Charging or striking.",
+  hurt: "Just took a hit (plays once).",
+  jump: "Rising in the air.",
+  fall: "Falling.",
+  fly: "Airborne movement for flying characters.",
+} as const;
+export type ClipSlot = keyof typeof CLIP_SLOTS;
+
+/** Which slot each behavior action uses, with fallbacks (first existing clip wins, then idle). */
+export const ACTION_CLIP_SLOTS: Record<string, readonly ClipSlot[]> = {
+  patrol: ["walk", "run"],
+  wait: ["idle"],
+  chase: ["run", "walk"],
+  charge: ["attack", "run"],
+  telegraph: ["windup"],
+  retreat: ["walk", "run"],
+  returnHome: ["walk"],
+  jump: ["jump"],
+  hover: ["fly"],
+};
+
+/** Clip slots the player uses. */
+export const PLAYER_CLIP_SLOTS: readonly ClipSlot[] = ["idle", "run", "jump", "fall", "hurt"];

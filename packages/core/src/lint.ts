@@ -1,4 +1,5 @@
 import type { ProjectSpec } from "./schema.ts";
+import { lintArt, type ArtWarningCode } from "./art/lint.ts";
 
 /**
  * Semantic checks the schema can't express. A project with warnings is still
@@ -12,7 +13,8 @@ export type WarningCode =
   | "unplaced_character"
   | "unreachable_state"
   | "endless_state"
-  | "movement_mismatch";
+  | "movement_mismatch"
+  | ArtWarningCode;
 
 export interface ProjectWarning {
   code: WarningCode;
@@ -106,5 +108,6 @@ export function lintProject(project: ProjectSpec): ProjectWarning[] {
     }
   });
 
+  warnings.push(...lintArt(project));
   return warnings;
 }

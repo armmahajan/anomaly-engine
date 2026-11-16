@@ -5,6 +5,7 @@ import type { Transition } from "./behavior.ts";
 import { wikiOperations } from "./wiki/operations.ts";
 import { progressionOperations, withoutEnemy } from "./progression/operations.ts";
 import { MovementAbility } from "./movement/params.ts";
+import { artOperations } from "./art/operations.ts";
 
 /**
  * Project operations: pure functions (project, untrusted input) -> result.
@@ -448,6 +449,7 @@ const operations = {
   setArenaAbilities,
   ...wikiOperations,
   ...progressionOperations,
+  ...artOperations,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;
 
 export type OperationName = keyof typeof operations;

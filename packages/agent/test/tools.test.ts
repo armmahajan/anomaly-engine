@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { ACTION_TYPES, createDefaultProject, OPERATION_NAMES, PROGRESSION_OPERATION_NAMES, WIKI_OPERATION_NAMES } from "@anomaly/core";
-import { buildSystemPrompt, Draft, executeTool, NARRATIVE_TOOLS, READ_TOOL_NAMES, summarizeProject, toolDefinitions } from "../src/index.ts";
+import { buildSystemPrompt, Draft, executeTool, NARRATIVE_TOOLS, PIPELINE_ONLY_OPERATIONS, READ_TOOL_NAMES, summarizeProject, toolDefinitions } from "../src/index.ts";
 
 const definitions = toolDefinitions();
 const byName = Object.fromEntries(definitions.map((d) => [d.function.name, d.function]));
 const run = (draft: Draft, name: string, args: unknown) => executeTool(draft, name, JSON.stringify(args)) as Record<string, any>;
 
 describe("tool definitions", () => {
-  it("expose every core operation except the director's plus the read tools, with valid names", () => {
-    const director: string[] = [...WIKI_OPERATION_NAMES, ...PROGRESSION_OPERATION_NAMES];
-    const build = OPERATION_NAMES.filter((n) => !director.includes(n));
+  it("expose every core operation except the director's and pipeline-only art ones, plus the read tools, with valid names", () => {
+    const excluded: string[] = [...WIKI_OPERATION_NAMES, ...PROGRESSION_OPERATION_NAMES, ...PIPELINE_ONLY_OPERATIONS];
+    const build = OPERATION_NAMES.filter((n) => !excluded.includes(n));
     expect(Object.keys(byName).sort()).toEqual([...build, ...READ_TOOL_NAMES].sort());
     for (const d of [...definitions, ...toolDefinitions(NARRATIVE_TOOLS)]) {
       expect(d.type).toBe("function");

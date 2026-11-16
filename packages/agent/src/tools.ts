@@ -15,6 +15,13 @@ import {
   SpawnRef,
   UpdateBehaviorInput,
   UpdateCharacterInput,
+  SetArtDirectionInput,
+  UpdateAssetInput,
+  AssetRef,
+  AssignAppearanceInput,
+  UpdatePartInput,
+  SetStateClipInput,
+  Clip,
   type OperationCall,
   type OperationName,
   type ProjectSpec,
@@ -57,8 +64,11 @@ export interface ToolSpec {
   run: (draft: Draft, args: unknown) => unknown;
 }
 
-/** The build assistant's write tools: every operation except the wiki's and progression's (the director's). */
-type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOperationName>;
+/** Art operations only the art pipeline runs (concepts, whole rigs); the build assistant uses art jobs instead. */
+export const PIPELINE_ONLY_OPERATIONS = ["createAsset", "addConcept", "chooseConcept", "setRig"] as const;
+
+/** The build assistant's write tools: every operation except the wiki's and progression's (the director's) and pipeline-only art ones. */
+type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOperationName | (typeof PIPELINE_ONLY_OPERATIONS)[number]>;
 
 const writeDescriptions: Record<BuildOperation, string> = {
   createCharacter:
@@ -74,6 +84,15 @@ const writeDescriptions: Record<BuildOperation, string> = {
   addSpawn: "Place an instance of a character in the arena at its feet position.",
   moveSpawn: "Move a spawn (either axis).",
   removeSpawn: "Remove one spawn. The character type remains.",
+  setArtDirection: "Change the project-wide art direction (style words, palette, outline color/width, line boil).",
+  updateAsset: "Rename an art asset or change its brief (the description concept art is generated from).",
+  deleteAsset: "Delete an art asset; characters drawn with it go back to colored boxes.",
+  assignAppearance: "Draw a character with a character art asset (or null for a colored box). Variants can share one asset.",
+  updatePart:
+    "Targeted edit of one part of a character's rig: recolor (fill/shade), outline (ink), glow, opacity, draw order (z) or shape.",
+  setClip:
+    "Create, replace or delete (clip: null) an animation clip on a character asset. Slot names (idle, walk, run, windup, attack, hurt, jump, fall, fly) are used automatically.",
+  setStateClip: "Make a behavior state play a specific clip instead of its automatic slot (clipId null = automatic).",
 };
 
 /** Precise parameter schemas for the model; the operations themselves accept `unknown` and validate. */
@@ -88,6 +107,13 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   addSpawn: AddSpawnInput,
   moveSpawn: MoveSpawnInput,
   removeSpawn: SpawnRef,
+  setArtDirection: SetArtDirectionInput,
+  updateAsset: UpdateAssetInput,
+  deleteAsset: AssetRef,
+  assignAppearance: AssignAppearanceInput,
+  updatePart: UpdatePartInput,
+  setClip: z.strictObject({ assetId: Id, clipId: Id, clip: Clip.nullable() }),
+  setStateClip: SetStateClipInput,
 };
 
 /** Apply an operation to the draft and stage it for the end-of-turn commit. */
