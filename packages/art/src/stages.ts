@@ -222,7 +222,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
     recommended = await askJson(
       ctx,
       z.object({ cell: z.number().int().min(0).max(3), reason: z.string().max(500) }),
-      { system: PICK_SYSTEM, content: [image(generated.image), text(pickPrompt(brief, project.art.direction, input.feedback))], maxTokens: 400 },
+      { system: PICK_SYSTEM, content: [image(generated.image), text(pickPrompt(brief, project.art.direction, input.feedback))], maxTokens: 3000 },
       "picking a design",
     );
     ctx.log({ text: `recommends design ${recommended.cell + 1}: ${recommended.reason}` });
@@ -280,7 +280,7 @@ export async function chooseConcept(ctx: ArtContext, input: ChooseInput): Promis
     const { facing } = await askJson(
       ctx,
       z.object({ facing: z.enum(["left", "right"]) }),
-      { system: PICK_SYSTEM, content: [image(cropped), text(FACING_PROMPT)], maxTokens: 100 },
+      { system: PICK_SYSTEM, content: [image(cropped), text(FACING_PROMPT)], maxTokens: 2000 },
       "checking which way it faces",
     );
     if (facing === "left") {
