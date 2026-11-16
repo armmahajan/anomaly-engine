@@ -86,7 +86,7 @@ export const CLIP_SLOTS = {
   walk: "Patrolling or moving slowly.",
   run: "Chasing or moving fast.",
   windup: "Telegraphing an attack: a readable anticipation pose.",
-  attack: "Charging or striking.",
+  attack: "Charging or striking (the player's sword swings too, unless slash_forward/slash_up/slash_down exist).",
   hurt: "Just took a hit (plays once).",
   jump: "Rising in the air.",
   fall: "Falling.",
@@ -94,7 +94,10 @@ export const CLIP_SLOTS = {
 } as const;
 export type ClipSlot = keyof typeof CLIP_SLOTS;
 
-/** Which slot each behavior action uses, with fallbacks (first existing clip wins, then idle). */
+/**
+ * Which slot each behavior action uses, with fallbacks (first existing clip
+ * wins, then idle). Flying characters use "fly" instead of walk/run.
+ */
 export const ACTION_CLIP_SLOTS: Record<string, readonly ClipSlot[]> = {
   patrol: ["walk", "run"],
   wait: ["idle"],
@@ -108,4 +111,4 @@ export const ACTION_CLIP_SLOTS: Record<string, readonly ClipSlot[]> = {
 };
 
 /** Clip slots the player uses. */
-export const PLAYER_CLIP_SLOTS: readonly ClipSlot[] = ["idle", "run", "jump", "fall", "hurt"];
+export const PLAYER_CLIP_SLOTS: readonly ClipSlot[] = ["idle", "run", "jump", "fall", "attack", "hurt"];

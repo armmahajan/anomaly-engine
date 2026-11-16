@@ -262,7 +262,7 @@ func _update_rig() -> void:
 		return
 	var state = _states.get(behavior_state)
 	var action_type: String = str(state.action.type) if state != null else ""
-	_rig.play(CharacterArt.clip_for_state(_asset, _rig, behavior_state, action_type))
+	_rig.play(CharacterArt.clip_for_state(_asset, _rig, behavior_state, action_type, flying))
 
 
 func _draw() -> void:

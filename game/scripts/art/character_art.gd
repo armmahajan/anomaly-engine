@@ -39,11 +39,15 @@ static func make_view(asset: Dictionary, art: Dictionary) -> Node2D:
 
 
 ## First existing clip for a behavior state: explicit mapping, then the action's slots, then idle.
-static func clip_for_state(asset: Dictionary, view: Node2D, state_id: String, action_type: String) -> String:
+## Flying characters use "fly" for moving actions.
+static func clip_for_state(asset: Dictionary, view: Node2D, state_id: String, action_type: String, flying := false) -> String:
 	var mapped = asset.get("stateClips", {}).get(state_id)
 	if mapped != null and view.has_clip(str(mapped)):
 		return str(mapped)
-	return first_clip(view, ACTION_CLIP_SLOTS.get(action_type, []))
+	var slots: Array = ACTION_CLIP_SLOTS.get(action_type, [])
+	if flying and ("walk" in slots or "run" in slots):
+		slots = ["fly"] + slots
+	return first_clip(view, slots)
 
 
 static func first_clip(view: Node2D, slots: Array) -> String:

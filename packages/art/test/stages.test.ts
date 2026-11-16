@@ -138,5 +138,7 @@ describe("art pipeline stages", () => {
     });
     project.characters = project.characters.map((c) => (c.id === "player" || c.id === "charger" ? { ...c, appearance: "look" } : c));
     expect(slotsFor(project, "look").sort()).toEqual(["attack", "fall", "hurt", "idle", "jump", "run", "walk", "windup"]);
+    project.characters = project.characters.map((c) => (c.id === "charger" ? { ...c, movement: "flying" } : c.id === "player" ? { ...c, appearance: undefined } : c));
+    expect(slotsFor(project, "look").sort()).toEqual(["attack", "fly", "hurt", "idle", "windup"]);
   });
 });
