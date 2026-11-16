@@ -4,6 +4,7 @@ extends CharacterBody2D
 ## (see res://primitives/registry.gd). Origin is at the feet.
 
 const Registry := preload("res://primitives/registry.gd")
+const CharacterArt := preload("res://scripts/art/character_art.gd")
 
 var character_id := ""
 var spawn_id := ""
@@ -48,9 +49,12 @@ var _size := Vector2.ZERO
 var _color := Color.WHITE
 var _tint = null  # Color or null
 var _kill_y := 0.0
+var _asset := {}
+var _rig: Node2D = null
+var _preview_clip := ""
 
 
-func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2) -> void:
+func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
 	character_id = character.id
 	_states = character.behavior.states
 	_interrupts = character.behavior.get("interrupts", [])
@@ -76,6 +80,12 @@ func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2) -> void:
 	shape.shape = box
 	shape.position = Vector2(0, -_size.y / 2.0)
 	add_child(shape)
+
+	_asset = CharacterArt.asset_for(character, art)
+	if not _asset.is_empty():
+		_rig = CharacterArt.make_view(_asset, art)
+		add_child(_rig)
+		_update_rig()
 
 
 func _physics_process(delta: float) -> void:
@@ -103,6 +113,7 @@ func _physics_process(delta: float) -> void:
 
 	_touch_player()
 	_check_transitions()
+	_update_rig()
 
 	if shaking:
 		queue_redraw()
@@ -225,7 +236,38 @@ func set_tint(tint) -> void:
 		queue_redraw()
 
 
+## Edit-mode clip preview ("" = follow the behavior).
+func set_preview_clip(clip: String) -> void:
+	_preview_clip = clip
+	_update_rig()
+
+
+func _update_rig() -> void:
+	if _rig == null:
+		return
+	_rig.scale.x = facing
+	# Same feedback as the box: shake in place, flash white when struck, tint while telegraphing.
+	_rig.position.x = ((2.0 if int(state_time * 30.0) % 2 == 0 else -2.0) if shaking else 0.0)
+	if _flash > 0.0:
+		_rig.modulate = Color(2.5, 2.5, 2.5)
+	elif _tint != null:
+		_rig.modulate = Color.WHITE.lerp(_tint, 0.65)
+	else:
+		_rig.modulate = Color.WHITE
+	if _preview_clip != "":
+		_rig.play(_preview_clip)
+		return
+	if _flash > 0.0 and _rig.has_clip("hurt"):
+		_rig.play("hurt")
+		return
+	var state = _states.get(behavior_state)
+	var action_type: String = str(state.action.type) if state != null else ""
+	_rig.play(CharacterArt.clip_for_state(_asset, _rig, behavior_state, action_type))
+
+
 func _draw() -> void:
+	if _rig != null:
+		return
 	var offset := Vector2((2.0 if int(state_time * 30.0) % 2 == 0 else -2.0) if shaking else 0.0, 0.0)
 	var body = Color.WHITE if _flash > 0.0 else (_tint if _tint != null else _color)
 	draw_rect(Rect2(offset + Vector2(-_size.x / 2.0, -_size.y), _size), body)

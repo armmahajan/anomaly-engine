@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { ProjectSpec } from "./schema.ts";
+import type { ArtDirection } from "./art/asset.ts";
+import type { Clip } from "./art/clip.ts";
+import type { Rig } from "./art/rig.ts";
 
 /**
  * Studio <-> runtime messages, sent with window.postMessage as JSON strings.
@@ -25,7 +28,25 @@ export type StudioToRuntime =
   /** `seed` drives every random choice in the run (e.g. `chance`), so a run can be replayed. */
   | { type: "play"; seed: number }
   | { type: "stop" }
-  | { type: "getState"; requestId: string };
+  | { type: "getState"; requestId: string }
+  /** Render frames of a rig into one PNG contact sheet (left to right, then down). Works without a loaded project. */
+  | ({ type: "renderRig" } & RenderRigRequest)
+  /** Edit mode only: make every spawn of a character play `clip` (null = back to normal). */
+  | { type: "previewClip"; characterId: string; clip: string | null };
+
+export interface RenderRigRequest {
+  requestId: string;
+  rig: Rig;
+  direction: ArtDirection;
+  clips: Record<string, Clip>;
+  /** One cell per frame: a clip (null = rest pose) at a time in seconds. */
+  frames: { clip: string | null; time: number }[];
+  cellWidth: number;
+  cellHeight: number;
+  columns: number;
+  /** #rrggbb, or null for a transparent background. */
+  background: string | null;
+}
 
 const EntityState = z.object({
   /** Which spawn this entity came from (several can share a character). */
@@ -67,6 +88,19 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     entities: z.array(EntityState),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  z.object({
+    type: z.literal("rendered"),
+    requestId: z.string(),
+    /** Base64 PNG; absent when `error` is set. */
+    png: z.string().optional(),
+    width: z.number().optional(),
+    height: z.number().optional(),
+    /** Rig px -> image px. */
+    scale: z.number().optional(),
+    /** Parts the renderer had to skip, etc. */
+    warnings: z.array(z.string()).optional(),
+    error: z.string().optional(),
+  }),
 ]);
 export type RuntimeToStudio = z.infer<typeof RuntimeToStudio>;
 

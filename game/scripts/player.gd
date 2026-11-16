@@ -44,6 +44,10 @@ var _cooldown := 0.0
 var _slash_hits: Array = []
 var _recoil := 0.0
 var _recoil_direction := 0.0
+var _rig: Node2D = null
+var _preview_clip := ""
+
+const CharacterArt := preload("res://scripts/art/character_art.gd")
 
 # Movement. Mirrors packages/core/src/movement/simulate.ts `step` line for
 # line (game/test/movement.test.ts compares the two); counters are in frames.
@@ -92,7 +96,7 @@ static func _frames(seconds: float) -> int:
 	return maxi(0, roundi(seconds * FPS))
 
 
-func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2) -> void:
+func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
 	character_id = character.id
 	var stats: Dictionary = character.stats
 	_run_speed = float(stats.runSpeed)
@@ -134,6 +138,13 @@ func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2) -> void:
 	shape.shape = box
 	shape.position = Vector2(0, -_size.y / 2.0)
 	add_child(shape)
+
+	var asset := CharacterArt.asset_for(character, art)
+	if not asset.is_empty():
+		_rig = CharacterArt.make_view(asset, art)
+		_rig.show_behind_parent = true  # the sword swing (drawn by the player) stays on top
+		add_child(_rig)
+		_update_rig()
 
 	camera = Camera2D.new()
 	camera.position = Vector2(0, -_size.y / 2.0)
@@ -255,6 +266,35 @@ func _physics_process(delta: float) -> void:
 		_vy = 0.0
 		position = _spawn
 		velocity = Vector2.ZERO
+	_update_rig()
+
+
+## Edit-mode clip preview ("" = follow movement).
+func set_preview_clip(clip: String) -> void:
+	_preview_clip = clip
+	_update_rig()
+
+
+func _update_rig() -> void:
+	if _rig == null:
+		return
+	_rig.scale.x = _facing
+	var blinking := _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07
+	_rig.modulate = Color(1, 0.45, 0.45, 0.6) if blinking else Color.WHITE
+	var slots: Array
+	if _preview_clip != "":
+		slots = [_preview_clip]
+	elif _slash != "":
+		slots = ["slash_" + _slash, "attack"]
+	elif _stun > 0.0:
+		slots = ["hurt"]
+	elif not is_on_floor():
+		slots = ["jump"] if velocity.y < 0.0 else ["fall", "jump"]
+	elif absf(velocity.x) > 1.0:
+		slots = ["run", "walk"]
+	else:
+		slots = ["idle"]
+	_rig.play(CharacterArt.first_clip(_rig, slots))
 
 
 ## Ground jump (with coyote time and buffering), wall jump, ground pound or mid-air jump.
@@ -466,14 +506,17 @@ func _draw() -> void:
 	var color := _color
 	if _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07:
 		color = Color(1, 0.35, 0.35, 0.55)
-	if _dashing:
-		draw_rect(Rect2(-_size.x / 2.0 - _dash_dir * _size.x, -_size.y * 0.8, _size.x, _size.y * 0.6), Color(color, 0.3))
-	draw_rect(Rect2(-_size.x / 2.0, -_size.y, _size.x, _size.y), color)
+	# The placeholder box (and its dash trail) only when the character has no rig; ability cues always.
+	if _rig == null:
+		if _dashing:
+			draw_rect(Rect2(-_size.x / 2.0 - _dash_dir * _size.x, -_size.y * 0.8, _size.x, _size.y * 0.6), Color(color, 0.3))
+		draw_rect(Rect2(-_size.x / 2.0, -_size.y, _size.x, _size.y), color)
 	if _gliding:
 		draw_line(Vector2(-_size.x * 1.2, -_size.y * 0.75), Vector2(_size.x * 1.2, -_size.y * 0.75), Color(color, 0.8), 3.0)
 	if _pounding:
 		draw_line(Vector2(0, 4), Vector2(0, 18), Color.WHITE, 3.0)
-	draw_rect(Rect2(_facing * _size.x * 0.18 - 3.0, -_size.y * 0.8, 6.0, 6.0), Color.BLACK)
+	if _rig == null:
+		draw_rect(Rect2(_facing * _size.x * 0.18 - 3.0, -_size.y * 0.8, 6.0, 6.0), Color.BLACK)
 	if _slash != "":
 		var area := slash_rect()
 		area.position -= position

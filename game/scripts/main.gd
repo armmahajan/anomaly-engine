@@ -14,6 +14,7 @@ const Registry := preload("res://primitives/registry.gd")
 const HudScript := preload("res://scripts/hud.gd")
 ## Physics frames the world freezes for when a sword hit lands.
 const HIT_STOP_FRAMES := 3
+const RenderService := preload("res://scripts/art/render_service.gd")
 
 var _project: Dictionary = {}
 var _mode := "edit"
@@ -26,6 +27,9 @@ var last_error := ""
 var _world: Node2D = null
 var _player: Node = null
 var _edit_camera: Camera2D
+var _render_service: Node
+## Clip forced on a character in edit mode ("characterId" -> clip), for previews.
+var _preview_clips := {}
 
 var _window: JavaScriptObject = null
 var _origin := ""
@@ -44,6 +48,8 @@ func _ready() -> void:
 	_hud = HudScript.new()
 	_hud.visible = false
 	hud_layer.add_child(_hud)
+	_render_service = RenderService.new()
+	add_child(_render_service)
 
 	if OS.has_feature("web"):
 		_window = JavaScriptBridge.get_interface("window")
@@ -119,6 +125,16 @@ func handle_message(message: Dictionary) -> void:
 				"deaths": _deaths,
 				"entities": _entity_states(),
 			})
+		"renderRig":
+			_render_service.render(message, _send)
+		"previewClip":
+			var character_id := str(message.get("characterId", ""))
+			var clip = message.get("clip")
+			if clip == null:
+				_preview_clips.erase(character_id)
+			else:
+				_preview_clips[character_id] = str(clip)
+			_apply_preview_clips()
 		var other:
 			_error("unknown_message", "unknown message type '%s'" % other)
 
@@ -172,7 +188,7 @@ func _build_world() -> void:
 	for spawn in sandbox.spawns:
 		var character: Dictionary = characters[spawn.characterId]
 		var body: CharacterBody2D = PlayerScript.new() if character.kind == "player" else EnemyScript.new()
-		body.setup(character, sandbox, Vector2(spawn.x, spawn.y))
+		body.setup(character, sandbox, Vector2(spawn.x, spawn.y), _project.get("art", {}))
 		body.spawn_id = spawn.id
 		_world.add_child(body)
 		if character.kind == "player":
@@ -187,6 +203,7 @@ func _build_world() -> void:
 		_player.landed_hit.connect(_hit_stop)
 		_player.died.connect(_restart_run, CONNECT_DEFERRED)
 	_hud.player = _player
+	_apply_preview_clips()
 
 	_fit_edit_camera()
 
@@ -257,6 +274,7 @@ func _set_mode(mode: String) -> void:
 	_mode = mode
 	_freeze = 0
 	_hud.visible = mode == "play"
+	_apply_preview_clips()
 	if _world != null:
 		_world.process_mode = Node.PROCESS_MODE_INHERIT if mode == "play" else Node.PROCESS_MODE_DISABLED
 	if mode == "play" and _player != null:
@@ -326,3 +344,14 @@ func _add_action(action: String, keys: Array) -> void:
 		var event := InputEventKey.new()
 		event.physical_keycode = key
 		InputMap.action_add_event(action, event)
+
+
+# --- art previews ------------------------------------------------------------
+
+## In edit mode, characters with a preview clip play it; in play mode, behavior decides.
+func _apply_preview_clips() -> void:
+	if _world == null:
+		return
+	for child in _world.get_children():
+		if child is CharacterBody2D and child.has_method("set_preview_clip"):
+			child.set_preview_clip(_preview_clips.get(child.character_id, "") if _mode == "edit" else "")
