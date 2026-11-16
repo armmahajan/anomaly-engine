@@ -1,0 +1,13 @@
+{
+  "name": "@anomaly/art",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@anomaly/core": "^0.0.0",
+    "zod": "^4.6.7"
+  }
+}

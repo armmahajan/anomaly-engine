@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { defaultArtDirection, exampleClips, exampleRig } from "@anomaly/core";
-import { BrowserRenderer, sheetCell } from "../src/art/renderer.ts";
+import { sheetCell } from "@anomaly/art";
+import { BrowserRenderer } from "../src/art/renderer.ts";
 
 /** The real GDScript rig renderer: headless data checks, and pixels via the web export. */
 
@@ -53,6 +54,9 @@ describe.skipIf(!hasExport || process.env.SKIP_BROWSER_TESTS === "1")("BrowserRe
 
       const cropped = await renderer.crop(image.png, sheetCell(1), 64);
       expect(cropped.readUInt32BE(16)).toBeLessThanOrEqual(64); // PNG IHDR width
+
+      const composed = await renderer.compose({ width: 100, height: 50, background: "#000000", layers: [{ image: cropped, alpha: 0.5 }], grid: 20 });
+      expect([composed.readUInt32BE(16), composed.readUInt32BE(20)]).toEqual([100, 50]);
     } finally {
       await renderer.close();
     }

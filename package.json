@@ -13,7 +13,7 @@
     "build": "npm run build:game && npm run build -w @anomaly/studio",
     "build:game": "bash scripts/build-game.sh",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/server && tsc --noEmit -p packages/agent && tsc --noEmit -p apps/studio && tsc -p game/test --noEmit",
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/server && tsc --noEmit -p packages/agent && tsc --noEmit -p packages/art && tsc --noEmit -p apps/studio && tsc -p game/test --noEmit",
     "e2e": "playwright test"
   },
   "devDependencies": {

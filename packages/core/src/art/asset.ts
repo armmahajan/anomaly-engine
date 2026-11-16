@@ -102,7 +102,7 @@ export function defaultArtDirection(): ArtDirection {
       "Melancholy, gloomy underground insect-kingdom mood. Minimal interior detail; charm comes from shape and proportion.",
     palette: ["#e8e3d3", "#2a2a33", "#4a5470", "#6b7f8c", "#8a6f5a", "#5f6b4e", "#b8c4c8", "#ffd27a"],
     ink: "#15151c",
-    inkWidth: 2.5,
+    inkWidth: 1.6,
     boil: 0.35,
   };
 }

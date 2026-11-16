@@ -10,6 +10,7 @@
     "@anomaly/core": "^0.0.0",
     "zod": "^4.6.7",
     "@anomaly/agent": "^0.0.0",
-    "playwright-core": "^1.65.1"
+    "playwright-core": "^1.65.1",
+    "@anomaly/art": "^0.0.0"
   }
 }

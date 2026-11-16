@@ -46,6 +46,8 @@ export interface RenderRigRequest {
   columns: number;
   /** #rrggbb, or null for a transparent background. */
   background: string | null;
+  /** Scale and centre the rig in each cell (default). false = rig coordinates are cell pixels. */
+  fit?: boolean;
 }
 
 const EntityState = z.object({

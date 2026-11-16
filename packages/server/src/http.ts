@@ -1,5 +1,8 @@
+import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AgentId, fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
+import type { ArtService } from "./art/service.ts";
+import { FILE_MEDIA_TYPES, type FileStore } from "./art/files.ts";
 import type { ChatService } from "./chat.ts";
 import type { ProjectStore } from "./projectStore.ts";
 
@@ -24,11 +27,17 @@ const STATUS_FOR: Record<ErrorCode, number> = {
 /** Chat services by agent; requests pick one with ?agent= (default: build). */
 export type Chats = Partial<Record<AgentId, ChatService>>;
 
-export function createApiHandler(store: ProjectStore, chats: Chats = {}): Middleware {
+/** Optional art pipeline: the job service and the project's file store. */
+export interface ArtApi {
+  service: ArtService;
+  files: FileStore;
+}
+
+export function createApiHandler(store: ProjectStore, chats: Chats = {}, art?: ArtApi): Middleware {
   return (req, res, next) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return next();
-    route(store, chats, req, res, url).catch((error: unknown) => {
+    route(store, chats, art, req, res, url).catch((error: unknown) => {
       console.error("[project-server]", error);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: { code: "internal", message: String(error), issues: [] } });
       else res.end();
@@ -39,6 +48,7 @@ export function createApiHandler(store: ProjectStore, chats: Chats = {}): Middle
 async function route(
   store: ProjectStore,
   chats: Chats,
+  art: ArtApi | undefined,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -50,7 +60,7 @@ async function route(
     case "GET /api/history":
       return sendJson(res, 200, { entries: store.getHistory() });
     case "GET /api/events":
-      return openEventStream(store, chats, req, res, url.searchParams.get("clientId"));
+      return openEventStream(store, chats, art, req, res, url.searchParams.get("clientId"));
     case "POST /api/ops":
       return respond(res, await withBody(req, (body) => store.applyOperation(body)));
     case "POST /api/batch":
@@ -61,7 +71,10 @@ async function route(
       return respond(res, await withBody(req, (body) => store.setPlaytest(body)));
     case "POST /api/reset": {
       const result = await withBody(req, (body) => store.reset(body));
-      if (result.ok) await Promise.all(Object.values(chats).map((c) => c.reset()));
+      if (result.ok) {
+        await Promise.all(Object.values(chats).map((c) => c.reset()));
+        await art?.service.reset();
+      }
       return respond(res, result);
     }
   }
@@ -77,7 +90,34 @@ async function route(
         return respond(res, chat.cancel());
     }
   }
+  if (art) {
+    switch (key) {
+      case "GET /api/art":
+        return sendJson(res, 200, art.service.getState());
+      case "POST /api/art/jobs":
+        return respond(res, await withBody(req, (body) => art.service.start(body)));
+      case "POST /api/art/cancel":
+        return respond(res, art.service.cancel());
+    }
+    if (req.method === "GET" && url.pathname.startsWith("/api/files/")) {
+      return sendFile(res, art.files, url.pathname.slice("/api/files/".length));
+    }
+  }
   sendJson(res, 404, fail("not_found", `no route ${key}`));
+}
+
+/** Stored images are immutable (content-addressed), so they cache forever. */
+async function sendFile(res: ServerResponse, files: FileStore, ref: string): Promise<void> {
+  let data: Buffer;
+  try {
+    data = await readFile(files.path(ref));
+  } catch {
+    return sendJson(res, 404, fail("not_found", `no file "${ref}"`));
+  }
+  res.statusCode = 200;
+  res.setHeader("content-type", FILE_MEDIA_TYPES[ref.split(".").pop() ?? ""] ?? "application/octet-stream");
+  res.setHeader("cache-control", "private, max-age=31536000, immutable");
+  res.end(data);
 }
 
 type Result = { ok: true } | { ok: false; error: { code: ErrorCode } };
@@ -119,6 +159,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 function openEventStream(
   store: ProjectStore,
   chats: Chats,
+  art: ArtApi | undefined,
   req: IncomingMessage,
   res: ServerResponse,
   clientId: string | null,
@@ -128,16 +169,19 @@ function openEventStream(
   const send = (event: ServerEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   send({ type: "project", ...store.getState(), cause: null });
   for (const chat of Object.values(chats)) send({ type: "chat", agent: chat.agent.id, chat: chat.getState() });
+  if (art) send({ type: "art", art: art.service.getState() });
 
   const unsubscribeProject = store.subscribe(send);
   const unsubscribeChats = Object.values(chats).map((chat) =>
     chat.subscribe((state) => send({ type: "chat", agent: chat.agent.id, chat: state })),
   );
+  const unsubscribeArt = art?.service.subscribe((state) => send({ type: "art", art: state }));
   const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), HEARTBEAT_MS);
   req.on("close", () => {
     clearInterval(heartbeat);
     unsubscribeProject();
     for (const unsubscribe of unsubscribeChats) unsubscribe();
+    unsubscribeArt?.();
     if (clientId) store.releasePlaytest(clientId);
   });
 }

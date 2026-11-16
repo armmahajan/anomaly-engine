@@ -1,8 +1,8 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig, type Plugin, type PreviewServer, type ViteDevServer } from "vite";
+import { defineConfig, loadEnv, type Plugin, type PreviewServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import basicSsl from "@vitejs/plugin-basic-ssl";
-import { createProjectServer, loadOrCreateToken } from "@anomaly/server";
+import { artOptionsFromEnv, createProjectServer, loadOrCreateToken } from "@anomaly/server";
 import { DEFAULT_CLAUDE_MODEL, runClaudeCodeTurn, type TurnRunner } from "@anomaly/agent";
 
 // Godot's web runtime only starts in a secure context (HTTPS or localhost).
@@ -13,6 +13,8 @@ const port = Number(process.env.STUDIO_PORT ?? 5173);
 const dataDir = process.env.STUDIO_DATA_DIR ?? fileURLToPath(new URL("../../projects/default", import.meta.url));
 const tokenFile = fileURLToPath(new URL("../../.studio-token", import.meta.url));
 const chatModel = process.env.STUDIO_CHAT_MODEL ?? DEFAULT_CLAUDE_MODEL;
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+const gameDir = fileURLToPath(new URL("./public/game", import.meta.url));
 
 /** STUDIO_CHAT_BACKEND: "claude-code" (default; your local Claude Code login) or "fake" (e2e). */
 async function chatRunner(): Promise<TurnRunner> {
@@ -21,11 +23,15 @@ async function chatRunner(): Promise<TurnRunner> {
 }
 
 /** Serves the local project API (/api/*) from the same process and port, behind the studio token. */
-function projectApi(): Plugin {
+function projectApi(mode: string): Plugin {
   const mount = async (server: ViteDevServer | PreviewServer) => {
     const token = process.env.STUDIO_TOKEN ?? (await loadOrCreateToken(tokenFile));
-    const { handler } = await createProjectServer(dataDir, { token, runner: await chatRunner() });
+    // Server-side secrets (OPENROUTER_API_KEY) come from the repo's .env; the process env wins.
+    const env = { ...loadEnv(mode, repoRoot, ["OPENROUTER_", "STUDIO_"]), ...process.env };
+    const art = artOptionsFromEnv(env, gameDir);
+    const { handler } = await createProjectServer(dataDir, { token, runner: await chatRunner(), art });
     server.middlewares.use(handler);
+    server.httpServer?.on("close", () => void art.renderer.close());
 
     // Print a ready-to-open link next to Vite's own URLs.
     const printUrls = server.printUrls.bind(server);
@@ -44,9 +50,9 @@ function projectApi(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), projectApi(), ...(https ? [basicSsl()] : [])],
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), projectApi(mode), ...(https ? [basicSsl()] : [])],
   // host: listen on all interfaces so the studio is reachable over the VPN/LAN.
   server: { port, strictPort: true, host: true },
   preview: { host: true },
-});
+}));

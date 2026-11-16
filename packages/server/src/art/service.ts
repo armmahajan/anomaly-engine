@@ -1,0 +1,286 @@
+import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  ArtJobRequest,
+  ArtJobSummary,
+  fail,
+  toIssues,
+  type ArtActivityEntry,
+  type ArtStage,
+  type ArtState,
+  type OperationError,
+} from "@anomaly/core";
+import {
+  animate,
+  buildRig,
+  BudgetExceeded,
+  chooseConcept,
+  generateConcepts,
+  StageError,
+  type ArtContext,
+  type ArtRenderer,
+  type FileStore,
+  type ImageModel,
+  type StageResult,
+  type VisionModel,
+} from "@anomaly/art";
+import type { ProjectStore } from "../projectStore.ts";
+
+const RECENT_JOBS = 20;
+
+export interface ArtModels {
+  image: ImageModel;
+  vision: VisionModel;
+}
+
+export interface ArtServiceOptions {
+  /** Null when no API key is configured: jobs are refused with an explanation. */
+  models: ArtModels | null;
+  renderer: ArtRenderer;
+  files: FileStore;
+  /** USD limit per job. */
+  budget: number;
+  /** Shown when models are missing. */
+  unavailableReason?: string;
+  rigRounds?: number;
+  animRounds?: number;
+}
+
+type Result = { ok: true; jobId: string } | { ok: false; error: OperationError };
+
+interface Running {
+  id: string;
+  request: ReturnType<typeof ArtJobRequest.parse>;
+  startedAt: string;
+  activity: ArtActivityEntry[];
+  cost: number;
+  revisions: number[];
+  controller: AbortController;
+  done: Promise<void>;
+}
+
+/**
+ * Runs art jobs (one at a time) and keeps their log (<dir>/art-jobs.jsonl).
+ * A job holds the AI lock like a chat turn; each completed stage is saved as
+ * one AI change (one undo step), so an auto run that fails late keeps the
+ * stages that worked.
+ */
+export class ArtService {
+  private readonly store: ProjectStore;
+  private readonly options: ArtServiceOptions;
+  private readonly path: string;
+  private jobs: ArtJobSummary[];
+  private totalCost: number;
+  private running: Running | null = null;
+  private listeners = new Set<(state: ArtState) => void>();
+
+  private constructor(store: ProjectStore, options: ArtServiceOptions, jobs: ArtJobSummary[], totalCost: number) {
+    this.store = store;
+    this.options = options;
+    this.path = join(store.dir, "art-jobs.jsonl");
+    this.jobs = jobs;
+    this.totalCost = totalCost;
+  }
+
+  static async open(store: ProjectStore, options: ArtServiceOptions): Promise<ArtService> {
+    let raw = "";
+    try {
+      raw = await readFile(join(store.dir, "art-jobs.jsonl"), "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    }
+    const all = raw
+      .split("\n")
+      .filter((l) => l.trim())
+      .flatMap((l) => {
+        try {
+          const parsed = ArtJobSummary.safeParse(JSON.parse(l));
+          return parsed.success ? [parsed.data] : [];
+        } catch {
+          return [];
+        }
+      });
+    const total = all.reduce((sum, j) => sum + j.cost, 0);
+    return new ArtService(store, options, all.slice(-RECENT_JOBS), total);
+  }
+
+  getState(): ArtState {
+    const r = this.running;
+    return {
+      available: this.options.models !== null,
+      models: { image: this.options.models?.image.id ?? "none", vision: this.options.models?.vision.id ?? "none" },
+      budget: this.options.budget,
+      running: r && {
+        id: r.id,
+        stage: r.request.stage,
+        characterId: r.request.characterId,
+        startedAt: r.startedAt,
+        cost: r.cost,
+        activity: r.activity,
+      },
+      jobs: this.jobs,
+      totalCost: this.totalCost,
+    };
+  }
+
+  subscribe(listener: (state: ArtState) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** Start a job; it runs in the background and reports through events. */
+  async start(request: unknown): Promise<Result> {
+    const parsed = ArtJobRequest.safeParse(request);
+    if (!parsed.success) return fail("invalid_request", "malformed art job request", toIssues(parsed.error));
+    if (!this.options.models) {
+      return fail("unavailable", this.options.unavailableReason ?? "art generation is not configured (no model API key)");
+    }
+    if (!this.store.getState().project.characters.some((c) => c.id === parsed.data.characterId)) {
+      return fail("not_found", `no character "${parsed.data.characterId}"`);
+    }
+    const lock = await this.store.beginAiTurn();
+    if (!lock.ok) return lock;
+
+    const running: Running = {
+      id: `art_${Date.now().toString(36)}`,
+      request: parsed.data,
+      startedAt: new Date().toISOString(),
+      activity: [],
+      cost: 0,
+      revisions: [],
+      controller: new AbortController(),
+      done: Promise.resolve(),
+    };
+    this.running = running;
+    this.emit();
+    running.done = this.run(running, this.options.models);
+    return { ok: true, jobId: running.id };
+  }
+
+  cancel(): { ok: true } {
+    this.running?.controller.abort();
+    return { ok: true };
+  }
+
+  async idle(): Promise<void> {
+    await this.running?.done;
+  }
+
+  private async run(running: Running, models: ArtModels): Promise<void> {
+    const { request } = running;
+    const ctx: ArtContext = {
+      project: () => this.store.getState().project,
+      image: models.image,
+      vision: models.vision,
+      renderer: this.options.renderer,
+      files: this.options.files,
+      signal: running.controller.signal,
+      rigRounds: this.options.rigRounds,
+      animRounds: this.options.animRounds,
+      log: (a) => {
+        running.activity.push({ at: new Date().toISOString(), ...a });
+        this.emit();
+      },
+      remaining: () => this.options.budget - running.cost,
+      spend: (usage) => {
+        running.cost += usage.cost;
+        if (running.cost > this.options.budget) {
+          throw new BudgetExceeded(`this job reached its $${this.options.budget.toFixed(2)} budget`);
+        }
+      },
+    };
+
+    const stages: { stage: Exclude<ArtStage, "auto">; run: () => Promise<StageResult> }[] = [];
+    const conceptStep = { stage: "concepts" as const, run: () => generateConcepts(ctx, request) };
+    const chooseStep = { stage: "choose" as const, run: () => chooseConcept(ctx, request) };
+    const rigStep = { stage: "rig" as const, run: () => buildRig(ctx, request) };
+    const animStep = { stage: "animate" as const, run: () => animate(ctx, request) };
+    switch (request.stage) {
+      case "concepts":
+        stages.push(conceptStep);
+        break;
+      case "choose":
+        stages.push(chooseStep);
+        break;
+      case "rig":
+        stages.push(rigStep);
+        break;
+      case "animate":
+        stages.push(animStep);
+        break;
+      case "auto": {
+        // Auto takes the AI's picks; feedback and sheet/cell choices apply to the first stage only.
+        const plain = { characterId: request.characterId };
+        stages.push(
+          conceptStep,
+          { stage: "choose", run: () => chooseConcept(ctx, plain) },
+          { stage: "rig", run: () => buildRig(ctx, plain) },
+          { stage: "animate", run: () => animate(ctx, plain) },
+        );
+        break;
+      }
+    }
+
+    let outcome: ArtJobSummary["outcome"] = "committed";
+    let error: string | undefined;
+    const summaries: string[] = [];
+    try {
+      for (const step of stages) {
+        if (running.controller.signal.aborted) throw new StageError("cancelled");
+        const result = await step.run();
+        // A cancel that arrived during the stage's last model call still wins.
+        if (running.controller.signal.aborted) throw new StageError("cancelled");
+        const saved = await this.store.applyBatch({
+          operations: result.operations,
+          baseRevision: this.store.getState().project.revision,
+          author: "ai",
+        });
+        if (!saved.ok) throw new StageError(`saving the ${step.stage} result failed: ${saved.error.message}`);
+        running.revisions.push(saved.project.revision);
+        summaries.push(result.summary);
+        ctx.log({ text: `saved: ${result.summary}` });
+      }
+    } catch (e) {
+      if (running.controller.signal.aborted) outcome = "cancelled";
+      else if (e instanceof BudgetExceeded) outcome = "over_budget";
+      else outcome = "failed";
+      error = e instanceof Error ? e.message : String(e);
+      if (outcome !== "cancelled" && !(e instanceof StageError) && !(e instanceof BudgetExceeded)) {
+        console.error("[art]", e);
+      }
+    }
+
+    const summary: ArtJobSummary = {
+      id: running.id,
+      stage: request.stage,
+      characterId: request.characterId,
+      at: running.startedAt,
+      outcome,
+      cost: running.cost,
+      summary: summaries.join("; ") || "nothing saved",
+      ...(error ? { error } : {}),
+      revisions: running.revisions,
+      activity: running.activity,
+    };
+    this.store.endAiTurn();
+    this.running = null;
+    this.totalCost += running.cost;
+    this.jobs = [...this.jobs, summary].slice(-RECENT_JOBS);
+    await appendFile(this.path, JSON.stringify(summary) + "\n");
+    console.info(`[art] ${request.stage} ${request.characterId}: ${outcome}, ~$${running.cost.toFixed(4)}${error ? ` (${error})` : ""}`);
+    this.emit();
+  }
+
+  /** Clear the job log (after a project reset, which already backed it up). */
+  async reset(): Promise<void> {
+    this.jobs = [];
+    this.totalCost = 0;
+    await writeFile(this.path, "");
+    this.emit();
+  }
+
+  private emit(): void {
+    const state = this.getState();
+    for (const listener of this.listeners) listener(state);
+  }
+}

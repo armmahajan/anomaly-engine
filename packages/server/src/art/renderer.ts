@@ -28,7 +28,18 @@ export interface Renderer {
   renderRig(request: Omit<RenderRigRequest, "requestId">): Promise<RenderedImage>;
   /** Crop a region (fractions of the image, 0..1) and scale it to fit `maxSize` px. Returns PNG. */
   crop(image: Buffer, region: { x: number; y: number; width: number; height: number }, maxSize: number): Promise<Buffer>;
+  /** Stack images (each stretched to width x height) over a background, optionally with a labelled pixel grid. Returns PNG. */
+  compose(request: ComposeRequest): Promise<Buffer>;
   close(): Promise<void>;
+}
+
+export interface ComposeRequest {
+  width: number;
+  height: number;
+  background?: string;
+  layers: { image: Buffer; alpha?: number }[];
+  /** Grid spacing in px (lines + coordinate labels), drawn on top. */
+  grid?: number;
 }
 
 const ORIGIN = "http://localhost:47913";
@@ -42,12 +53,6 @@ const MIME: Record<string, string> = {
   ".pck": "application/octet-stream",
   ".png": "image/png",
 };
-
-/** Cell crop of a 2x2 concept sheet, with a small inset to drop gutters. */
-export function sheetCell(cell: number): { x: number; y: number; width: number; height: number } {
-  const inset = 0.01;
-  return { x: (cell % 2) * 0.5 + inset, y: Math.floor(cell / 2) * 0.5 + inset, width: 0.5 - 2 * inset, height: 0.5 - 2 * inset };
-}
 
 export class BrowserRenderer implements Renderer {
   private browser: Browser | null = null;
@@ -110,6 +115,60 @@ export class BrowserRenderer implements Renderer {
         return btoa(binary);
       },
       { data: image.toString("base64"), region, maxSize },
+    );
+    return Buffer.from(base64, "base64");
+  }
+
+  async compose(request: ComposeRequest): Promise<Buffer> {
+    const page = await this.open();
+    const base64 = await page.evaluate(
+      async ({ width, height, background, layers, grid }) => {
+        const canvas = new OffscreenCanvas(width, height);
+        const ctx = canvas.getContext("2d")!;
+        if (background) {
+          ctx.fillStyle = background;
+          ctx.fillRect(0, 0, width, height);
+        }
+        for (const layer of layers) {
+          const bytes = Uint8Array.from(atob(layer.data), (c) => c.charCodeAt(0));
+          const bitmap = await createImageBitmap(new Blob([bytes]));
+          ctx.globalAlpha = layer.alpha;
+          ctx.drawImage(bitmap, 0, 0, width, height);
+        }
+        ctx.globalAlpha = 1;
+        if (grid) {
+          ctx.strokeStyle = "rgba(220, 40, 120, 0.45)";
+          ctx.fillStyle = "rgba(200, 20, 100, 0.95)";
+          ctx.lineWidth = 1;
+          ctx.font = "11px sans-serif";
+          for (let x = grid; x < width; x += grid) {
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5, 0);
+            ctx.lineTo(x + 0.5, height);
+            ctx.stroke();
+            ctx.fillText(String(x), x + 2, 11);
+          }
+          for (let y = grid; y < height; y += grid) {
+            ctx.beginPath();
+            ctx.moveTo(0, y + 0.5);
+            ctx.lineTo(width, y + 0.5);
+            ctx.stroke();
+            ctx.fillText(String(y), 2, y - 2);
+          }
+        }
+        const blob = await canvas.convertToBlob({ type: "image/png" });
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < buf.length; i += 0x8000) binary += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+        return btoa(binary);
+      },
+      {
+        width: request.width,
+        height: request.height,
+        background: request.background ?? null,
+        layers: request.layers.map((l) => ({ data: l.image.toString("base64"), alpha: l.alpha ?? 1 })),
+        grid: request.grid ?? 0,
+      },
     );
     return Buffer.from(base64, "base64");
   }

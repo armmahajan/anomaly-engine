@@ -4,6 +4,8 @@ import {
   MAX_SEED,
   PROTOCOL_VERSION,
   type AgentId,
+  type ArtJobRequest,
+  type ArtState,
   type ChangeResult,
   type ChatState,
   type EntityState,
@@ -33,6 +35,7 @@ export interface SessionState {
   chats: Record<AgentId, ChatState>;
   /** Seed of the current or most recent playtest. */
   seed: number | null;
+  art: ArtState;
 }
 
 export interface RuntimeSnapshot {
@@ -80,6 +83,7 @@ export class Session {
       lastProblem: null,
       chats: { build: idleChat, narrative: idleChat },
       seed: null,
+      art: { available: false, models: { image: "", vision: "" }, budget: 0, running: null, jobs: [], totalCost: 0 },
     };
   }
 
@@ -103,10 +107,11 @@ export class Session {
   connectServer(): () => void {
     return api.subscribeToServer(
       this.clientId,
-      (event) =>
-        event.type === "project"
-          ? this.receiveProject(event)
-          : this.set({ chats: { ...this.state.chats, [event.agent]: event.chat } }),
+      (event) => {
+        if (event.type === "project") this.receiveProject(event);
+        else if (event.type === "chat") this.set({ chats: { ...this.state.chats, [event.agent]: event.chat } });
+        else this.set({ art: event.art });
+      },
       (connected) => {
         this.set({ serverConnected: connected });
         // The server drops our playtest lock when the stream drops; take it back.
@@ -185,6 +190,8 @@ export class Session {
         return;
       case "state":
         return; // correlated by the bridge
+      case "rendered":
+        return; // the studio never asks the runtime to render
     }
   }
 
@@ -215,8 +222,9 @@ export class Session {
   getProject = (): ProjectSpec => this.state.project;
 
   /** Apply any named core operation through the server. */
-  /** True while an AI turn runs: the project is locked to everyone but the AI. */
-  aiBusy = (): boolean => Object.values(this.state.chats).some((c) => c.running !== null);
+  /** True while an AI turn or art job runs: the project is locked to everyone but the AI. */
+  aiBusy = (): boolean =>
+    Object.values(this.state.chats).some((c) => c.running !== null) || this.state.art.running !== null;
 
   private editBlocked(): ChangeResult | null {
     if (this.state.mode !== "edit") return locked("stop the playtest before editing");
@@ -283,6 +291,31 @@ export class Session {
 
   cancelChat = async (agent: AgentId): Promise<void> => {
     await api.cancelChat(agent);
+  };
+
+  /** Start an art job (concepts, choose, rig, animate, auto). A running playtest is stopped first. */
+  startArtJob = async (request: ArtJobRequest): Promise<boolean> => {
+    if (this.state.mode === "play") {
+      this.stop();
+      if (!(await this.waitFor(() => this.state.mode === "edit", STOP_TIMEOUT_MS))) {
+        this.reportProblem("could not stop the playtest to start the art job");
+        return false;
+      }
+    }
+    await this.releasing;
+    const result = await api.startArtJob(request);
+    if (!result.ok) this.reportProblem(`art: ${result.error.message}`);
+    return result.ok;
+  };
+
+  cancelArtJob = async (): Promise<void> => {
+    await api.cancelArtJob();
+  };
+
+  /** Edit mode: play `clip` on every spawn of a character (null = back to its behavior). */
+  previewClip = (characterId: string, clip: string | null): boolean => {
+    if (this.state.runtimeStatus !== "ready" || this.state.mode !== "edit") return false;
+    return this.bridge.send({ type: "previewClip", characterId, clip });
   };
 
   private waitFor(predicate: () => boolean, timeoutMs: number): Promise<boolean> {

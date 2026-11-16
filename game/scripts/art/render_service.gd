@@ -68,9 +68,10 @@ func _render_one(request: Dictionary) -> Dictionary:
 		view.setup(rig, direction, clips)
 		if i == 0:
 			warnings = view.warnings
-			var fitted := _fit(rig, cell_size)
-			fit = fitted[0]
-			origin = fitted[1]
+			if bool(request.get("fit", true)):
+				var fitted := _fit(rig, cell_size)
+				fit = fitted[0]
+				origin = fitted[1]
 		var clip = frame.get("clip") if typeof(frame) == TYPE_DICTIONARY else null
 		view.play(str(clip) if clip != null else "")
 		view.pose_at(float(frame.get("time", 0.0)) if typeof(frame) == TYPE_DICTIONARY else 0.0, i)

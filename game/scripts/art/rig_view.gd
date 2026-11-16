@@ -11,7 +11,8 @@ const Geo := preload("res://scripts/art/rig_geometry.gd")
 
 const BOIL_VARIANTS := 3
 const BOIL_FPS := 8.0
-const GLOW_LAYERS := [[2.5, 0.30], [5.0, 0.16], [9.0, 0.07]]
+## Halo layers: [growth as a fraction of the part's size, alpha].
+const GLOW_LAYERS := [[0.18, 0.28], [0.4, 0.13], [0.7, 0.06]]
 
 ## Problems found while building (bad shapes are skipped, not fatal).
 var warnings: Array[String] = []
@@ -148,8 +149,9 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 				break
 			var layers := []  # [polygon, colors]
 			if glow:
+				var extent := _extent(outline)
 				for g in GLOW_LAYERS:
-					for poly in Geo.grow(outline, g[0]):
+					for poly in Geo.grow(outline, maxf(0.5, extent * g[0])):
 						layers.append([poly, _flat(poly, Color(fill, fill.a * g[1]))])
 			if ink > 0.0:
 				var ink_c := Color(ink_color, ink_color.a * opacity)
@@ -182,6 +184,15 @@ func _shape_outline(shape: Dictionary, rng: RandomNumberGenerator, wobble: float
 			var line_smooth := Geo.curve(line, false, float(shape.get("smooth", 1.0)))
 			return Geo.stroke(line_smooth, w, float(shape.get("widthEnd", w)))
 	return PackedVector2Array()
+
+
+func _extent(points: PackedVector2Array) -> float:
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p in points:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	return maxf(hi.x - lo.x, hi.y - lo.y)
 
 
 func _jitter(points: PackedVector2Array, rng: RandomNumberGenerator, amount: float) -> PackedVector2Array:

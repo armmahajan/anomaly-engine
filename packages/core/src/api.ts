@@ -2,6 +2,8 @@ import { z } from "zod";
 import { Author } from "./history.ts";
 import type { OperationError } from "./operations.ts";
 import { ProjectSpec } from "./schema.ts";
+import { FileRef } from "./art/asset.ts";
+import { Id } from "./common.ts";
 
 /**
  * HTTP API of the local project server (shared by server and clients).
@@ -116,5 +118,85 @@ export type ChatState = z.infer<typeof ChatState>;
 export const ChatEvent = z.object({ type: z.literal("chat"), agent: AgentId, chat: ChatState });
 export type ChatEvent = z.infer<typeof ChatEvent>;
 
-export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent]);
+// --- art jobs ------------------------------------------------------------------
+//   GET  /api/art                 -> ArtState
+//   POST /api/art/jobs  ArtJobRequest -> { ok } (runs in the background; progress via `art` events)
+//   POST /api/art/cancel          -> { ok }
+//   GET  /api/files/<ref>         -> the stored image (concept sheets, renders)
+
+/**
+ * concepts: new 2x2 concept sheet (creates the character's art asset if needed)
+ * choose:   pick a design from a sheet (default: latest sheet, AI's recommendation)
+ * rig:      build (or, with feedback, revise) the rig from the chosen design
+ * animate:  write the clips the character needs
+ * auto:     all of the above in order, taking the AI's recommendations
+ */
+export const ArtStage = z.enum(["concepts", "choose", "rig", "animate", "auto"]);
+export type ArtStage = z.infer<typeof ArtStage>;
+
+export const ArtJobRequest = z.strictObject({
+  stage: ArtStage,
+  characterId: Id,
+  brief: z.string().trim().max(2000).optional(),
+  feedback: z.string().trim().max(1000).optional(),
+  /** concepts: variations on the chosen design (it is sent as a reference image). */
+  refine: z.boolean().optional(),
+  sheet: z.number().int().min(0).optional(),
+  cell: z.number().int().min(0).max(3).optional(),
+});
+export type ArtJobRequest = z.input<typeof ArtJobRequest>;
+
+export const ArtActivityEntry = z.object({
+  at: z.string(),
+  text: z.string(),
+  cost: z.number().optional(),
+  file: FileRef.optional(),
+});
+export type ArtActivityEntry = z.infer<typeof ArtActivityEntry>;
+
+export const ArtJobOutcome = z.enum(["committed", "failed", "cancelled", "over_budget"]);
+
+export const ArtJobSummary = z.object({
+  id: z.string(),
+  stage: ArtStage,
+  characterId: z.string(),
+  at: z.string(),
+  outcome: ArtJobOutcome,
+  /** USD. */
+  cost: z.number(),
+  summary: z.string(),
+  error: z.string().optional(),
+  /** Revisions saved by this job (one per completed stage). */
+  revisions: z.array(z.number()),
+  activity: z.array(ArtActivityEntry),
+});
+export type ArtJobSummary = z.infer<typeof ArtJobSummary>;
+
+export const ArtState = z.object({
+  /** False when no model key is configured; jobs are refused. */
+  available: z.boolean(),
+  models: z.object({ image: z.string(), vision: z.string() }),
+  /** USD limit per job. */
+  budget: z.number(),
+  running: z
+    .object({
+      id: z.string(),
+      stage: ArtStage,
+      characterId: z.string(),
+      startedAt: z.string(),
+      cost: z.number(),
+      activity: z.array(ArtActivityEntry),
+    })
+    .nullable(),
+  /** Recent jobs, newest last. */
+  jobs: z.array(ArtJobSummary),
+  /** USD spent on art in this project. */
+  totalCost: z.number(),
+});
+export type ArtState = z.infer<typeof ArtState>;
+
+export const ArtEvent = z.object({ type: z.literal("art"), art: ArtState });
+export type ArtEvent = z.infer<typeof ArtEvent>;
+
+export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent, ArtEvent]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

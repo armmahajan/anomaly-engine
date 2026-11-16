@@ -1,6 +1,7 @@
 import {
   fail,
   type AgentId,
+  type ArtJobRequest,
   type BatchRequest,
   ServerEvent,
   type ChangeResult,
@@ -40,6 +41,10 @@ export const undo = (request: UndoRequest) => post<ChangeResult>("/api/undo", re
 export const resetProject = (baseRevision: number) => post<ChangeResult>("/api/reset", { baseRevision });
 export const sendChat = (agent: AgentId, message: string) => post<{ ok: true }>(`/api/chat?agent=${agent}`, { message });
 export const cancelChat = (agent: AgentId) => post<{ ok: true }>(`/api/chat/cancel?agent=${agent}`, {});
+export const startArtJob = (request: ArtJobRequest) => post<{ ok: true; jobId: string }>("/api/art/jobs", request);
+export const cancelArtJob = () => post<{ ok: true }>("/api/art/cancel", {});
+/** URL of a stored image (concept sheets, renders). */
+export const fileUrl = (ref: string) => `/api/files/${ref}`;
 export const setPlaytest = (active: boolean, clientId: string) =>
   post<PlaytestResult>("/api/playtest", { active, clientId });
 
