@@ -1,12 +1,13 @@
 extends RefCounted
-## Stand still, face the player and flash: a readable warning before an attack.
+## Stand still, face the player and flash (optionally shaking): a readable warning before an attack.
 
-const PARAMS := {"color": "color"}
+const PARAMS := {"color": "color", "shake": "bool"}
 const FLASH_PERIOD := 0.16
 
 
-static func enter(actor, _params: Dictionary) -> void:
+static func enter(actor, params: Dictionary) -> void:
 	actor.face_player()
+	actor.shaking = params.shake
 
 
 static func tick(actor, params: Dictionary, _delta: float) -> void:

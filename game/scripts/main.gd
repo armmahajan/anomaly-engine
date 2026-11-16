@@ -3,7 +3,7 @@ extends Node2D
 ## builds the sandbox scene from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 3
+const PROTOCOL_VERSION := 5
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -11,9 +11,18 @@ const PlayerScript := preload("res://scripts/player.gd")
 const EnemyScript := preload("res://scripts/enemy.gd")
 const ProjectCheck := preload("res://scripts/project_check.gd")
 const Registry := preload("res://primitives/registry.gd")
+const HudScript := preload("res://scripts/hud.gd")
+## Physics frames the world freezes for when a sword hit lands.
+const HIT_STOP_FRAMES := 3
 
 var _project: Dictionary = {}
 var _mode := "edit"
+var _seed = null
+var _deaths := 0
+var _freeze := 0
+var _hud: Node2D
+## Last error reported to the studio (read by the headless simulator).
+var last_error := ""
 var _world: Node2D = null
 var _player: Node = null
 var _edit_camera: Camera2D
@@ -30,6 +39,11 @@ func _ready() -> void:
 	add_child(_edit_camera)
 	_edit_camera.make_current()
 	get_viewport().size_changed.connect(_fit_edit_camera)
+	var hud_layer := CanvasLayer.new()
+	add_child(hud_layer)
+	_hud = HudScript.new()
+	_hud.visible = false
+	hud_layer.add_child(_hud)
 
 	if OS.has_feature("web"):
 		_window = JavaScriptBridge.get_interface("window")
@@ -85,10 +99,14 @@ func handle_message(message: Dictionary) -> void:
 			if _project.is_empty():
 				_error("not_loaded", "no project loaded")
 			else:
+				_seed_run(int(message.get("seed", 0)))
+				_deaths = 0
 				_set_mode("play")
 			_send({"type": "modeChanged", "mode": _mode})
 		"stop":
 			_build_world()  # back to spawn state = reset
+			_seed = null
+			_deaths = 0
 			_set_mode("edit")
 			_send({"type": "modeChanged", "mode": _mode})
 		"getState":
@@ -97,6 +115,8 @@ func handle_message(message: Dictionary) -> void:
 				"requestId": str(message.get("requestId", "")),
 				"mode": _mode,
 				"revision": int(_project.get("revision", -1)),
+				"seed": _seed,
+				"deaths": _deaths,
 				"entities": _entity_states(),
 			})
 		var other:
@@ -112,6 +132,7 @@ func _send(message: Dictionary) -> void:
 
 
 func _error(code: String, text: String) -> void:
+	last_error = "%s: %s" % [code, text]
 	push_warning("[runtime] %s: %s" % [code, text])
 	_send({"type": "error", "code": code, "message": text})
 
@@ -124,6 +145,7 @@ func _build_world() -> void:
 		_world.queue_free()
 		_world = null
 		_player = null
+	_freeze = 0
 	if _project.is_empty():
 		return
 
@@ -155,8 +177,44 @@ func _build_world() -> void:
 			enemies.append(body)
 	for enemy in enemies:
 		enemy.player = _player
+	if _player != null:
+		_player.enemies = enemies
+		_player.landed_hit.connect(_hit_stop)
+		_player.died.connect(_restart_run, CONNECT_DEFERRED)
+	_hud.player = _player
 
 	_fit_edit_camera()
+
+
+## Every enemy gets its own RNG derived from the run seed and its spawn id.
+func _seed_run(run_seed: int) -> void:
+	_seed = run_seed
+	for child in _world.get_children():
+		if child is CharacterBody2D and "rng" in child:
+			child.rng.seed = hash("%d:%s" % [run_seed, child.spawn_id])
+
+
+## The player died: rebuild the arena and replay the same seed.
+func _restart_run() -> void:
+	if _mode != "play":
+		return
+	_deaths += 1
+	_build_world()
+	_seed_run(_seed)
+	_set_mode("play")
+
+
+func _hit_stop() -> void:
+	if _mode == "play":
+		_freeze = HIT_STOP_FRAMES
+		_world.process_mode = Node.PROCESS_MODE_DISABLED
+
+
+func _physics_process(_delta: float) -> void:
+	if _freeze > 0:
+		_freeze -= 1
+		if _freeze == 0 and _mode == "play" and _world != null:
+			_world.process_mode = Node.PROCESS_MODE_INHERIT
 
 
 func _make_platform(rect: Dictionary, color: Color) -> StaticBody2D:
@@ -180,6 +238,8 @@ func _make_platform(rect: Dictionary, color: Color) -> StaticBody2D:
 
 func _set_mode(mode: String) -> void:
 	_mode = mode
+	_freeze = 0
+	_hud.visible = mode == "play"
 	if _world != null:
 		_world.process_mode = Node.PROCESS_MODE_INHERIT if mode == "play" else Node.PROCESS_MODE_DISABLED
 	if mode == "play" and _player != null:
@@ -225,6 +285,7 @@ func _entity_states() -> Array:
 				"velocityX": child.velocity.x,
 				"velocityY": child.velocity.y,
 				"behaviorState": child.behavior_state if child.behavior_state != "" else null,
+				"health": child.health,
 			})
 	return out
 
@@ -234,7 +295,10 @@ func _entity_states() -> Array:
 func _setup_input() -> void:
 	_add_action("move_left", [KEY_A, KEY_LEFT])
 	_add_action("move_right", [KEY_D, KEY_RIGHT])
-	_add_action("jump", [KEY_SPACE, KEY_W, KEY_UP, KEY_Z])
+	_add_action("jump", [KEY_SPACE, KEY_Z])
+	_add_action("attack", [KEY_X, KEY_J])
+	_add_action("aim_up", [KEY_W, KEY_UP])
+	_add_action("aim_down", [KEY_S, KEY_DOWN])
 
 
 func _add_action(action: String, keys: Array) -> void:

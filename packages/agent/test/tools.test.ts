@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultProject, OPERATION_NAMES } from "@anomaly/core";
+import { ACTION_TYPES, createDefaultProject, OPERATION_NAMES } from "@anomaly/core";
 import { buildSystemPrompt, Draft, executeTool, READ_TOOL_NAMES, summarizeProject, toolDefinitions } from "../src/index.ts";
 
 const definitions = toolDefinitions();
@@ -29,7 +29,7 @@ describe("tool definitions", () => {
     expect(create.properties.character.properties.kind.const).toBe("enemy");
     const behavior = (byName.setBehavior!.parameters as any).properties.behavior;
     const actions = behavior.properties.states.additionalProperties.properties.action.oneOf;
-    expect(actions.map((a: any) => a.properties.type.const)).toEqual(["patrol", "wait", "chase", "charge", "telegraph"]);
+    expect(actions.map((a: any) => a.properties.type.const)).toEqual(ACTION_TYPES);
     expect(actions[0].description).toContain("back and forth");
     expect((byName.addSpawn!.parameters as any).properties.y.description).toContain("downward");
   });
@@ -77,7 +77,7 @@ describe("executeTool", () => {
       spawns: [{ id: "charger_1" }],
     });
     expect(run(draft, "getCharacter", { characterId: "crawler" })).toMatchObject({ ok: false });
-    expect(run(draft, "listPrimitives", {}).actions.oneOf).toHaveLength(5);
+    expect(run(draft, "listPrimitives", {}).actions.oneOf).toHaveLength(ACTION_TYPES.length);
   });
 });
 
@@ -86,7 +86,7 @@ describe("summaries and prompt", () => {
     const summary = summarizeProject(createDefaultProject());
     expect(summary).toContain("Arena: 1600x720 px");
     expect(summary).toContain("The player stands on y = 660");
-    expect(summary).toContain("windup: telegraph(color #ffd27a); [0] -> charge when after(seconds 0.6)");
+    expect(summary).toContain("windup: telegraph(color #ffd27a, shake false); [0] -> charge when after(seconds 0.6)");
     expect(summary).toContain("charger_1 (640, 660)");
     expect(summary).toContain("Warnings: none");
   });

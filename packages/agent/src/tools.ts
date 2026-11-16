@@ -62,7 +62,7 @@ const writeDescriptions: Record<OperationName, string> = {
   deleteCharacter: "Delete an enemy type and all its spawns. The player cannot be deleted.",
   updateCharacter: "Change a character's name, color, size or stats. Applies to every spawn of it.",
   updateBehavior:
-    "Targeted edit of one behavior state: change action params and/or edit existing transitions by index. Prefer this over setBehavior for tweaks.",
+    "Targeted edit of one behavior state (action params, transitions by index) and/or the behavior's interrupts by index. Prefer this over setBehavior for tweaks.",
   setBehavior:
     "Replace an enemy's whole behavior state machine. Use for new or restructured behaviors (adding/removing states or transitions).",
   addSpawn: "Place an instance of a character in the arena at its feet position.",

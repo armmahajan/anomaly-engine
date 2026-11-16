@@ -14,42 +14,53 @@ export function createDefaultProject(): ProjectSpec {
         name: "Wanderer",
         color: "#e8e3d3",
         size: { width: 28, height: 44 },
-        stats: { runSpeed: 320, jumpVelocity: 760 },
+        stats: {
+          runSpeed: 320,
+          jumpVelocity: 760,
+          health: 5,
+          attackDamage: 1,
+          attackReach: 56,
+          attackCooldown: 0.35,
+          pogoVelocity: 620,
+        },
       },
       {
         id: "crawler",
         kind: "enemy",
+        movement: "ground",
         name: "Crawler",
         color: "#c0504d",
         size: { width: 40, height: 28 },
-        stats: { knockback: 350 },
+        stats: { knockback: 350, health: 2, contactDamage: 1 },
         behavior: {
           initial: "patrol",
           states: {
-            patrol: { action: { type: "patrol", speed: 120, distance: 420 }, transitions: [] },
+            patrol: { action: { type: "patrol", speed: 120, distance: 420, turnAtLedge: false, turnAtWall: true }, transitions: [] },
           },
+          interrupts: [],
         },
       },
       {
         id: "charger",
         kind: "enemy",
+        movement: "ground",
         name: "Charger",
         color: "#8e6cc2",
         size: { width: 44, height: 36 },
-        stats: { knockback: 650 },
+        stats: { knockback: 650, health: 4, contactDamage: 1 },
         behavior: {
           initial: "patrol",
           states: {
             patrol: {
-              action: { type: "patrol", speed: 60, distance: 200 },
-              transitions: [{ when: { type: "playerWithin", distance: 260 }, to: "windup" }],
+              action: { type: "patrol", speed: 60, distance: 200, turnAtLedge: false, turnAtWall: true },
+              transitions: [{ when: { type: "playerWithin", distance: 260 }, and: [{ type: "playerLevel", margin: 60 }], to: "windup" }],
             },
             windup: {
-              action: { type: "telegraph", color: "#ffd27a" },
+              action: { type: "telegraph", color: "#ffd27a", shake: false },
               transitions: [{ when: { type: "after", seconds: 0.6 }, to: "charge" }],
             },
             charge: {
-              action: { type: "charge", speed: 520 },
+              action: { type: "charge", speed: 520, direction: "horizontal" },
               transitions: [
                 { when: { type: "hitWall" }, to: "recover" },
                 { when: { type: "after", seconds: 0.9 }, to: "recover" },
@@ -60,6 +71,7 @@ export function createDefaultProject(): ProjectSpec {
               transitions: [{ when: { type: "after", seconds: 0.8 }, to: "patrol" }],
             },
           },
+          interrupts: [],
         },
       },
     ],
@@ -90,13 +102,17 @@ export function newEnemyCharacter(id: string, name: string, color = "#5f9e6e"): 
   return {
     id,
     kind: "enemy",
+    movement: "ground",
     name,
     color,
     size: { width: 36, height: 32 },
-    stats: { knockback: 350 },
+    stats: { knockback: 350, health: 2, contactDamage: 1 },
     behavior: {
       initial: "patrol",
-      states: { patrol: { action: { type: "patrol", speed: 100, distance: 300 }, transitions: [] } },
+      states: {
+        patrol: { action: { type: "patrol", speed: 100, distance: 300, turnAtLedge: true, turnAtWall: true }, transitions: [] },
+      },
+      interrupts: [],
     },
   };
 }

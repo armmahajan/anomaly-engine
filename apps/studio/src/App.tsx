@@ -79,8 +79,8 @@ export function App({ session }: { session: Session }) {
     if (report(await session.resetProject())) setSelectedId("crawler");
   };
 
-  const onPlay = async () => {
-    if (await session.play()) {
+  const onPlay = async (seed?: number) => {
+    if (await session.play(seed)) {
       frameRef.current?.focus();
       frameRef.current?.contentWindow?.focus();
     }
@@ -90,9 +90,19 @@ export function App({ session }: { session: Session }) {
     <div className="studio">
       <header className="toolbar">
         <span className="title">{state.project.name}</span>
-        <button type="button" onClick={onPlay} disabled={!session.canPlay()}>
+        <button type="button" onClick={() => void onPlay()} disabled={!session.canPlay()}>
           ▶ Play
         </button>
+        {state.seed !== null && (
+          <button
+            type="button"
+            onClick={() => void onPlay(state.seed!)}
+            disabled={!session.canPlay()}
+            title="Play again with the same random choices"
+          >
+            ⟲ Seed {state.seed}
+          </button>
+        )}
         <button type="button" onClick={session.stop} disabled={!playing}>
           ■ Stop
         </button>

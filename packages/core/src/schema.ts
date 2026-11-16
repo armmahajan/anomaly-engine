@@ -19,11 +19,29 @@ const Size = z.strictObject({
 export const PlayerStats = z.strictObject({
   runSpeed: z.number().min(0).max(1000).describe("px/s"),
   jumpVelocity: z.number().min(0).max(2000).describe("Initial upward speed in px/s; jump height = v^2 / (2 * gravity)."),
+  health: z.number().int().min(1).max(20).default(5).describe("Hit points. At 0 the run restarts."),
+  attackDamage: z.number().int().min(0).max(100).default(1).describe("Damage per sword hit."),
+  attackReach: z.number().min(8).max(300).default(56).describe("How far the sword reaches from the body, px."),
+  attackCooldown: z.number().min(0.05).max(2).default(0.35).describe("Seconds between swings."),
+  pogoVelocity: z
+    .number()
+    .min(0)
+    .max(2000)
+    .default(620)
+    .describe("Upward bounce in px/s when a downward strike (down + attack in the air) hits an enemy."),
 });
 
 export const EnemyStats = z.strictObject({
   /** How hard touching this enemy throws the player back (px/s). */
-  knockback: z.number().min(0).max(2000).describe("px/s; 0 = harmless to touch."),
+  knockback: z.number().min(0).max(2000).describe("How hard touching this enemy throws the player back, px/s."),
+  health: z.number().int().min(1).max(999).default(3).describe("Hit points; the player's sword deals attackDamage per hit."),
+  contactDamage: z
+    .number()
+    .int()
+    .min(0)
+    .max(20)
+    .default(1)
+    .describe("Damage to the player on touch. With knockback 0 too, touching it is harmless."),
 });
 
 const characterBase = {
@@ -42,6 +60,10 @@ export const PlayerCharacter = z.strictObject({
 export const EnemyCharacter = z.strictObject({
   ...characterBase,
   kind: z.literal("enemy"),
+  movement: z
+    .enum(["ground", "flying"])
+    .default("ground")
+    .describe("ground: falls with gravity and walks. flying: ignores gravity; chase, retreat, returnHome and charge(towardPlayer) move in 2D."),
   stats: EnemyStats,
   behavior: Behavior,
 });

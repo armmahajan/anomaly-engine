@@ -1,4 +1,4 @@
-import { lintProject, type Action, type Character, type Condition, type ProjectSpec } from "@anomaly/core";
+import { lintProject, type Action, type Character, type Condition, type ProjectSpec, type Transition } from "@anomaly/core";
 
 /**
  * Compact, readable descriptions of the project for the model. The raw JSON
@@ -12,6 +12,7 @@ const params = (primitive: Action | Condition) =>
     .join(", ");
 
 const primitive = (p: Action | Condition) => (params(p) ? `${p.type}(${params(p)})` : p.type);
+const condition = (t: Transition) => [t.when, ...(t.and ?? [])].map(primitive).join(" and ");
 
 export function describeCharacter(project: ProjectSpec, character: Character): string {
   const spawns = project.sandbox.spawns.filter((s) => s.characterId === character.id);
@@ -21,13 +22,14 @@ export function describeCharacter(project: ProjectSpec, character: Character): s
     .join(", ");
   const head = `- ${character.id} "${character.name}" [${character.kind}] ${character.size.width}x${character.size.height} ${character.color}; ${stats}; spawns: ${placed}`;
   if (character.kind !== "enemy") return head;
+  const interrupts = character.behavior.interrupts.map((t, i) => `    any state: [${i}] -> ${t.to} when ${condition(t)}`);
   const states = Object.entries(character.behavior.states).map(([id, state]) => {
-    const exits = state.transitions.map((t, i) => `[${i}] -> ${t.to} when ${primitive(t.when)}`);
+    const exits = state.transitions.map((t, i) => `[${i}] -> ${t.to} when ${condition(t)}`);
     return `    ${id}${id === character.behavior.initial ? " (start)" : ""}: ${primitive(state.action)}${
       exits.length ? `; ${exits.join("; ")}` : "; no transitions"
     }`;
   });
-  return [head, "  behavior:", ...states].join("\n");
+  return [`${head}; movement ${character.movement}`, "  behavior:", ...interrupts, ...states].join("\n");
 }
 
 export function summarizeProject(project: ProjectSpec): string {

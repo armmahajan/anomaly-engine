@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Character, EnemyStats, PlayerStats, ProjectSpec, type EnemyCharacter } from "./schema.ts";
 import { Id } from "./common.ts";
+import type { Transition } from "./behavior.ts";
 
 /**
  * Project operations: pure functions (project, untrusted input) -> result.
@@ -73,11 +74,14 @@ export const UpdateCharacterInput = z.strictObject({
     name: z.string().optional(),
     color: z.string().optional(),
     size: z.strictObject({ width: z.number().optional(), height: z.number().optional() }).optional(),
+    movement: z.enum(["ground", "flying"]).optional().describe("Enemies only."),
     // Checked against the character's own stats schema below.
     stats: z
       .record(z.string(), z.unknown())
       .optional()
-      .describe("Stats to change. Player: runSpeed, jumpVelocity. Enemy: knockback."),
+      .describe(
+        "Stats to change. Player: runSpeed, jumpVelocity, health, attackDamage, attackReach, attackCooldown, pogoVelocity. Enemy: knockback, health, contactDamage.",
+      ),
   }),
 });
 
@@ -102,6 +106,10 @@ export function updateCharacter(project: ProjectSpec, input: unknown): Operation
     return noCharacter(project, characterId);
   }
 
+  if (changes.movement !== undefined && current.kind !== "enemy") {
+    return fail("invalid_input", `"${characterId}" is a ${current.kind}; only enemies have a movement type`);
+  }
+
   let statChanges: Record<string, unknown> = {};
   if (changes.stats) {
     const parsedStats = statsSchemaFor[current.kind].safeParse(changes.stats);
@@ -112,13 +120,16 @@ export function updateCharacter(project: ProjectSpec, input: unknown): Operation
         toIssues(parsedStats.error).map((i) => ({ ...i, path: `changes.stats.${i.path}` })),
       );
     }
-    statChanges = parsedStats.data;
+    // Only the named stats: .partial() still fills in defaults for the rest.
+    const named = parsedStats.data as Record<string, unknown>;
+    statChanges = Object.fromEntries(Object.keys(changes.stats).map((k) => [k, named[k]]));
   }
 
   const candidate = {
     ...current,
     ...(changes.name !== undefined && { name: changes.name }),
     ...(changes.color !== undefined && { color: changes.color }),
+    ...(changes.movement !== undefined && { movement: changes.movement }),
     size: { ...current.size, ...changes.size },
     stats: { ...current.stats, ...statChanges },
   };
@@ -162,25 +173,32 @@ function replaceCharacter(project: ProjectSpec, index: number, candidate: unknow
 const ParamChanges = z.record(z.string(), z.unknown());
 
 
+const TransitionEdits = z
+  .array(
+    z.strictObject({
+      index: z.number().int().min(0),
+      when: ParamChanges.optional().describe(
+        "Params merged into the condition, e.g. {\"seconds\": 1.2}; a different `type` replaces it.",
+      ),
+      and: z
+        .array(ParamChanges)
+        .optional()
+        .describe(
+          "Edits to the extra `and` conditions by position: each entry is merged into the condition at that position ({} leaves it alone, a different `type` replaces it); entries past the end are added as new conditions.",
+        ),
+      to: Id.optional().describe("New target state id."),
+    }),
+  )
+  .optional();
+
 export const UpdateBehaviorInput = z.strictObject({
   characterId: Id,
-  stateId: Id,
+  stateId: Id.optional().describe("State to edit; required for `action` and `transitions`."),
   action: ParamChanges.optional().describe(
     "Params merged into the state's action, e.g. {\"speed\": 300}. Include a different `type` to replace the action with another primitive (then give all its params).",
   ),
-  /** Targeted edits to existing transitions, by index. */
-  transitions: z
-    .array(
-      z.strictObject({
-        index: z.number().int().min(0),
-        when: ParamChanges.optional().describe(
-          "Params merged into the condition, e.g. {\"seconds\": 1.2}; a different `type` replaces it.",
-        ),
-        to: Id.optional().describe("New target state id."),
-      }),
-    )
-    .optional()
-    .describe("Targeted edits to existing transitions, by index (0 = first)."),
+  transitions: TransitionEdits.describe("Targeted edits to the state's existing transitions, by index (0 = first)."),
+  interrupts: TransitionEdits.describe("Targeted edits to the behavior's existing interrupts, by index."),
 });
 
 /** Merge param changes into a primitive, or replace it if the type changes. */
@@ -192,43 +210,68 @@ function mergePrimitive<T extends { type: string }>(current: T, changes: Record<
 export function updateBehavior(project: ProjectSpec, input: unknown): OperationResult {
   const parsed = UpdateBehaviorInput.safeParse(input);
   if (!parsed.success) return fail("invalid_input", "updateBehavior input is malformed", toIssues(parsed.error));
-  const { characterId, stateId, action, transitions } = parsed.data;
+  const { characterId, stateId, action, transitions, interrupts } = parsed.data;
+  if (!action && !transitions && !interrupts) {
+    return fail("invalid_input", "nothing to change: give action, transitions or interrupts");
+  }
 
   const found = findEnemy(project, characterId);
   if (!found.ok) return found;
   const { index, character } = found;
+  let behavior: unknown = character.behavior;
 
-  const state = character.behavior.states[stateId];
-  if (!state) {
-    return fail("not_found", `"${characterId}" has no behavior state "${stateId}"${known(Object.keys(character.behavior.states))}`);
+  if (interrupts) {
+    const edited = editTransitions(character.behavior.interrupts, interrupts, "the behavior's interrupts");
+    if (!edited.ok) return edited;
+    behavior = { ...character.behavior, interrupts: edited.transitions };
   }
 
-  const nextTransitions: unknown[] = state.transitions.slice();
-  for (const change of transitions ?? []) {
-    const existing = state.transitions[change.index];
+  if (action || transitions) {
+    if (stateId === undefined) return fail("invalid_input", "stateId is required to edit a state's action or transitions");
+    const state = character.behavior.states[stateId];
+    if (!state) {
+      return fail("not_found", `"${characterId}" has no behavior state "${stateId}"${known(Object.keys(character.behavior.states))}`);
+    }
+    const edited = editTransitions(state.transitions, transitions ?? [], `state "${stateId}"`);
+    if (!edited.ok) return edited;
+    const nextState = { action: action ? mergePrimitive(state.action, action) : state.action, transitions: edited.transitions };
+    behavior = { ...(behavior as object), states: { ...character.behavior.states, [stateId]: nextState } };
+  }
+
+  return replaceCharacter(project, index, { ...character, behavior }, `behavior of "${characterId}"`);
+}
+
+function editTransitions(
+  current: Transition[],
+  edits: NonNullable<z.infer<typeof TransitionEdits>>,
+  where: string,
+): { ok: true; transitions: unknown[] } | { ok: false; error: OperationError } {
+  const next: unknown[] = current.slice();
+  for (const change of edits) {
+    const existing = current[change.index];
     if (!existing) {
       return fail(
         "not_found",
-        `state "${stateId}" has no transition at index ${change.index} (it has ${state.transitions.length}: ${
-          state.transitions.map((t, i) => `${i} -> ${t.to}`).join(", ") || "none"
+        `${where} has no transition at index ${change.index} (it has ${current.length}: ${
+          current.map((t, i) => `${i} -> ${t.to}`).join(", ") || "none"
         })`,
       );
     }
-    nextTransitions[change.index] = {
+    const and = change.and ? editConditions(existing.and ?? [], change.and) : existing.and;
+    next[change.index] = {
       when: change.when ? mergePrimitive(existing.when, change.when) : existing.when,
+      ...(and && { and }),
       to: change.to ?? existing.to,
     };
   }
+  return { ok: true, transitions: next };
+}
 
-  const nextState = {
-    action: action ? mergePrimitive(state.action, action) : state.action,
-    transitions: nextTransitions,
-  };
-  const candidate = {
-    ...character,
-    behavior: { ...character.behavior, states: { ...character.behavior.states, [stateId]: nextState } },
-  };
-  return replaceCharacter(project, index, candidate, `behavior of "${characterId}"`);
+function editConditions(current: Transition["when"][], edits: Record<string, unknown>[]): unknown[] {
+  return Array.from({ length: Math.max(current.length, edits.length) }, (_, i) => {
+    const existing = current[i];
+    return existing ? mergePrimitive(existing, edits[i] ?? {}) : edits[i];
+  });
 }
 
 export const SetBehaviorInput = z.strictObject({ characterId: Id, behavior: z.unknown() });

@@ -11,7 +11,8 @@ export type WarningCode =
   | "spawn_inside_platform"
   | "unplaced_character"
   | "unreachable_state"
-  | "endless_state";
+  | "endless_state"
+  | "movement_mismatch";
 
 export interface ProjectWarning {
   code: WarningCode;
@@ -22,6 +23,12 @@ export interface ProjectWarning {
 
 /** Actions meant to be temporary: without a way out the character is stuck doing them. */
 const TEMPORARY_ACTIONS = new Set(["charge", "telegraph"]);
+
+/** Actions that only do something for one movement type. */
+const MOVEMENT_ONLY: Record<string, { movement: "ground" | "flying"; otherwise: string }> = {
+  jump: { movement: "ground", otherwise: "flyers can't jump" },
+  hover: { movement: "flying", otherwise: "ground characters just stand still" },
+};
 
 export function lintProject(project: ProjectSpec): ProjectWarning[] {
   const warnings: ProjectWarning[] = [];
@@ -60,8 +67,9 @@ export function lintProject(project: ProjectSpec): ProjectWarning[] {
     }
 
     const { behavior } = character;
-    const reachable = new Set([behavior.initial]);
-    const queue = [behavior.initial];
+    const entry = [behavior.initial, ...behavior.interrupts.map((t) => t.to)];
+    const reachable = new Set(entry);
+    const queue = [...reachable];
     while (queue.length > 0) {
       for (const t of behavior.states[queue.shift()!]?.transitions ?? []) {
         if (!reachable.has(t.to)) {
@@ -79,7 +87,16 @@ export function lintProject(project: ProjectSpec): ProjectWarning[] {
           message: `"${character.id}" state "${stateId}" can never be reached from "${behavior.initial}"`,
         });
       }
-      if (TEMPORARY_ACTIONS.has(state.action.type) && state.transitions.length === 0) {
+      const only = MOVEMENT_ONLY[state.action.type];
+      if (only && only.movement !== character.movement) {
+        warnings.push({
+          code: "movement_mismatch",
+          path,
+          message: `"${character.id}" state "${stateId}" uses ${state.action.type}, but "${character.id}" is ${character.movement}: ${only.otherwise}`,
+        });
+      }
+      const noWayOut = state.transitions.length === 0 && behavior.interrupts.length === 0;
+      if (TEMPORARY_ACTIONS.has(state.action.type) && noWayOut) {
         warnings.push({
           code: "endless_state",
           path,

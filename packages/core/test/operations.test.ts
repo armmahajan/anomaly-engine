@@ -52,8 +52,8 @@ describe("updateCharacter", () => {
     const result = updateCharacter(before, { characterId: "charger", changes: { stats: { knockback: 900 } } });
     if (!result.ok) throw new Error(result.error.message);
     const charger = result.project.characters.find((c) => c.id === "charger");
-    const original = before.characters.find((c) => c.id === "charger");
-    expect(charger).toEqual({ ...original, stats: { knockback: 900 } });
+    const original = before.characters.find((c) => c.id === "charger")!;
+    expect(charger).toEqual({ ...original, stats: { ...original.stats, knockback: 900 } });
   });
 
   it("keeps unchanged stats and does not mutate the input project", () => {
@@ -63,7 +63,7 @@ describe("updateCharacter", () => {
     expect(before).toEqual(snapshot);
     if (!result.ok) throw new Error("expected success");
     const player = result.project.characters.find((c) => c.id === "player");
-    expect(player?.stats).toEqual({ runSpeed: 150, jumpVelocity: 760 });
+    expect(player?.stats).toMatchObject({ runSpeed: 150, jumpVelocity: 760, health: 5 });
   });
 
   it.each([

@@ -61,11 +61,14 @@ static func _check_character(c: Variant) -> String:
 		return "character '%s' needs stats" % c.id
 	match c.get("kind"):
 		"player":
-			if not _all_num(c.stats, ["runSpeed", "jumpVelocity"]):
-				return "player '%s' needs runSpeed and jumpVelocity" % c.id
+			var needed := ["runSpeed", "jumpVelocity", "health", "attackDamage", "attackReach", "attackCooldown", "pogoVelocity"]
+			if not _all_num(c.stats, needed):
+				return "player '%s' needs numeric %s" % [c.id, ", ".join(needed)]
 		"enemy":
-			if not _all_num(c.stats, ["knockback"]):
-				return "enemy '%s' needs a numeric knockback" % c.id
+			if not _all_num(c.stats, ["knockback", "health", "contactDamage"]):
+				return "enemy '%s' needs numeric knockback, health and contactDamage" % c.id
+			if not c.get("movement", "ground") in ["ground", "flying"]:
+				return "enemy '%s' has an unknown movement type" % c.id
 			return _check_behavior(c.id, c.get("behavior"))
 		_:
 			return "character '%s' has unknown kind" % c.id
@@ -94,6 +97,12 @@ static func _check_behavior(id: String, behavior: Variant) -> String:
 	var states: Dictionary = behavior.states
 	if not states.has(behavior.get("initial")):
 		return "enemy '%s' behavior has no initial state '%s'" % [id, behavior.get("initial")]
+	for interrupt in behavior.get("interrupts", []):
+		if typeof(interrupt) != TYPE_DICTIONARY or not states.has(interrupt.get("to")):
+			return "enemy '%s' has an interrupt to an unknown state" % id
+		var bad := _check_conditions("enemy '%s' interrupt" % id, interrupt)
+		if bad != "":
+			return bad
 	for state_id in states:
 		var state = states[state_id]
 		var where := "enemy '%s' state '%s'" % [id, state_id]
@@ -105,9 +114,20 @@ static func _check_behavior(id: String, behavior: Variant) -> String:
 		for transition in state.transitions:
 			if typeof(transition) != TYPE_DICTIONARY or not states.has(transition.get("to")):
 				return "%s has a transition to an unknown state" % where
-			problem = _check_primitive(where + " condition", transition.get("when"), Registry.CONDITIONS)
+			problem = _check_conditions(where + " transition", transition)
 			if problem != "":
 				return problem
+	return ""
+
+
+static func _check_conditions(where: String, transition: Dictionary) -> String:
+	var extra = transition.get("and", [])
+	if typeof(extra) != TYPE_ARRAY:
+		return "%s has a malformed 'and' list" % where
+	for condition in [transition.get("when")] + extra:
+		var problem := _check_primitive(where + " condition", condition, Registry.CONDITIONS)
+		if problem != "":
+			return problem
 	return ""
 
 
@@ -116,7 +136,19 @@ static func _check_primitive(where: String, primitive: Variant, registry: Dictio
 		return "%s has an unknown type" % where
 	var params: Dictionary = registry[primitive.type].PARAMS
 	for param in params:
-		var ok := _is_num(primitive, param) if params[param] == "number" else _is_color(primitive.get(param))
-		if not ok:
+		if not _valid_param(params[param], primitive.get(param)):
 			return "%s (%s) needs a valid '%s'" % [where, primitive.type, param]
 	return ""
+
+
+static func _valid_param(kind: String, value: Variant) -> bool:
+	match kind:
+		"number":
+			return typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT
+		"bool":
+			return typeof(value) == TYPE_BOOL
+		"color":
+			return _is_color(value)
+	if kind.begins_with("enum:"):
+		return typeof(value) == TYPE_STRING and value in kind.substr(5).split("|")
+	return false

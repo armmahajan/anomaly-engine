@@ -1,6 +1,7 @@
 import {
   ACTION_TYPES,
   CONDITION_TYPES,
+  MAX_SEED,
   PROTOCOL_VERSION,
   type ChangeResult,
   type ChatState,
@@ -28,11 +29,15 @@ export interface SessionState {
   loadedRevision: number | null;
   lastProblem: string | null;
   chat: ChatState;
+  /** Seed of the current or most recent playtest. */
+  seed: number | null;
 }
 
 export interface RuntimeSnapshot {
   mode: RuntimeMode;
   revision: number;
+  seed: number | null;
+  deaths: number;
   entities: EntityState[];
 }
 
@@ -70,6 +75,7 @@ export class Session {
       loadedRevision: null,
       lastProblem: null,
       chat: { entries: [], running: null, undone: [] },
+      seed: null,
     };
   }
 
@@ -283,9 +289,11 @@ export class Session {
     });
   }
 
-  play = async (): Promise<boolean> => {
+  /** Start a playtest. Omit `seed` for a fresh random run; pass one to replay it. */
+  play = async (seed?: number): Promise<boolean> => {
     if (!this.canPlay()) return false;
-    this.set({ mode: "play" }); // lock local edits immediately
+    const runSeed = seed ?? Math.floor(Math.random() * MAX_SEED);
+    this.set({ mode: "play", seed: runSeed }); // lock local edits immediately
     const lock = await api.setPlaytest(true, this.clientId);
     // Abort if the lock failed or the project moved on while we asked.
     if (!lock.ok || lock.revision !== this.state.loadedRevision) {
@@ -295,7 +303,7 @@ export class Session {
       this.syncRuntime();
       return false;
     }
-    if (!this.bridge.send({ type: "play" })) {
+    if (!this.bridge.send({ type: "play", seed: runSeed })) {
       void api.setPlaytest(false, this.clientId);
       this.set({ mode: "edit" });
       return false;
@@ -310,7 +318,7 @@ export class Session {
   };
 
   getRuntimeState = async (): Promise<RuntimeSnapshot> => {
-    const { mode, revision, entities } = await this.bridge.requestState();
-    return { mode, revision, entities };
+    const { mode, revision, seed, deaths, entities } = await this.bridge.requestState();
+    return { mode, revision, seed, deaths, entities };
   };
 }

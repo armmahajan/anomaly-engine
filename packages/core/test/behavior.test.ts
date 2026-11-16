@@ -27,8 +27,26 @@ function validateWithChargerBehavior(edit: (b: Behavior & Record<string, unknown
 
 describe("behavior schema", () => {
   it("lists the primitive types the runtime must implement", () => {
-    expect(ACTION_TYPES).toEqual(["patrol", "wait", "chase", "charge", "telegraph"]);
-    expect(CONDITION_TYPES).toEqual(["playerWithin", "playerBeyond", "after", "hitWall"]);
+    expect(ACTION_TYPES).toEqual(["patrol", "wait", "chase", "charge", "telegraph", "retreat", "returnHome", "jump", "hover"]);
+    expect(CONDITION_TYPES).toEqual([
+      "playerWithin",
+      "playerBeyond",
+      "after",
+      "hitWall",
+      "actionDone",
+      "atLedge",
+      "onGround",
+      "airborne",
+      "playerAbove",
+      "playerBelow",
+      "playerLevel",
+      "playerInFront",
+      "playerBehind",
+      "canSeePlayer",
+      "wasHit",
+      "healthBelow",
+      "chance",
+    ]);
   });
 
   it("rejects transitions to unknown states", () => {
@@ -70,7 +88,7 @@ describe("updateBehavior", () => {
     const result = updateBehavior(before, { characterId: "charger", stateId: "charge", action: { speed: 400 } });
     if (!result.ok) throw new Error(result.error.message);
     const after = behaviorOf(result.project, "charger");
-    expect(after.states.charge!.action).toEqual({ type: "charge", speed: 400 });
+    expect(after.states.charge!.action).toEqual({ type: "charge", speed: 400, direction: "horizontal" });
     expect({ ...after, states: { ...after.states, charge: undefined } }).toEqual({
       ...behaviorOf(before, "charger"),
       states: { ...behaviorOf(before, "charger").states, charge: undefined },
@@ -91,6 +109,20 @@ describe("updateBehavior", () => {
     });
   });
 
+  it("edits and appends a transition's extra `and` conditions by position", () => {
+    const result = updateBehavior(createDefaultProject(), {
+      characterId: "charger",
+      stateId: "patrol",
+      transitions: [{ index: 0, and: [{ margin: 80 }, { type: "canSeePlayer" }] }],
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    expect(behaviorOf(result.project, "charger").states.patrol!.transitions[0]).toEqual({
+      when: { type: "playerWithin", distance: 260 },
+      and: [{ type: "playerLevel", margin: 80 }, { type: "canSeePlayer" }],
+      to: "windup",
+    });
+  });
+
   it("replaces the action when the type changes", () => {
     const result = updateBehavior(createDefaultProject(), {
       characterId: "charger",
@@ -98,7 +130,7 @@ describe("updateBehavior", () => {
       action: { type: "chase", speed: 90 },
     });
     if (!result.ok) throw new Error(result.error.message);
-    expect(behaviorOf(result.project, "charger").states.recover!.action).toEqual({ type: "chase", speed: 90 });
+    expect(behaviorOf(result.project, "charger").states.recover!.action).toEqual({ type: "chase", speed: 90, stopDistance: 0 });
   });
 
   it("rejects a type change with missing params", () => {
@@ -123,13 +155,38 @@ describe("updateBehavior", () => {
   });
 });
 
+describe("interrupts", () => {
+  const withInterrupt = () => {
+    const project = createDefaultProject();
+    const charger = project.characters.find((c) => c.id === "charger");
+    if (charger?.kind !== "enemy") throw new Error();
+    charger.behavior.interrupts = [{ when: { type: "playerBeyond", distance: 900 }, to: "recover" }];
+    return project;
+  };
+
+  it("are validated and editable by index", () => {
+    const result = updateBehavior(withInterrupt(), { characterId: "charger", interrupts: [{ index: 0, when: { distance: 700 } }] });
+    expect(result.ok && behaviorOf(result.project, "charger").interrupts).toEqual([
+      { when: { type: "playerBeyond", distance: 700 }, to: "recover" },
+    ]);
+    expect(updateBehavior(withInterrupt(), { characterId: "charger", interrupts: [{ index: 0, to: "nowhere" }] })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+  });
+});
+
 describe("setBehavior", () => {
   const chaser: Behavior = {
     initial: "idle",
     states: {
       idle: { action: { type: "wait" }, transitions: [{ when: { type: "playerWithin", distance: 300 }, to: "chase" }] },
-      chase: { action: { type: "chase", speed: 200 }, transitions: [{ when: { type: "playerBeyond", distance: 400 }, to: "idle" }] },
+      chase: {
+        action: { type: "chase", speed: 200, stopDistance: 0 },
+        transitions: [{ when: { type: "playerBeyond", distance: 400 }, to: "idle" }],
+      },
     },
+    interrupts: [],
   };
 
   it("replaces a whole behavior", () => {

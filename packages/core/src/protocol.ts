@@ -12,7 +12,8 @@ import { ProjectSpec } from "./schema.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 5;
+export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
 
@@ -21,7 +22,8 @@ export type RuntimeMode = z.infer<typeof RuntimeMode>;
 
 export type StudioToRuntime =
   | { type: "load"; project: ProjectSpec }
-  | { type: "play" }
+  /** `seed` drives every random choice in the run (e.g. `chance`), so a run can be replayed. */
+  | { type: "play"; seed: number }
   | { type: "stop" }
   | { type: "getState"; requestId: string };
 
@@ -33,8 +35,13 @@ const EntityState = z.object({
   y: z.number(),
   velocityX: z.number(),
   velocityY: z.number(),
-  /** Current behavior state for enemies ("windup"), "hurt" for a knocked-back player, else null. */
+  /**
+   * Enemies: current behavior state ("windup"). Player: "slash_forward" | "slash_up" | "slash_down"
+   * while swinging, "hurt" while invulnerable after a hit, else null.
+   */
   behaviorState: z.string().nullable(),
+  /** Remaining hit points; 0 = dead (a dead enemy stays listed but is gone from play). */
+  health: z.number(),
 });
 export type EntityState = z.infer<typeof EntityState>;
 
@@ -52,6 +59,10 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     requestId: z.string(),
     mode: RuntimeMode,
     revision: z.number(),
+    /** Seed of the current run; null in edit mode. */
+    seed: z.number().nullable(),
+    /** Times the player has died (and the run restarted) since play began. */
+    deaths: z.number(),
     entities: z.array(EntityState),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),

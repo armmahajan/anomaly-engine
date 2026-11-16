@@ -40,4 +40,17 @@ describe("lintProject", () => {
       ["unreachable_state", "characters.2.behavior.states.orphan"],
     ]);
   });
+
+  it("counts interrupts as ways in and out, and flags movement mismatches", () => {
+    const project = createDefaultProject();
+    const charger = project.characters.find((c) => c.id === "charger");
+    if (charger?.kind !== "enemy") throw new Error();
+    charger.behavior.states.charge!.transitions = [];
+    charger.behavior.states.float = { action: { type: "hover", amplitude: 10, period: 2 }, transitions: [] };
+    charger.behavior.interrupts = [{ when: { type: "playerBeyond", distance: 900 }, to: "float" }];
+    expect(lintProject(project).map((w) => [w.code, w.path])).toEqual([
+      ["unreachable_state", "characters.2.behavior.states.recover"],
+      ["movement_mismatch", "characters.2.behavior.states.float"],
+    ]);
+  });
 });

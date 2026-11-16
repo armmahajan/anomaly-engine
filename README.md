@@ -24,8 +24,9 @@ HTTPS or localhost. Either run `npm run dev:remote` (self-signed HTTPS; accept
 the browser warning once) and open `https://<this-machine>:5173`, or tunnel:
 `ssh -L 5173:localhost:5173 <this-machine>` and open `http://localhost:5173`.
 
-Click **Play**, move with A/D or arrows, jump with Space/W/Up. **Stop** resets
-the playtest. Edit stats in the inspector while stopped; Play again to test.
+Click **Play**, move with A/D or arrows, jump with Space/Z, attack with X/J
+(hold W/Up to swing up; hold S/Down in the air to strike down and pogo).
+**Stop** resets the playtest. Edit stats in the inspector while stopped; Play again to test.
 **Undo** (or Ctrl/Cmd+Z outside a text field) reverts the last change.
 
 The project is saved in `projects/default/` (`project.json` + an append-only
@@ -34,7 +35,7 @@ use a different folder.
 
 | Command | What it does |
 |---|---|
-| `npm test` | Unit tests: schema, operations, undo, project store, HTTP API, protocol |
+| `npm test` | Unit tests (schema, operations, server, agent) plus headless Godot primitive tests (`game/test`, needs `godot` on PATH) |
 | `npm run e2e` | Browser tests against the real runtime (own server on port 5199, throwaway project) |
 | `npm run typecheck` | TypeScript check |
 | `npm run build:game` | Re-export the Godot runtime. Only needed after GDScript/engine changes, never for content edits |
@@ -70,6 +71,22 @@ e2e/            Playwright acceptance test.
   primitives (contract: `packages/core/src/behavior.ts`; implementations:
   `game/primitives/`, one small file each). The runtime reports its
   primitive list on boot and the studio flags any mismatch.
+  - Actions: patrol, wait, chase, charge, telegraph, retreat, returnHome,
+    jump, hover. Conditions: playerWithin, playerBeyond, after, hitWall,
+    actionDone, atLedge, onGround, airborne, playerAbove, playerBelow,
+    playerLevel, playerInFront, playerBehind, canSeePlayer, wasHit,
+    healthBelow, chance.
+  - Combat: the player has health (HUD pips; at 0 the run restarts on the
+    same seed), a sword with damage, reach and cooldown, and a pogo bounce.
+    Enemies have health and contactDamage; hits flash, knock back and
+    freeze the game for a few frames (hit-stop).
+  - A transition can require extra conditions with `and` (e.g. the starter
+    Charger: playerWithin 260 and playerLevel 60).
+  - Behaviors may have *interrupts* (transitions checked from every state).
+    Enemies are `ground` or `flying`. Each playtest has a seed (shown in the
+    toolbar, replayable) that drives `chance`.
+  - Primitive tests run the real game headless (`game/tests/simulate.gd`)
+    at a fixed 60 fps and assert positions and states.
 - **Schema changes ship with a migration** (`packages/core/src/migrations.ts`);
   older project files are upgraded when loaded.
 - **The protocol speaks project terms, not Godot terms**, so the runtime is

@@ -148,7 +148,7 @@ function Working({ activity, onCancel }: { activity: ChatActivity[]; onCancel: (
   );
 }
 
-/** Paragraphs, "- " bullet lists and **bold**: the Markdown models use even when asked not to. */
+/** Paragraphs, "- " bullet lists, **bold** and *emphasis*: the Markdown models use even when asked not to. */
 function FormattedText({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   let bullets: string[] = [];
@@ -177,7 +177,11 @@ function FormattedText({ text }: { text: string }) {
 }
 
 function bold(line: string): ReactNode[] {
-  return line.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <strong key={i}>{part}</strong> : part));
+  return line.split(/(\*\*.+?\*\*|\*[^*\s][^*]*\*)/g).map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (part.length > 2 && part.startsWith("*") && part.endsWith("*")) return <em key={i}>{part.slice(1, -1)}</em>;
+    return part;
+  });
 }
 
 function formatUsage({ promptTokens, completionTokens, cost }: AssistantEntry["usage"]): string {

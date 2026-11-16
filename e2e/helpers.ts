@@ -9,8 +9,9 @@ export type Entity = {
   velocityX: number;
   velocityY: number;
   behaviorState: string | null;
+  health: number;
 };
-export type Snapshot = { mode: string; revision: number; entities: Entity[] };
+export type Snapshot = { mode: string; revision: number; seed: number | null; deaths: number; entities: Entity[] };
 
 export const runtimeState = (page: Page) =>
   page.evaluate(() => window.studio!.getRuntimeState()) as Promise<Snapshot>;
@@ -54,6 +55,16 @@ export function collectConsoleErrors(page: Page): string[] {
     errors.push(m.text());
   });
   return errors;
+}
+
+/** Wait until the studio has seen a revision newer than `base` and the runtime has loaded it. */
+export async function waitForRuntimeAfter(page: Page, base: number) {
+  await expect
+    .poll(async () => {
+      const revision = await projectRevision(page);
+      return revision > base && (await runtimeState(page)).revision === revision;
+    })
+    .toBe(true);
 }
 
 /**
