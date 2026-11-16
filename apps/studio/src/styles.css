@@ -1159,6 +1159,8 @@ button.toggled {
 
 .edge.selected .edge-label-bg {
   stroke: var(--accent);
+}
+
 /* --- modes and the workbench layout -----------------------------------------
    One grid; modes only rearrange named areas. The game iframe (.viewport) is
    never moved in the DOM (that would reboot it), only placed in an area. */
