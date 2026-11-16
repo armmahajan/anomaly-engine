@@ -1,5 +1,5 @@
 import { defineConfig } from "@playwright/test";
-import { E2E_DATA_DIR, E2E_PORT as PORT } from "./e2e/paths.ts";
+import { E2E_DATA_DIR, E2E_PORT as PORT, E2E_TOKEN } from "./e2e/paths.ts";
 
 // E2E runs its own studio on a separate port with a throwaway project dir,
 // so it never touches your real project or a dev server you have running.
@@ -20,7 +20,7 @@ export default defineConfig({
   },
   webServer: {
     command: `rm -rf ${E2E_DATA_DIR} && npm run dev`,
-    env: { STUDIO_PORT: String(PORT), STUDIO_DATA_DIR: `${process.cwd()}/${E2E_DATA_DIR}` },
+    env: { STUDIO_PORT: String(PORT), STUDIO_DATA_DIR: `${process.cwd()}/${E2E_DATA_DIR}`, STUDIO_TOKEN: E2E_TOKEN },
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
     timeout: 120_000,

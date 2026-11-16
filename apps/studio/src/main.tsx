@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
-import { fetchProject } from "./api.ts";
+import { fetchProject, UnauthorizedError } from "./api.ts";
 import { Session } from "./session.ts";
 import "./styles.css";
 
@@ -37,6 +37,9 @@ if (window.self !== window.top) {
   root.textContent = "Game runtime not found. Run `npm run build:game`.";
 } else {
   start().catch((error: unknown) => {
-    root.textContent = `Could not load the project from the studio server: ${String(error)}`;
+    root.textContent =
+      error instanceof UnauthorizedError
+        ? "This studio needs its access token. Open it with the link printed in the terminal where the server is running (it ends in ?token=…)."
+        : `Could not load the project from the studio server: ${String(error)}`;
   });
 }

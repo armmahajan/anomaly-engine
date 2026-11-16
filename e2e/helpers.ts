@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { E2E_TOKEN } from "./paths.ts";
 
 export type Entity = {
   spawnId: string;
@@ -33,7 +34,8 @@ export async function setPatrolSpeed(page: Page, value: string) {
 
 /** Open the studio and wait until the runtime is up and synced with the project. */
 export async function openStudio(page: Page) {
-  await page.goto("/");
+  // The ?token= link sets the auth cookie and redirects to the clean URL.
+  await page.goto(`/?token=${E2E_TOKEN}`);
   await expect(page.getByTestId("runtime-status")).toHaveText("Editing", { timeout: 30_000 });
   const revision = await projectRevision(page);
   await expect.poll(async () => (await runtimeState(page)).revision).toBe(revision);

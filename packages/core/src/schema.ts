@@ -17,20 +17,20 @@ const Size = z.strictObject({
 });
 
 export const PlayerStats = z.strictObject({
-  runSpeed: z.number().min(0).max(1000),
-  jumpVelocity: z.number().min(0).max(2000),
+  runSpeed: z.number().min(0).max(1000).describe("px/s"),
+  jumpVelocity: z.number().min(0).max(2000).describe("Initial upward speed in px/s; jump height = v^2 / (2 * gravity)."),
 });
 
 export const EnemyStats = z.strictObject({
   /** How hard touching this enemy throws the player back (px/s). */
-  knockback: z.number().min(0).max(2000),
+  knockback: z.number().min(0).max(2000).describe("px/s; 0 = harmless to touch."),
 });
 
 const characterBase = {
-  id: Id,
-  name: z.string().min(1).max(80),
-  color: Color,
-  size: Size,
+  id: Id.describe("Unique lowercase snake_case id, e.g. \"stone_beetle\"."),
+  name: z.string().min(1).max(80).describe("Display name."),
+  color: Color.describe("Body color, #rrggbb (placeholder art)."),
+  size: Size.describe("Collision box in px."),
 };
 
 export const PlayerCharacter = z.strictObject({
@@ -62,8 +62,8 @@ const Rect = z.strictObject({
 export const Spawn = z.strictObject({
   id: Id,
   characterId: Id,
-  x: Coord,
-  y: Coord,
+  x: Coord.describe("Feet x in px (0 = left edge of the arena)."),
+  y: Coord.describe("Feet y in px; y grows downward (the floor's top is usually the spawn y)."),
 });
 
 /** The empty test room where creators try out character interactions. */

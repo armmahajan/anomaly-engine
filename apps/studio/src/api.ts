@@ -24,8 +24,11 @@ async function post<T>(path: string, body: unknown): Promise<T | ReturnType<type
   }
 }
 
+export class UnauthorizedError extends Error {}
+
 export async function fetchProject(): Promise<ProjectState> {
   const res = await fetch("/api/project");
+  if (res.status === 401) throw new UnauthorizedError("missing studio token");
   if (!res.ok) throw new Error(`GET /api/project failed with ${res.status}`);
   return (await res.json()) as ProjectState;
 }

@@ -3,6 +3,7 @@ export * from "./ids.ts";
 export * from "./behavior.ts";
 export * from "./schema.ts";
 export * from "./migrations.ts";
+export * from "./lint.ts";
 export * from "./operations.ts";
 export * from "./history.ts";
 export * from "./api.ts";

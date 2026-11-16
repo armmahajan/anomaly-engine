@@ -16,6 +16,7 @@ const STATUS_FOR: Record<ErrorCode, number> = {
   stale_revision: 409,
   nothing_to_undo: 409,
   unavailable: 503,
+  unauthorized: 401,
 };
 
 /** HTTP API over a ProjectStore. See packages/core/src/api.ts for the contract. */

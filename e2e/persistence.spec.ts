@@ -19,7 +19,8 @@ const speedOp = (speed: number, baseRevision: number) => ({
   author: "ai",
 });
 
-test("edits persist, undo works, and outside edits reach the studio", async ({ page, request }) => {
+test("edits persist, undo works, and outside edits reach the studio", async ({ page }) => {
+  const request = page.request; // shares the page's auth cookie
   const consoleErrors = collectConsoleErrors(page);
 
   const r0 = await openStudio(page);

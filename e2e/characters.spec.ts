@@ -13,7 +13,8 @@ async function synced(page: Page) {
   await expect.poll(async () => (await runtimeState(page)).revision).toBe(revision);
 }
 
-test("create, duplicate, place, move, remove and delete characters", async ({ page, request }) => {
+test("create, duplicate, place, move, remove and delete characters", async ({ page }) => {
+  const request = page.request; // shares the page's auth cookie
   const consoleErrors = collectConsoleErrors(page);
   page.on("dialog", (dialog) => void dialog.accept()); // confirm deletions
   const r0 = await openStudio(page);

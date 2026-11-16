@@ -10,8 +10,14 @@ or set `GODOT=/path/to/godot`).
 
 ```sh
 npm install
-npm run dev          # exports the game on first run, then opens http://localhost:5173
+npm run dev          # exports the game on first run, then serves http://localhost:5173
 ```
+
+**Access token.** The API is protected by a token (generated once into
+`.studio-token`, which git ignores). The dev server prints a link ending in
+`?token=…`. Open that once and the browser keeps a cookie; opening the
+studio without it shows a message instead. Scripts send the header
+`x-studio-token: $(cat .studio-token)`. Set `STUDIO_TOKEN` to override.
 
 **From another machine** (e.g. over VPN): Godot's web runtime only starts on
 HTTPS or localhost. Either run `npm run dev:remote` (self-signed HTTPS; accept
@@ -37,7 +43,8 @@ use a different folder.
 
 ```
 packages/core   Project schema (Zod), operations, undo, API + runtime protocol types. Pure.
-packages/server Project store (disk, history, undo, locking) + HTTP API. Mounted in Vite.
+packages/server Project store (disk, history, undo, locking) + token-protected HTTP API. Mounted in Vite.
+packages/agent  AI agent: tools generated from the core schemas, turn loop, fake model for tests.
 apps/studio     React workspace. session.ts mirrors the server's project, drives the runtime.
 game/           Godot project. Builds the scene from whatever spec it is sent.
 e2e/            Playwright acceptance test.
@@ -74,13 +81,14 @@ The HTTP API (contract in `packages/core/src/api.ts`) is what the AI will use.
 Edit from a terminal while the studio is open and watch it update:
 
 ```sh
-curl -s localhost:5173/api/project | jq .project.revision        # current revision, e.g. 3
-curl -s -X POST localhost:5173/api/ops -H 'content-type: application/json' -d '{
+export H="x-studio-token: $(cat .studio-token)"
+curl -s -H "$H" localhost:5173/api/project | jq .project.revision        # current revision, e.g. 3
+curl -s -H "$H" -X POST localhost:5173/api/ops -H 'content-type: application/json' -d '{
   "name": "updateCharacter",
   "input": { "characterId": "crawler", "changes": { "stats": { "patrolSpeed": 250 } } },
   "baseRevision": 3, "author": "ai" }'
-curl -s -X POST localhost:5173/api/undo -H 'content-type: application/json' -d '{"baseRevision": 4}'
-curl -s localhost:5173/api/history
+curl -s -H "$H" -X POST localhost:5173/api/undo -H 'content-type: application/json' -d '{"baseRevision": 4}'
+curl -s -H "$H" localhost:5173/api/history
 ```
 
 (With `npm run dev:remote`, use `curl -k https://…`.)
@@ -101,7 +109,7 @@ Operations (all in `packages/core/src/operations.ts`):
 one undo step; if any step fails nothing changes and the error names the step:
 
 ```sh
-curl -s -X POST localhost:5173/api/batch -H 'content-type: application/json' -d '{
+curl -s -H "$H" -X POST localhost:5173/api/batch -H 'content-type: application/json' -d '{
   "baseRevision": 3, "author": "ai", "operations": [
     { "name": "duplicateCharacter", "input": { "characterId": "charger", "newId": "fast_charger" } },
     { "name": "updateBehavior", "input": { "characterId": "fast_charger", "stateId": "charge", "action": { "speed": 800 } } },
@@ -112,3 +120,21 @@ In the browser console, `window.studio` exposes the same operations plus
 runtime control: `studio.updateCharacter(...)`, `studio.applyOperation(name, input)`,
 `studio.applyBatch([...])`, `studio.undo()`,
 `studio.play()`, `studio.stop()`, `await studio.getRuntimeState()`.
+
+## Agent (no model wired yet)
+
+`packages/agent` is everything the AI needs except the model connection:
+
+- **Tools** (`tools.ts`): every core operation is a tool with the same name;
+  parameter schemas are generated from the core Zod schemas (with field
+  descriptions), plus read tools `getProjectSummary`, `getCharacter`,
+  `listPrimitives`. Errors list valid ids; writes report lint warnings
+  (`packages/core/src/lint.ts`: spawns outside the arena or inside
+  platforms, unplaced enemies, unreachable or endless states).
+- **Turn loop** (`loop.ts`): user message → model → tool calls → … → reply.
+  Writes are staged on a draft and saved as **one batch** at the end of the
+  turn (one revision, one undo step, author `ai`). Step limits,
+  cancellation and model errors save nothing.
+- **Model interface** (`messages.ts`): OpenAI-compatible messages and tool
+  definitions, so the OpenRouter client is a thin adapter. `FakeModel`
+  replays scripted replies for tests (no network, no cost).

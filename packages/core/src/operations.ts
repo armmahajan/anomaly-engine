@@ -25,7 +25,9 @@ export type ErrorCode =
   /** The request itself (not the operation input) was malformed. */
   | "invalid_request"
   /** The project server could not be reached. */
-  | "unavailable";
+  | "unavailable"
+  /** Missing or wrong studio access token. */
+  | "unauthorized";
 
 export interface OperationError {
   code: ErrorCode;
@@ -41,6 +43,17 @@ export function toIssues(error: z.ZodError): Issue[] {
   return error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
 }
 
+/** Hint listing valid ids, so a caller (or model) can correct a bad reference. */
+function known(ids: Iterable<string>): string {
+  const list = [...ids];
+  return list.length > 0 ? ` (known: ${list.join(", ")})` : " (none exist)";
+}
+
+const noCharacter = (project: ProjectSpec, id: string) =>
+  fail("not_found", `no character with id "${id}"${known(project.characters.map((c) => c.id))}`);
+const noSpawn = (project: ProjectSpec, id: string) =>
+  fail("not_found", `no spawn with id "${id}"${known(project.sandbox.spawns.map((s) => s.id))}`);
+
 export function fail(code: ErrorCode, message: string, issues: Issue[] = []): { ok: false; error: OperationError } {
   return { ok: false, error: { code, message, issues } };
 }
@@ -54,14 +67,17 @@ export function validateProject(input: unknown): ValidationResult {
   return parsed.success ? { ok: true, project: parsed.data } : { ok: false, issues: toIssues(parsed.error) };
 }
 
-const UpdateCharacterInput = z.strictObject({
+export const UpdateCharacterInput = z.strictObject({
   characterId: Id,
   changes: z.strictObject({
     name: z.string().optional(),
     color: z.string().optional(),
     size: z.strictObject({ width: z.number().optional(), height: z.number().optional() }).optional(),
     // Checked against the character's own stats schema below.
-    stats: z.record(z.string(), z.unknown()).optional(),
+    stats: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe("Stats to change. Player: runSpeed, jumpVelocity. Enemy: knockback."),
   }),
 });
 
@@ -83,7 +99,7 @@ export function updateCharacter(project: ProjectSpec, input: unknown): Operation
   const index = project.characters.findIndex((c) => c.id === characterId);
   const current = project.characters[index];
   if (!current) {
-    return fail("not_found", `no character with id "${characterId}"`);
+    return noCharacter(project, characterId);
   }
 
   let statChanges: Record<string, unknown> = {};
@@ -128,7 +144,7 @@ function findEnemy(
 ): { ok: true; index: number; character: EnemyCharacter } | { ok: false; error: OperationError } {
   const index = project.characters.findIndex((c) => c.id === characterId);
   const character = project.characters[index];
-  if (!character) return fail("not_found", `no character with id "${characterId}"`);
+  if (!character) return noCharacter(project, characterId);
   if (character.kind !== "enemy") {
     return fail("invalid_input", `"${characterId}" is a ${character.kind}; only enemies have behaviors`);
   }
@@ -145,22 +161,26 @@ function replaceCharacter(project: ProjectSpec, index: number, candidate: unknow
 
 const ParamChanges = z.record(z.string(), z.unknown());
 
-const UpdateBehaviorInput = z.strictObject({
+
+export const UpdateBehaviorInput = z.strictObject({
   characterId: Id,
   stateId: Id,
-  /** Merged into the state's action. Including a different `type` replaces the action instead. */
-  action: ParamChanges.optional(),
+  action: ParamChanges.optional().describe(
+    "Params merged into the state's action, e.g. {\"speed\": 300}. Include a different `type` to replace the action with another primitive (then give all its params).",
+  ),
   /** Targeted edits to existing transitions, by index. */
   transitions: z
     .array(
       z.strictObject({
         index: z.number().int().min(0),
-        /** Merged into the condition; a different `type` replaces it. */
-        when: ParamChanges.optional(),
-        to: Id.optional(),
+        when: ParamChanges.optional().describe(
+          "Params merged into the condition, e.g. {\"seconds\": 1.2}; a different `type` replaces it.",
+        ),
+        to: Id.optional().describe("New target state id."),
       }),
     )
-    .optional(),
+    .optional()
+    .describe("Targeted edits to existing transitions, by index (0 = first)."),
 });
 
 /** Merge param changes into a primitive, or replace it if the type changes. */
@@ -179,13 +199,20 @@ export function updateBehavior(project: ProjectSpec, input: unknown): OperationR
   const { index, character } = found;
 
   const state = character.behavior.states[stateId];
-  if (!state) return fail("not_found", `"${characterId}" has no behavior state "${stateId}"`);
+  if (!state) {
+    return fail("not_found", `"${characterId}" has no behavior state "${stateId}"${known(Object.keys(character.behavior.states))}`);
+  }
 
   const nextTransitions: unknown[] = state.transitions.slice();
   for (const change of transitions ?? []) {
     const existing = state.transitions[change.index];
     if (!existing) {
-      return fail("not_found", `state "${stateId}" has no transition at index ${change.index}`);
+      return fail(
+        "not_found",
+        `state "${stateId}" has no transition at index ${change.index} (it has ${state.transitions.length}: ${
+          state.transitions.map((t, i) => `${i} -> ${t.to}`).join(", ") || "none"
+        })`,
+      );
     }
     nextTransitions[change.index] = {
       when: change.when ? mergePrimitive(existing.when, change.when) : existing.when,
@@ -204,7 +231,7 @@ export function updateBehavior(project: ProjectSpec, input: unknown): OperationR
   return replaceCharacter(project, index, candidate, `behavior of "${characterId}"`);
 }
 
-const SetBehaviorInput = z.strictObject({ characterId: Id, behavior: z.unknown() });
+export const SetBehaviorInput = z.strictObject({ characterId: Id, behavior: z.unknown() });
 
 /** Replace an enemy's whole behavior (e.g. a newly composed state machine). */
 export function setBehavior(project: ProjectSpec, input: unknown): OperationResult {
@@ -218,7 +245,7 @@ export function setBehavior(project: ProjectSpec, input: unknown): OperationResu
 
 // --- characters ------------------------------------------------------------
 
-const CreateCharacterInput = z.strictObject({ character: z.unknown() });
+export const CreateCharacterInput = z.strictObject({ character: z.unknown() });
 
 /** Add a new character type. It does not appear in the arena until spawned (addSpawn). */
 export function createCharacter(project: ProjectSpec, input: unknown): OperationResult {
@@ -240,7 +267,7 @@ export function createCharacter(project: ProjectSpec, input: unknown): Operation
   return commit({ ...project, characters: [...project.characters, character] });
 }
 
-const CharacterRef = z.strictObject({ characterId: Id });
+export const CharacterRef = z.strictObject({ characterId: Id });
 
 /** Remove a character type and every spawn of it. The player cannot be deleted. */
 export function deleteCharacter(project: ProjectSpec, input: unknown): OperationResult {
@@ -248,7 +275,7 @@ export function deleteCharacter(project: ProjectSpec, input: unknown): Operation
   if (!parsed.success) return fail("invalid_input", "deleteCharacter input is malformed", toIssues(parsed.error));
   const { characterId } = parsed.data;
   const character = project.characters.find((c) => c.id === characterId);
-  if (!character) return fail("not_found", `no character with id "${characterId}"`);
+  if (!character) return noCharacter(project, characterId);
   if (character.kind === "player") return fail("invalid_input", "the player cannot be deleted");
   return commit({
     ...project,
@@ -257,7 +284,7 @@ export function deleteCharacter(project: ProjectSpec, input: unknown): Operation
   });
 }
 
-const DuplicateCharacterInput = z.strictObject({
+export const DuplicateCharacterInput = z.strictObject({
   characterId: Id,
   newId: Id,
   name: z.string().optional(),
@@ -269,7 +296,7 @@ export function duplicateCharacter(project: ProjectSpec, input: unknown): Operat
   if (!parsed.success) return fail("invalid_input", "duplicateCharacter input is malformed", toIssues(parsed.error));
   const { characterId, newId, name } = parsed.data;
   const source = project.characters.find((c) => c.id === characterId);
-  if (!source) return fail("not_found", `no character with id "${characterId}"`);
+  if (!source) return noCharacter(project, characterId);
   if (source.kind === "player") return fail("invalid_input", "the player cannot be duplicated");
   if (project.characters.some((c) => c.id === newId)) {
     return fail("invalid_input", `a character with id "${newId}" already exists`);
@@ -282,12 +309,11 @@ export function duplicateCharacter(project: ProjectSpec, input: unknown): Operat
 
 // --- spawns ------------------------------------------------------------------
 
-const AddSpawnInput = z.strictObject({
+export const AddSpawnInput = z.strictObject({
   characterId: Id,
-  x: z.number(),
-  y: z.number(),
-  /** Optional so callers (e.g. later batch steps) can refer to it; generated if omitted. */
-  spawnId: Id.optional(),
+  x: z.number().describe("Feet x in px."),
+  y: z.number().describe("Feet y in px (y grows downward; use the floor's top to stand on the floor)."),
+  spawnId: Id.optional().describe("Optional id to refer to this spawn later; generated (<characterId>_<n>) if omitted."),
 });
 
 /** Place an instance of a character in the sandbox. (x, y) is its feet. */
@@ -296,7 +322,7 @@ export function addSpawn(project: ProjectSpec, input: unknown): OperationResult 
   if (!parsed.success) return fail("invalid_input", "addSpawn input is malformed", toIssues(parsed.error));
   const { characterId, x, y } = parsed.data;
   if (!project.characters.some((c) => c.id === characterId)) {
-    return fail("not_found", `no character with id "${characterId}"`);
+    return noCharacter(project, characterId);
   }
   const taken = project.sandbox.spawns.map((s) => s.id);
   if (parsed.data.spawnId && taken.includes(parsed.data.spawnId)) {
@@ -308,7 +334,7 @@ export function addSpawn(project: ProjectSpec, input: unknown): OperationResult 
   return commit({ ...project, sandbox: { ...project.sandbox, spawns: [...project.sandbox.spawns, { id, characterId, x, y }] } });
 }
 
-const MoveSpawnInput = z.strictObject({ spawnId: Id, x: z.number().optional(), y: z.number().optional() });
+export const MoveSpawnInput = z.strictObject({ spawnId: Id, x: z.number().optional(), y: z.number().optional() });
 
 export function moveSpawn(project: ProjectSpec, input: unknown): OperationResult {
   const parsed = MoveSpawnInput.safeParse(input);
@@ -316,19 +342,19 @@ export function moveSpawn(project: ProjectSpec, input: unknown): OperationResult
   const { spawnId, x, y } = parsed.data;
   const index = project.sandbox.spawns.findIndex((s) => s.id === spawnId);
   const spawn = project.sandbox.spawns[index];
-  if (!spawn) return fail("not_found", `no spawn with id "${spawnId}"`);
+  if (!spawn) return noSpawn(project, spawnId);
   const spawns = project.sandbox.spawns.slice();
   spawns[index] = { ...spawn, x: x ?? spawn.x, y: y ?? spawn.y };
   return commit({ ...project, sandbox: { ...project.sandbox, spawns } });
 }
 
-const SpawnRef = z.strictObject({ spawnId: Id });
+export const SpawnRef = z.strictObject({ spawnId: Id });
 
 export function removeSpawn(project: ProjectSpec, input: unknown): OperationResult {
   const parsed = SpawnRef.safeParse(input);
   if (!parsed.success) return fail("invalid_input", "removeSpawn input is malformed", toIssues(parsed.error));
   const spawn = project.sandbox.spawns.find((s) => s.id === parsed.data.spawnId);
-  if (!spawn) return fail("not_found", `no spawn with id "${parsed.data.spawnId}"`);
+  if (!spawn) return noSpawn(project, parsed.data.spawnId);
   return commit({
     ...project,
     sandbox: { ...project.sandbox, spawns: project.sandbox.spawns.filter((s) => s.id !== spawn.id) },

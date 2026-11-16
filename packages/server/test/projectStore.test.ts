@@ -231,3 +231,15 @@ describe("ProjectStore batches", () => {
     expect(await store.applyBatch({ operations: [] })).toMatchObject({ ok: false, error: { code: "invalid_request" } });
   });
 });
+
+describe("loadOrCreateToken", () => {
+  it("creates a private token once and reuses it", async () => {
+    const { loadOrCreateToken } = await import("../src/index.ts");
+    const { stat } = await import("node:fs/promises");
+    const path = join(dir, ".studio-token");
+    const first = await loadOrCreateToken(path);
+    expect(first).toMatch(/^[A-Za-z0-9_-]{24}$/);
+    expect(await loadOrCreateToken(path)).toBe(first);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+});
