@@ -49,7 +49,7 @@ export function conceptPrompt(input: {
     refining
       ? `Concept art sheet: four variations on the attached character design for a 2D side-view action platformer ${roleOf(character)}: ${brief}.`
       : `Concept art sheet for a 2D side-view action platformer ${roleOf(character)}: ${brief}.`,
-    "2x2 grid of four distinct design variations. Each is one full-body side view facing right, whole body visible and centered in its quadrant, separated by clear gaps, on a plain flat light-grey background.",
+    "2x2 grid of four distinct design variations. Each is one full-body side view facing RIGHT (head toward the right edge), whole body visible and centered in its quadrant, separated by clear gaps, on a plain flat light-grey background.",
     `Body proportions: ${proportions(character)}.`,
     "Designed to be rebuilt from simple flat shapes: a bold readable silhouette, a few large parts, clearly separated limbs, no tiny details, no texture.",
     `Style: ${directionText(direction)}`,
@@ -58,6 +58,9 @@ export function conceptPrompt(input: {
   if (feedback?.trim()) lines.push(`Creator's direction for this round: ${feedback.trim()}`);
   return lines.join("\n");
 }
+
+export const FACING_PROMPT =
+  'Which way is this character facing: toward the left or the right edge of the image (where its head/face is)? Reply with JSON only: {"facing": "left" | "right"}';
 
 export const PICK_SYSTEM =
   "You are an art director for a 2D platformer. You judge concept sheets for readability at small size, " +

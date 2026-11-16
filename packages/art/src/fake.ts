@@ -88,6 +88,7 @@ export class FakeVisionModel implements VisionModel {
     let reply: unknown;
     if (prompt.includes("That reply was invalid")) reply = { rig: exampleRig(), clips: exampleClips(), cell: 0, reason: "fixed", score: 7, issues: [] };
     else if (prompt.includes("Pick the single best design")) reply = { cell: 1, reason: "clearest silhouette" };
+    else if (prompt.includes("Which way is this character facing")) reply = { facing: "left" };
     else if (prompt.includes("Build the rig")) reply = { rig: exampleRig(), notes: "beetle" };
     else if (prompt.includes("Score how well the render matches")) reply = { score: 8, issues: ["horn a bit small"], rig: exampleRig() };
     else if (prompt.includes("Write these clips")) reply = { clips: exampleClips(), notes: "ok" };

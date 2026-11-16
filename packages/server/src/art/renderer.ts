@@ -37,7 +37,7 @@ export interface ComposeRequest {
   width: number;
   height: number;
   background?: string;
-  layers: { image: Buffer; alpha?: number }[];
+  layers: { image: Buffer; alpha?: number; flipX?: boolean }[];
   /** Grid spacing in px (lines + coordinate labels), drawn on top. */
   grid?: number;
 }
@@ -162,7 +162,13 @@ export class BrowserRenderer implements Renderer {
           const bytes = Uint8Array.from(atob(layer.data), (c) => c.charCodeAt(0));
           const bitmap = await createImageBitmap(new Blob([bytes]));
           ctx.globalAlpha = layer.alpha;
+          ctx.save();
+          if (layer.flipX) {
+            ctx.translate(width, 0);
+            ctx.scale(-1, 1);
+          }
           ctx.drawImage(bitmap, 0, 0, width, height);
+          ctx.restore();
         }
         ctx.globalAlpha = 1;
         if (grid) {
@@ -195,7 +201,7 @@ export class BrowserRenderer implements Renderer {
         width: request.width,
         height: request.height,
         background: request.background ?? null,
-        layers: request.layers.map((l) => ({ data: l.image.toString("base64"), alpha: l.alpha ?? 1 })),
+        layers: request.layers.map((l) => ({ data: l.image.toString("base64"), alpha: l.alpha ?? 1, flipX: l.flipX ?? false })),
         grid: request.grid ?? 0,
       },
     );

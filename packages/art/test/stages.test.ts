@@ -72,6 +72,7 @@ describe("art pipeline stages", () => {
     h.commit((await chooseConcept(h.ctx, { characterId: "charger" })).operations);
     expect(asset().chosen).toMatchObject({ sheet: 0, cell: 1 });
     expect(h.renderer.crops.map((c) => c.x)).toEqual([0.51]); // the recommended (top-right) cell
+    expect(h.log.some((a) => a.text === "mirrored the design to face right")).toBe(true);
 
     const rig = await buildRig(h.ctx, { characterId: "charger" });
     h.commit(rig.operations);

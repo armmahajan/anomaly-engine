@@ -22,6 +22,7 @@ import {
   animPrompt,
   animSystemPrompt,
   conceptPrompt,
+  FACING_PROMPT,
   PICK_SYSTEM,
   pickPrompt,
   rigAuthorPrompt,
@@ -49,7 +50,7 @@ export interface ArtRenderer {
     width: number;
     height: number;
     background?: string;
-    layers: { image: Buffer; alpha?: number }[];
+    layers: { image: Buffer; alpha?: number; flipX?: boolean }[];
     grid?: number;
   }): Promise<Buffer>;
 }
@@ -272,7 +273,26 @@ export async function chooseConcept(ctx: ArtContext, input: ChooseInput): Promis
   const sheet = asset.concepts[sheetIndex];
   if (!sheet) throw new StageError(`"${asset.id}" has no concept sheet ${sheetIndex}`);
   const cell = input.cell ?? sheet.recommended?.cell ?? 0;
-  const cropped = await ctx.renderer.crop(await ctx.files.get(sheet.file), sheetCell(cell), 512);
+  let cropped = await ctx.renderer.crop(await ctx.files.get(sheet.file), sheetCell(cell), 512);
+
+  // Rigs face right. Image models often ignore "facing right", so check and mirror.
+  try {
+    const { facing } = await askJson(
+      ctx,
+      z.object({ facing: z.enum(["left", "right"]) }),
+      { system: PICK_SYSTEM, content: [image(cropped), text(FACING_PROMPT)], maxTokens: 100 },
+      "checking which way it faces",
+    );
+    if (facing === "left") {
+      const size = pngSize(cropped);
+      cropped = await ctx.renderer.compose({ ...size, layers: [{ image: cropped, flipX: true }] });
+      ctx.log({ text: "mirrored the design to face right" });
+    }
+  } catch (error) {
+    if (error instanceof BudgetExceeded) throw error;
+    ctx.log({ text: `could not check facing (${error instanceof Error ? error.message : String(error)})` });
+  }
+
   const file = await ctx.files.put(cropped, "png");
   ctx.log({ text: `chose design ${cell + 1} of sheet ${sheetIndex + 1}`, file });
   return {
