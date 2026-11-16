@@ -3,6 +3,7 @@ import { ProjectSpec } from "./schema.ts";
 import type { ArtDirection } from "./art/asset.ts";
 import type { Clip } from "./art/clip.ts";
 import type { Rig } from "./art/rig.ts";
+import type { WorldLayer, WorldScene } from "./art/world.ts";
 
 /**
  * Studio <-> runtime messages, sent with window.postMessage as JSON strings.
@@ -15,7 +16,7 @@ import type { Rig } from "./art/rig.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -34,7 +35,9 @@ export type StudioToRuntime =
   /** Edit mode only: make every spawn of a character play `clip` (null = back to normal). */
   | { type: "previewClip"; characterId: string; clip: string | null }
   /** What the runtime shows (studio modes). Ignored while playing; `game` is the arena. */
-  | { type: "stage"; stage: Stage };
+  | { type: "stage"; stage: Stage }
+  /** Images (base64 by file ref) for worlds; the runtime keeps them, so each is sent once. */
+  | { type: "images"; images: Record<string, string> };
 
 /**
  * The runtime's stage: the arena (`game`), one character large on a neutral
@@ -64,18 +67,18 @@ export type Stage =
 
 export interface StageWorld {
   mode: "world";
-  /** Biome asset whose kit is drawn. */
-  biomeId: string;
-  /** Room (dressing) of that biome to show. */
-  roomId: string;
-  /** Kit images by file ref, base64. */
-  images: Record<string, string>;
+  /** The room as the runtime draws it (core worldSceneFor). Its images must have been sent with `images`. */
+  scene: WorldScene;
   /** Layers to hide. */
-  hidden: string[];
+  hidden: WorldLayer[];
   fog: boolean;
   lights: boolean;
   /** Tilt the layers apart to show how the depth is built. */
   exploded: boolean;
+  /** Placement to highlight. */
+  selected: string | null;
+  /** Let the creator drag pieces (else drag only pans). */
+  editable: boolean;
 }
 
 export interface RenderRigRequest {
@@ -136,6 +139,12 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     entities: z.array(EntityState),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  /** World stage: the creator clicked a piece (null = empty space). */
+  z.object({ type: z.literal("worldPick"), placementId: z.string().nullable() }),
+  /** World stage: the creator dragged a piece to a new room position. */
+  z.object({ type: z.literal("worldMove"), placementId: z.string(), x: z.number(), y: z.number() }),
+  /** World stage: where the camera is looking (room x), after the creator pans. */
+  z.object({ type: z.literal("worldCamera"), x: z.number() }),
   z.object({
     type: z.literal("rendered"),
     requestId: z.string(),

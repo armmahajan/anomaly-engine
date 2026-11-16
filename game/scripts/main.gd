@@ -3,7 +3,7 @@ extends Node2D
 ## builds the sandbox scene from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 7
+const PROTOCOL_VERSION := 8
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -17,6 +17,7 @@ const HIT_STOP_FRAMES := 3
 const RenderService := preload("res://scripts/art/render_service.gd")
 const WorldView := preload("res://scripts/art/world_view.gd")
 const StageView := preload("res://scripts/art/stage_view.gd")
+const WorldStage := preload("res://scripts/art/world_stage.gd")
 
 var _project: Dictionary = {}
 var _mode := "edit"
@@ -137,6 +138,11 @@ func handle_message(message: Dictionary) -> void:
 			})
 		"renderRig", "renderWorld":
 			_render_service.render(message, _send)
+		"images":
+			var images = message.get("images")
+			if typeof(images) == TYPE_DICTIONARY:
+				_textures.merge(WorldView.textures_from(images), true)
+				_apply_stage()
 		"stage":
 			var stage = message.get("stage")
 			if typeof(stage) != TYPE_DICTIONARY:
@@ -379,6 +385,9 @@ func _apply_preview_clips() -> void:
 
 var _stage: Dictionary = {"mode": "game"}
 var _stage_view: Node2D = null
+var _world_stage: Node2D = null
+## Decoded world images by file ref (sent once each with `images`).
+var _textures := {}
 
 
 ## Show what the studio's mode asks for: the arena, one character, or a world room.
@@ -387,6 +396,9 @@ func _apply_stage() -> void:
 	if mode != "character" and _stage_view != null:
 		_stage_view.queue_free()
 		_stage_view = null
+	if mode != "world" and _world_stage != null:
+		_world_stage.queue_free()
+		_world_stage = null
 	if _world != null:
 		_world.visible = mode == "game"
 	match mode:
@@ -404,3 +416,9 @@ func _apply_stage() -> void:
 			var problem: String = _stage_view.apply(_project, _stage)
 			if problem != "":
 				_send({"type": "error", "code": "stage", "message": problem})
+		"world":
+			if _world_stage == null:
+				_world_stage = WorldStage.new()
+				_world_stage.send = _send
+				add_child(_world_stage)
+			_world_stage.apply(_stage, _textures)

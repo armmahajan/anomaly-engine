@@ -79,6 +79,14 @@ var _layers := {}
 var _pieces := {}
 var _ambient := Color.WHITE
 var _distant_canvas: CanvasLayer = null
+var _ambient_node: CanvasModulate = null
+## Editing support: placed sprites (meta "placement", "layer"), fog rects, lights and halos.
+var _sprites: Array[Sprite2D] = []
+var _fogs: Array[CanvasItem] = []
+var _glows: Array[Node] = []
+var _explode := {}  # layer -> vertical offset while exploded
+var _alpha_cache := {}  # texture rid -> Image
+var _highlight: Line2D = null
 
 
 ## base64 images (PNG/JPEG/WebP) -> textures, keyed the same way.
@@ -132,6 +140,7 @@ func build(scene: Dictionary, textures: Dictionary, view_size: Vector2) -> void:
 	var ambient := CanvasModulate.new()
 	ambient.color = _ambient
 	add_child(ambient)
+	_ambient_node = ambient
 	_distant_canvas = CanvasLayer.new()
 	_distant_canvas.layer = -1
 	_distant_canvas.follow_viewport_enabled = true
@@ -169,6 +178,102 @@ func _update_layers() -> void:
 	for layer in _layers:
 		var f: float = SCROLL[layer]
 		_layers[layer].position.x = focus.x * (1.0 - f)
+		_layers[layer].position.y = _explode.get(layer, 0.0)
+
+
+# --- editing (Worlds mode) -----------------------------------------------------------
+
+## Show/hide layers, fog and lighting, and tilt the layers apart to show the depth.
+func set_options(hidden: Array, fog: bool, lights: bool, exploded: bool) -> void:
+	for layer in _layers:
+		_layers[layer].visible = not hidden.has(layer)
+	for f in _fogs:
+		f.visible = fog
+	for g in _glows:
+		if g is PointLight2D:
+			g.enabled = lights
+		else:
+			g.visible = lights
+	_ambient_node.visible = lights
+	_explode.clear()
+	for i in LAYER_ORDER.size():
+		var layer: String = LAYER_ORDER[i]
+		var node: Node2D = _layers[layer]
+		if exploded:
+			# Back layers rise and lean away: a staircase that shows how the room is stacked.
+			_explode[layer] = (i - 3) * 95.0
+			node.skew = deg_to_rad(-14.0) if layer != "play" else 0.0
+			node.modulate = Color(1, 1, 1, 0.92)
+		else:
+			node.skew = 0.0
+			node.modulate = Color.WHITE
+	_update_layers()
+
+
+## The placement under a point (global/world coordinates), front-most first; "" if none.
+func pick(at: Vector2) -> String:
+	for layer in ["front", "play", "back", "mid"]:
+		if not _layers[layer].visible:
+			continue
+		for i in range(_sprites.size() - 1, -1, -1):
+			var sprite := _sprites[i]
+			if sprite.get_meta("layer") != layer:
+				continue
+			var local := sprite.to_local(at)
+			var rect := sprite.get_rect()
+			if not rect.has_point(local):
+				continue
+			if _opaque_at(sprite.texture, local - rect.position):
+				return str(sprite.get_meta("placement"))
+	return ""
+
+
+func sprite_for(placement_id: String) -> Sprite2D:
+	for sprite in _sprites:
+		if str(sprite.get_meta("placement")) == placement_id:
+			return sprite
+	return null
+
+
+## Room position a placed sprite stands for (x as seen when the camera is there; y = its anchor).
+func room_position(sprite: Sprite2D) -> Vector2:
+	var f: float = SCROLL[str(sprite.get_meta("layer"))]
+	return Vector2(sprite.position.x / f, sprite.position.y)
+
+
+func layer_node(layer: String) -> Node2D:
+	return _layers[layer]
+
+
+func select(placement_id: String) -> void:
+	if _highlight != null:
+		_highlight.queue_free()
+		_highlight = null
+	var sprite := sprite_for(placement_id)
+	if sprite == null:
+		return
+	var r := sprite.get_rect().grow(4.0)
+	_highlight = Line2D.new()
+	_highlight.points = PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y), r.position])
+	_highlight.width = 3.0 / maxf(absf(sprite.scale.y), 0.05)
+	_highlight.default_color = _emissive(Color("#7aa2f7"), str(sprite.get_meta("layer")))
+	var mat := CanvasItemMaterial.new()
+	mat.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
+	_highlight.material = mat
+	sprite.add_child(_highlight)
+
+
+func _opaque_at(texture: Texture2D, pixel: Vector2) -> bool:
+	var key := texture.get_rid()
+	var image: Image = _alpha_cache.get(key)
+	if image == null:
+		image = texture.get_image()
+		if image == null:
+			return true
+		image.decompress()
+		_alpha_cache[key] = image
+	var p := Vector2i(clampi(int(pixel.x), 0, image.get_width() - 1), clampi(int(pixel.y), 0, image.get_height() - 1))
+	return image.get_pixelv(p).a > 0.15
 
 
 ## Room x -> a layer's local x, so a piece "seen at x" is centred when the camera is at x.
@@ -268,9 +373,12 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 			y = minf(y, 0.0)
 		else:
 			y = maxf(y, float(_scene.get("height", 720)) + 40.0)
-		s = minf(s, float(_scene.get("height", 720)) * 0.55 / float(piece.height))
+		s = minf(s, float(_scene.get("height", 720)) * 0.42 / float(piece.height))
 		sprite.scale = Vector2(-s if bool(placement.get("flip", false)) else s, s)
 	sprite.position = Vector2(_local_x(layer, float(placement.x)), y)
+	sprite.set_meta("placement", str(placement.get("id", "")))
+	sprite.set_meta("layer", layer)
+	_sprites.append(sprite)
 	if layer == "front":
 		sprite.modulate = Color(str(palette.get("shadow", "#05070a")))
 	else:
@@ -303,6 +411,7 @@ func _add_light_at(parent: Node2D, at: Vector2, color: Color, energy: float, rad
 	light.texture_scale = radius / 128.0
 	light.position = at
 	parent.add_child(light)
+	_glows.append(light)
 	# A soft visible halo too (lights only brighten what they touch).
 	var halo := Sprite2D.new()
 	halo.texture = tex
@@ -314,6 +423,7 @@ func _add_light_at(parent: Node2D, at: Vector2, color: Color, energy: float, rad
 	mat.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
 	halo.material = mat
 	parent.add_child(halo)
+	_glows.append(halo)
 
 
 var _radial: GradientTexture2D = null
@@ -353,6 +463,7 @@ func _add_fog(parent: Node2D, layer: String, fog: Color, density: float, width: 
 	parent.add_child(rect)
 	# Fog is drawn first in its layer, i.e. between this layer and the one behind it.
 	parent.move_child(rect, 0)
+	_fogs.append(rect)
 
 
 func _add_ray(ray: Dictionary, color: Color, height: float) -> void:
@@ -371,6 +482,7 @@ func _add_ray(ray: Dictionary, color: Color, height: float) -> void:
 	rect.rotation = deg_to_rad(float(ray.get("angle", 15)))
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_layers["mid"].add_child(rect)
+	_glows.append(rect)
 
 
 func _add_dust(dust: Dictionary, width: float, height: float) -> void:
@@ -403,6 +515,7 @@ func _add_dust(dust: Dictionary, width: float, height: float) -> void:
 	mat.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
 	p.material = mat
 	_layers["play"].add_child(p)
+	_fogs.append(p)
 
 
 ## Colors that should read as light, not lit surfaces: undo the scene's darkness tint (main canvas only).

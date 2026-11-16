@@ -37,6 +37,9 @@ export interface SessionState {
   /** Seed of the current or most recent playtest. */
   seed: number | null;
   art: ArtState;
+  /** Worlds mode: the piece the creator clicked in the runtime (null = none), and where the camera looks. */
+  worldPick: string | null;
+  worldCameraX: number | null;
 }
 
 export interface RuntimeSnapshot {
@@ -86,6 +89,8 @@ export class Session {
       chats: { build: idleChat, narrative: idleChat },
       seed: null,
       art: { available: false, models: { image: "", vision: "" }, budget: 0, running: null, jobs: [], totalCost: 0 },
+      worldPick: null,
+      worldCameraX: null,
     };
   }
 
@@ -174,7 +179,8 @@ export class Session {
         this.requestedRevision = null;
         this.set({ runtimeStatus: "ready", mode: "edit", loadedRevision: null });
         this.syncRuntime();
-        this.bridge.send({ type: "stage", stage: this.stage });
+        this.sentImages.clear(); // a rebooted runtime has lost them
+        void this.resendStage();
         return;
       case "loaded":
         this.set({ loadedRevision: message.revision });
@@ -195,6 +201,15 @@ export class Session {
         return; // correlated by the bridge
       case "rendered":
         return; // the studio never asks the runtime to render
+      case "worldPick":
+        this.set({ worldPick: message.placementId });
+        return;
+      case "worldCamera":
+        this.set({ worldCameraX: message.x });
+        return;
+      case "worldMove":
+        void this.moveWorldPiece(message.placementId, message.x, message.y);
+        return;
     }
   }
 
@@ -324,6 +339,56 @@ export class Session {
     if (this.state.runtimeStatus !== "ready") return false;
     return this.bridge.send({ type: "stage", stage });
   };
+
+  /** Images the runtime already has (world kits), by file ref. */
+  private sentImages = new Set<string>();
+  /** The biome room the world stage shows, for saving drags. */
+  private worldTarget: { biomeId: string; roomId: string } | null = null;
+
+  /**
+   * Show a world room: sends any kit images the runtime lacks (once each), then the stage.
+   * `target` is what drags in the runtime will edit.
+   */
+  showWorld = async (stage: Extract<Stage, { mode: "world" }>, refs: string[], target: { biomeId: string; roomId: string }): Promise<void> => {
+    this.worldTarget = target;
+    this.stage = stage;
+    await this.sendImages(refs);
+    if (this.stage === stage) this.setStage(stage);
+  };
+
+  private async sendImages(refs: string[]): Promise<void> {
+    const missing = [...new Set(refs)].filter((r) => !this.sentImages.has(r));
+    if (missing.length === 0 || this.state.runtimeStatus !== "ready") return;
+    try {
+      const images = Object.fromEntries(await Promise.all(missing.map(async (ref) => [ref, await api.fileBase64(ref)] as const)));
+      if (this.bridge.send({ type: "images", images })) missing.forEach((r) => this.sentImages.add(r));
+    } catch (error) {
+      this.reportProblem(`could not load world images: ${String(error)}`);
+    }
+  }
+
+  private async resendStage(): Promise<void> {
+    if (this.stage.mode === "world") {
+      const s = this.stage.scene;
+      await this.sendImages([s.backdrop, s.ground, ...s.pieces.map((p) => p.file)]);
+    }
+    this.bridge.send({ type: "stage", stage: this.stage });
+  }
+
+  /** A piece dragged in the runtime: save it as an ordinary edit (undoable), or put it back if editing is locked. */
+  private async moveWorldPiece(placementId: string, x: number, y: number): Promise<void> {
+    if (!this.worldTarget) return;
+    const result = await this.applyOperation("updatePlacement", {
+      assetId: this.worldTarget.biomeId,
+      roomId: this.worldTarget.roomId,
+      placementId,
+      changes: { x, y },
+    });
+    if (!result.ok) {
+      this.reportProblem(result.error.message);
+      this.bridge.send({ type: "stage", stage: this.stage }); // the runtime snaps the piece back
+    }
+  }
 
   previewClip = (characterId: string, clip: string | null): boolean => {
     if (this.state.runtimeStatus !== "ready" || this.state.mode !== "edit") return false;

@@ -188,7 +188,8 @@ export async function worldKitStage(ctx: ArtContext, input: WorldKitInput): Prom
   let biomeId: string;
   let name: string;
   if (!biome) {
-    name = input.name?.trim() || theme.split(/[,.]/)[0]!.trim().slice(0, 60) || "Biome";
+    const fromTheme = theme.split(/[,.]/)[0]!.trim().slice(0, 60);
+    name = input.name?.trim() || (fromTheme ? fromTheme[0]!.toUpperCase() + fromTheme.slice(1) : "Biome");
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^[^a-z]+|_+$/g, "").slice(0, 40) || "biome";
     biomeId = uniqueId(slug, project.art.assets.map((a) => a.id));
     operations.push({ name: "createAsset", input: { asset: { id: biomeId, name, kind: "biome", brief: theme } } });

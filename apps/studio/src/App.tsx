@@ -7,12 +7,14 @@ import { WikiMain, WikiSidebar, type WikiNav } from "./WikiView.tsx";
 import { ProgressionMain, ProgressionSidebar, type ProgressionNav } from "./ProgressionView.tsx";
 import { ArtPanel } from "./ArtPanel.tsx";
 import { CharacterBench } from "./CharacterBench.tsx";
+import { currentWorld, WorldBench, type WorldUi } from "./WorldBench.tsx";
+import { WorldPanel } from "./WorldPanel.tsx";
 import { fileUrl } from "./api.ts";
 import { useChatOpen, useSidebarWidth } from "./layout.ts";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
-type Tab = "arena" | "characters" | "wiki" | "progression";
-const TAB_LABEL: Record<Tab, string> = { arena: "Arena", characters: "Characters", wiki: "Wiki", progression: "Progression" };
+type Tab = "arena" | "characters" | "worlds" | "wiki" | "progression";
+const TAB_LABEL: Record<Tab, string> = { arena: "Arena", characters: "Characters", worlds: "Worlds", wiki: "Wiki", progression: "Progression" };
 /** Design documents (the director's tabs): the game is hidden and the chat is the director's. */
 const DESIGN_TABS: readonly Tab[] = ["wiki", "progression"];
 
@@ -27,6 +29,18 @@ export function App({ session }: { session: Session }) {
   const [progressionNav, setProgressionNav] = useState<ProgressionNav>({ selected: null, creating: null });
   const [sidebarWidth, startResize] = useSidebarWidth();
   const [chatOpen, setChatOpen] = useChatOpen();
+  const [worldUi, setWorldUi] = useState<WorldUi>({
+    biomeId: null,
+    roomId: null,
+    hidden: [],
+    fog: true,
+    lights: true,
+    exploded: false,
+    previewLayout: false,
+  });
+  const [worldSelected, setWorldSelected] = useState<string | null>(null);
+  // A click on a piece in the runtime selects it here.
+  useEffect(() => setWorldSelected(state.worldPick), [state.worldPick]);
 
   useEffect(() => session.attachRuntime(frameRef.current!), [session]);
 
@@ -117,10 +131,29 @@ export function App({ session }: { session: Session }) {
     setTab("arena");
   };
 
+  /** Kit shelf click: put the piece in the middle of the current view, standing on the surface there. */
+  const placePiece = async (pieceId: string) => {
+    const { biome, room } = currentWorld(project, worldUi);
+    if (!biome || !room) return;
+    const x = Math.round(state.worldCameraX ?? project.sandbox.width / 2);
+    const under = project.sandbox.platforms
+      .filter((p) => p.x <= x && x <= p.x + p.width && p.width > 40)
+      .sort((a, b) => b.width - a.width)[0];
+    const piece = biome.kit?.pieces.find((p) => p.id === pieceId);
+    const y = piece?.kind === "hanging" ? 0 : (under?.y ?? project.sandbox.height - 60);
+    const result = await session.applyOperation("addPlacement", {
+      assetId: biome.id,
+      roomId: room.id,
+      placement: { piece: pieceId, layer: "play", x, y },
+    });
+    if (!result.ok) session.reportProblem(result.error.message);
+  };
+
   const progression = project.progression;
   const drafts: Record<Tab, number> = {
     arena: 0,
     characters: 0,
+    worlds: 0,
     wiki: project.wiki.pages.filter((p) => p.status === "draft").length,
     progression: [...progression.regions, ...progression.abilities, ...progression.connections, ...progression.beats].filter((i) => i.status === "draft").length,
   };
@@ -217,6 +250,17 @@ export function App({ session }: { session: Session }) {
       {tab === "characters" && selected && (
         <CharacterBench key={`${selected.id}:${state.runtimeStatus}`} character={selected} project={project} art={state.art} session={session} />
       )}
+      {tab === "worlds" && (
+        <WorldBench
+          project={project}
+          session={session}
+          ui={worldUi}
+          setUi={setWorldUi}
+          selected={worldSelected}
+          locked={locked}
+          onPlacePiece={(pieceId) => void placePiece(pieceId)}
+        />
+      )}
       {tab === "wiki" && (
         <main className="wiki-pane">
           <WikiMain project={project} session={session} nav={wikiNav} setNav={setWikiNav} locked={locked} onOpenCharacter={openCharacter} />
@@ -239,6 +283,21 @@ export function App({ session }: { session: Session }) {
       {tab === "wiki" ? (
         <aside className="sidebar">
           <WikiSidebar project={project} nav={wikiNav} setNav={setWikiNav} locked={locked} />
+          {problem}
+        </aside>
+      ) : tab === "worlds" ? (
+        <aside className="sidebar">
+          <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
+          <WorldPanel
+            project={project}
+            art={state.art}
+            session={session}
+            ui={worldUi}
+            setUi={setWorldUi}
+            selected={worldSelected}
+            setSelected={setWorldSelected}
+            locked={locked}
+          />
           {problem}
         </aside>
       ) : checks ? (
