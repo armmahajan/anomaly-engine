@@ -29,7 +29,7 @@ export interface SessionState {
   /** Project revision the runtime has built its scene from. */
   loadedRevision: number | null;
   lastProblem: string | null;
-  /** Each agent's conversation: build assistant (arena) and narrative director (wiki). */
+  /** Each agent's conversation: build assistant (arena) and director (wiki and progression). */
   chats: Record<AgentId, ChatState>;
   /** Seed of the current or most recent playtest. */
   seed: number | null;
@@ -126,8 +126,9 @@ export class Session {
   private syncRuntime(): void {
     const { runtimeStatus, mode, project } = this.state;
     if (runtimeStatus !== "ready" || mode !== "edit" || this.requestedRevision === project.revision) return;
-    // The runtime never needs the wiki.
-    if (this.bridge.send({ type: "load", project: { ...project, wiki: { pages: [] } } })) this.requestedRevision = project.revision;
+    // The runtime never needs the design documents.
+    const runtimeProject = { ...project, wiki: { pages: [] }, progression: { abilities: [], regions: [], connections: [], beats: [] } };
+    if (this.bridge.send({ type: "load", project: runtimeProject })) this.requestedRevision = project.revision;
   }
 
   // --- runtime lifecycle ---

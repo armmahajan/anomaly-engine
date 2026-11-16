@@ -36,7 +36,7 @@ use a different folder.
 | Command | What it does |
 |---|---|
 | `npm test` | Unit tests (schema, operations, server, agent) plus headless Godot primitive tests (`game/test`, needs `godot` on PATH) |
-| `npm run e2e` | Browser tests against the real runtime (own server on port 5199, throwaway project) |
+| `npm run e2e` | Browser tests against the real runtime (own server on port 5199, or `E2E_PORT`; throwaway project) |
 | `npm run typecheck` | TypeScript check |
 | `npm run build:game` | Re-export the Godot runtime. Only needed after GDScript/engine changes, never for content edits |
 
@@ -144,7 +144,7 @@ runtime control: `studio.updateCharacter(...)`, `studio.applyOperation(name, inp
 
 The chat panel (right) follows the tab: on **Arena** it is the build
 assistant, which changes the game from plain-language requests; on **Wiki**
-it is the narrative director (see below). Each agent keeps its own
+and **Progression** it is the director (see below). Each agent keeps its own
 conversation.
 
 - **Backend:** your local Claude Code login, through the Claude Agent SDK
@@ -166,7 +166,7 @@ conversation.
 - **Live tests:** `ANOMALY_LIVE_CLAUDE=1 npx vitest run claudeCode.live narrative.live`
   (uses your Claude plan).
 
-## Wiki and the narrative director
+## Wiki and the director
 
 The **Wiki** tab is the game's bible: overview, characters, places,
 factions, lore, story beats, and any other kind you need (kinds are open:
@@ -174,8 +174,8 @@ type a new one, e.g. `deity`, and it gets its own group). Pages have a
 summary, free-form fields, a Markdown body with `[[page_id]]` links, and can
 link to an in-game character (the inspector then shows "Wiki page →").
 
-- **Canon vs draft:** pages you write or edit are canon. The narrative
-  director's pages are drafts until you **Accept** (or **Discard**) them.
+- **Canon vs draft:** pages you write or edit are canon. The director's
+  pages are drafts until you **Accept** (or **Discard**) them.
 - **The director** (`packages/agent/src/narrative/`) builds around your
   direction: it fills small gaps itself, asks before major decisions
   (antagonist, ending, twists), flags contradictions, and can't change or
@@ -188,14 +188,44 @@ link to an in-game character (the inspector then shows "Wiki page →").
   The wiki is not sent to the game runtime. Later, the **Architect** agent
   will build the game from it.
 
+## Progression
+
+The **Progression** tab is the game's structure (`project.progression`,
+`packages/core/src/progression/`): **regions** (rooms, enemies, boss, wiki
+place page), **abilities** and key items (a mechanic from a fixed list, or
+`key`; where each is found and what you need to get it), **connections**
+between regions (two-way or one-way, gated by abilities), **story beats**
+(a wiki story page placed in a region), and the start and ending.
+
+- **Checks** (`report.ts`, `progressionReport`): sphere 0 is what's reachable
+  from the start with nothing; collecting what's there opens sphere 1, and so
+  on. From that: whether the game is finishable, the **critical path**
+  (abilities the ending can't be reached without), and issues. Errors:
+  unbeatable, soft-locks (somewhere you can reach at some sphere that the
+  ending can't be reached from, e.g. a one-way drop), unobtainable
+  abilities, no start or ending. Warnings: unreachable regions and beats,
+  unplaced abilities, abilities that gate nothing, everything available at
+  once, story beats out of the wiki's `order`, links to missing wiki pages.
+  Issues never block an edit.
+- **The graph** lays regions out in one column per sphere: drafts dashed,
+  errors red, one-way connections with arrows, gates labelled; critical
+  abilities in gold. Click anything to edit it; the creator's edits are canon.
+- **Operations:** create/update for each kind, `setProgressionEnds`,
+  `acceptProgressionItem`, `deleteProgressionItem` (ids are unique across
+  kinds; deletes clean up references, as does deleting an enemy).
+- **The director** designs it with you: same canon/draft rules, asks before
+  the big structure (how many regions and abilities, what opens the ending),
+  and checks for errors before replying. Not sent to the game runtime; the
+  ability mechanics come next.
+
 ## Agent internals
 
 `packages/agent`:
 
-- **Agents** (`profile.ts`): the build assistant and the narrative director,
-  each an instruction builder plus a tool set.
-- **Tools** (`tools.ts`): every core operation except the wiki's is a build
-  tool with the same name;
+- **Agents** (`profile.ts`): the build assistant and the director (id
+  `narrative`), each an instruction builder plus a tool set.
+- **Tools** (`tools.ts`): every core operation except the wiki's and
+  progression's (the director's, in `narrative/`) is a build tool with the same name;
   parameter schemas are generated from the core Zod schemas (with field
   descriptions), plus read tools `getProjectSummary`, `getCharacter`,
   `listPrimitives`. Errors list valid ids; writes report lint warnings

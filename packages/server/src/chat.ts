@@ -225,6 +225,24 @@ export function describeCall({ name, input }: OperationCall): string {
       return `accepted page ${i.pageId}`;
     case "deleteWikiPage":
       return `deleted page ${i.pageId}`;
+    case "createRegion":
+    case "createAbility":
+    case "createConnection":
+    case "createStoryBeat": {
+      const item = Object.values(i)[0] as unknown as { id?: string } | undefined;
+      return `drafted ${name.slice(6).replace("StoryBeat", "story beat").toLowerCase()} ${item?.id}`;
+    }
+    case "updateRegion":
+    case "updateAbility":
+    case "updateConnection":
+    case "updateStoryBeat":
+      return `edited ${i.regionId ?? i.abilityId ?? i.connectionId ?? i.beatId}`;
+    case "setProgressionEnds":
+      return [i.start !== undefined && `start: ${i.start ?? "none"}`, i.ending !== undefined && `ending: ${i.ending ?? "none"}`].filter(Boolean).join(", ");
+    case "acceptProgressionItem":
+      return `accepted ${i.id}`;
+    case "deleteProgressionItem":
+      return `deleted ${i.id}`;
     default:
       return name;
   }

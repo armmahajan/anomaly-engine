@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { newEnemyCharacter, uniqueId, type ChangeResult } from "@anomaly/core";
+import { newEnemyCharacter, progressionReport, uniqueId, type ChangeResult } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { Inspector } from "./Inspector.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { WikiMain, WikiSidebar, type WikiNav } from "./WikiView.tsx";
+import { ProgressionMain, ProgressionSidebar, type ProgressionNav } from "./ProgressionView.tsx";
 
-type Tab = "arena" | "wiki";
+type Tab = "arena" | "wiki" | "progression";
+const TAB_LABEL: Record<Tab, string> = { arena: "Arena", wiki: "Wiki", progression: "Progression" };
 
 const ENEMY_COLORS = ["#5f9e6e", "#d08c3a", "#4f8fbf", "#b8577d", "#9c9a3f"];
 
@@ -15,6 +17,7 @@ export function App({ session }: { session: Session }) {
   const [selectedId, setSelectedId] = useState<string | null>("crawler");
   const [tab, setTab] = useState<Tab>("arena");
   const [wikiNav, setWikiNav] = useState<WikiNav>({ pageId: null, editing: null });
+  const [progressionNav, setProgressionNav] = useState<ProgressionNav>({ selected: null, creating: null });
 
   useEffect(() => session.attachRuntime(frameRef.current!), [session]);
 
@@ -84,9 +87,9 @@ export function App({ session }: { session: Session }) {
     if (report(await session.resetProject())) setSelectedId("crawler");
   };
 
-  /** The wiki is edited while the game is stopped: opening it ends a playtest. */
+  /** Design documents are edited while the game is stopped: opening one ends a playtest. */
   const openTab = (next: Tab) => {
-    if (next === "wiki" && playing) session.stop();
+    if (next !== "arena" && playing) session.stop();
     setTab(next);
   };
 
@@ -100,7 +103,14 @@ export function App({ session }: { session: Session }) {
     setTab("arena");
   };
 
-  const drafts = project.wiki.pages.filter((p) => p.status === "draft").length;
+  const progression = project.progression;
+  const drafts: Record<Tab, number> = {
+    arena: 0,
+    wiki: project.wiki.pages.filter((p) => p.status === "draft").length,
+    progression: [...progression.regions, ...progression.abilities, ...progression.connections, ...progression.beats].filter((i) => i.status === "draft").length,
+  };
+  const checks = tab === "progression" ? progressionReport(project) : null;
+  const agent = tab === "arena" ? "build" : "narrative";
   const problem = state.lastProblem && (
     <div className="problem" role="alert">
       {state.lastProblem}
@@ -123,10 +133,10 @@ export function App({ session }: { session: Session }) {
       <header className="toolbar">
         <span className="title">{state.project.name}</span>
         <nav className="tabs" role="tablist">
-          {(["arena", "wiki"] as const).map((t) => (
+          {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
             <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "selected" : ""} onClick={() => openTab(t)}>
-              {t === "arena" ? "Arena" : "Wiki"}
-              {t === "wiki" && drafts > 0 && <span className="tab-count">{drafts}</span>}
+              {TAB_LABEL[t]}
+              {drafts[t] > 0 && <span className="tab-count">{drafts[t]}</span>}
             </button>
           ))}
         </nav>
@@ -169,7 +179,7 @@ export function App({ session }: { session: Session }) {
         </span>
       </header>
 
-      {/* The game stays mounted (and sized) behind the wiki so it never reboots. */}
+      {/* The game stays mounted (and sized) behind the other tabs so it never reboots. */}
       <main className={`viewport${tab === "arena" ? "" : " offstage"}`} aria-hidden={tab !== "arena"}>
         <iframe ref={frameRef} src="/game/index.html" title="Game" className="game-frame" />
         {!playing && state.runtimeStatus === "ready" && <div className="edit-badge">Edit mode — press Play to test</div>}
@@ -179,10 +189,28 @@ export function App({ session }: { session: Session }) {
           <WikiMain project={project} session={session} nav={wikiNav} setNav={setWikiNav} locked={locked} onOpenCharacter={openCharacter} />
         </main>
       )}
+      {checks && (
+        <main className="wiki-pane">
+          <ProgressionMain
+            project={project}
+            report={checks}
+            session={session}
+            nav={progressionNav}
+            setNav={setProgressionNav}
+            locked={locked}
+            onOpenWiki={openWikiPage}
+          />
+        </main>
+      )}
 
       {tab === "wiki" ? (
         <aside className="sidebar">
           <WikiSidebar project={project} nav={wikiNav} setNav={setWikiNav} locked={locked} />
+          {problem}
+        </aside>
+      ) : checks ? (
+        <aside className="sidebar">
+          <ProgressionSidebar project={project} report={checks} nav={progressionNav} setNav={setProgressionNav} locked={locked} />
           {problem}
         </aside>
       ) : (
@@ -239,10 +267,10 @@ export function App({ session }: { session: Session }) {
       )}
 
       <ChatPanel
-        key={tab}
+        key={agent}
         session={session}
-        agent={tab === "wiki" ? "narrative" : "build"}
-        chat={state.chats[tab === "wiki" ? "narrative" : "build"]}
+        agent={agent}
+        chat={state.chats[agent]}
         revision={project.revision}
         canUndo={state.canUndo}
         playing={playing}

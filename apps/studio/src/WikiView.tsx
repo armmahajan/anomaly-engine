@@ -46,7 +46,7 @@ export function WikiSidebar({ project, nav, setNav, locked }: SidebarProps) {
           Needs review ({drafts})
         </button>
       </div>
-      {pages.length === 0 && <p className="hint">The wiki is empty. Describe your game to the narrative director, or add a page.</p>}
+      {pages.length === 0 && <p className="hint">The wiki is empty. Describe your game to the director, or add a page.</p>}
       {wikiKinds({ pages: shown }).map((kind) => (
         <div key={kind} className="wiki-group">
           <h3>{kindLabel(kind)}</h3>
@@ -156,7 +156,7 @@ export function WikiMain({ project, session, nav, setNav, locked, onOpenCharacte
       <div className="wiki-main wiki-empty">
         <h1>Your game's wiki</h1>
         <p className="hint">
-          The wiki is the game's bible: its story, characters, places and lore. Tell the narrative director your creative direction and it
+          The wiki is the game's bible: its story, characters, places and lore. Tell the director your creative direction and it
           drafts the rest for you to accept, edit or discard. Everything you write yourself is canon.
         </p>
       </div>
@@ -171,7 +171,7 @@ export function WikiMain({ project, session, nav, setNav, locked, onOpenCharacte
         <span className="tag">{kindLabel(page.kind)}</span>
         {page.status === "draft" ? (
           <>
-            <span className="tag draft">Draft by the narrative director</span>
+            <span className="tag draft">Draft by the director</span>
             <button type="button" disabled={locked} onClick={() => void session.applyOperation("acceptWikiPage", { pageId: page.id }).then(report)}>
               Accept
             </button>

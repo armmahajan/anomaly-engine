@@ -70,6 +70,62 @@ describe("narrative director tools", () => {
   });
 });
 
+describe("director progression tools", () => {
+  const region = (id: string, extra = {}) => ({ region: { id, name: id, ...extra } });
+
+  it("drafts a structure and reads back its spheres, critical path and issues", () => {
+    const draft = new Draft(projectWith());
+    expect(run(draft, "createRegion", region("gate", { wikiPageId: "sunken_gate" }))).toMatchObject({
+      ok: true,
+      warnings: ['gate links to the wiki page "sunken_gate", which doesn\'t exist. Fine if you create that page later this turn.'],
+    });
+    run(draft, "createRegion", region("city", { enemies: ["crawler"], boss: "charger" }));
+    run(draft, "createRegion", region("deep"));
+    expect(run(draft, "createAbility", { ability: { id: "dash", name: "Dash", mechanic: "dash", obtainedIn: { regionId: "city", source: "boss" } } })).toMatchObject({ ok: true });
+    run(draft, "createConnection", { connection: { id: "gate_city", from: "gate", to: "city" } });
+    run(draft, "createConnection", { connection: { id: "city_deep", from: "city", to: "deep", requires: ["dash"], oneWay: true } });
+    expect(run(draft, "createConnection", { connection: { id: "bad", from: "city", to: "moon" } })).toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining('unknown region "moon"') },
+    });
+    run(draft, "setProgressionEnds", { start: "gate", ending: "deep" });
+
+    expect([...draft.current.progression.regions, ...draft.current.progression.abilities].every((i) => i.status === "draft")).toBe(true);
+    const summary = run(draft, "getProgression", {}).progression as string;
+    expect(summary).toContain("- [city_deep] city -> (one-way) deep · needs dash (draft)");
+    expect(summary).toContain("Spheres: 0: gate, city (+dash) | 1: deep");
+    expect(summary).toContain("Finishable: yes. Critical path: dash.");
+    expect(summary).toContain('WARNING missing_wiki_page: gate links to the wiki page "sunken_gate"');
+    expect(buildNarrativePrompt(draft.current)).toContain("- [dash] \"Dash\" (draft) · dash · in city (boss, open) · collected in sphere 0");
+  });
+
+  it("protects canon items and ends unless the creator asked", () => {
+    let project = projectWith();
+    for (const [name, input] of [
+      ["createRegion", { region: { id: "gate", name: "Gate", status: "canon" } }],
+      ["createRegion", { region: { id: "city", name: "City", status: "draft" } }],
+      ["setProgressionEnds", { start: "gate" }],
+    ] as const) {
+      const result = applyOperation(project, name, input);
+      if (!result.ok) throw new Error(result.error.message);
+      project = result.project;
+    }
+    const draft = new Draft(project);
+    const protectedError = { ok: false, error: { code: "canon_protected" } };
+    expect(run(draft, "updateRegion", { regionId: "gate", changes: { rooms: 3 } })).toMatchObject(protectedError);
+    expect(run(draft, "deleteProgressionItem", { id: "gate" })).toMatchObject(protectedError);
+    expect(run(draft, "setProgressionEnds", { start: "city" })).toMatchObject(protectedError);
+    expect(run(draft, "setProgressionEnds", { start: "gate", ending: "city" })).toMatchObject({ ok: true });
+    expect(run(draft, "updateRegion", { regionId: "city", changes: { rooms: 3 } })).toMatchObject({ ok: true });
+    expect(run(draft, "updateRegion", { regionId: "gate", changes: { rooms: 3 }, confirmedByCreator: true })).toMatchObject({ ok: true });
+    expect(draft.current.progression.regions.map((r) => [r.id, r.rooms, r.status])).toEqual([
+      ["gate", 3, "canon"],
+      ["city", 3, "draft"],
+    ]);
+    expect(run(draft, "acceptProgressionItem", { id: "city" })).toMatchObject({ ok: false, error: { code: "unknown_tool" } });
+  });
+});
+
 describe("narrative director on the Claude Code backend", () => {
   it("runs with its own instructions and only its tools", async () => {
     const seen: Record<string, any> = {};
@@ -98,7 +154,7 @@ describe("narrative director on the Claude Code backend", () => {
       },
     });
     expect(turn.outcome).toBe("committed");
-    expect(seen.systemPrompt).toContain("You are the narrative director");
+    expect(seen.systemPrompt).toContain("You are the director");
     expect(seen.allowedTools).toEqual(NARRATIVE_TOOLS.specs.map((t) => claudeToolName(t.name)));
     expect(commits).toEqual([[{ name: "createWikiPage", input: { page: expect.objectContaining({ id: "overview", status: "draft" }) } }]]);
   });

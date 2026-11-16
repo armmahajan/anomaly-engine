@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ACTION_TYPES, createDefaultProject, OPERATION_NAMES, WIKI_OPERATION_NAMES } from "@anomaly/core";
+import { ACTION_TYPES, createDefaultProject, OPERATION_NAMES, PROGRESSION_OPERATION_NAMES, WIKI_OPERATION_NAMES } from "@anomaly/core";
 import { buildSystemPrompt, Draft, executeTool, NARRATIVE_TOOLS, READ_TOOL_NAMES, summarizeProject, toolDefinitions } from "../src/index.ts";
 
 const definitions = toolDefinitions();
@@ -7,8 +7,9 @@ const byName = Object.fromEntries(definitions.map((d) => [d.function.name, d.fun
 const run = (draft: Draft, name: string, args: unknown) => executeTool(draft, name, JSON.stringify(args)) as Record<string, any>;
 
 describe("tool definitions", () => {
-  it("expose every core operation except the wiki's plus the read tools, with valid names", () => {
-    const build = OPERATION_NAMES.filter((n) => !(WIKI_OPERATION_NAMES as string[]).includes(n));
+  it("expose every core operation except the director's plus the read tools, with valid names", () => {
+    const director: string[] = [...WIKI_OPERATION_NAMES, ...PROGRESSION_OPERATION_NAMES];
+    const build = OPERATION_NAMES.filter((n) => !director.includes(n));
     expect(Object.keys(byName).sort()).toEqual([...build, ...READ_TOOL_NAMES].sort());
     for (const d of [...definitions, ...toolDefinitions(NARRATIVE_TOOLS)]) {
       expect(d.type).toBe("function");
@@ -22,6 +23,7 @@ describe("tool definitions", () => {
   it("are plain JSON a provider can accept", () => {
     expect(JSON.parse(JSON.stringify(definitions))).toEqual(definitions);
     expect(JSON.stringify(definitions).length).toBeLessThan(40_000);
+    expect(JSON.stringify(toolDefinitions(NARRATIVE_TOOLS)).length).toBeLessThan(40_000);
   });
 
   it("carry precise schemas generated from the core types", () => {

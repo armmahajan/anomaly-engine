@@ -17,6 +17,7 @@ import {
   type OperationCall,
   type OperationName,
   type ProjectSpec,
+  type ProgressionOperationName,
   type WikiOperationName,
 } from "@anomaly/core";
 import { describeCharacter, summarizeProject } from "./summary.ts";
@@ -55,8 +56,8 @@ export interface ToolSpec {
   run: (draft: Draft, args: unknown) => unknown;
 }
 
-/** The build assistant's write tools: every operation except the wiki's (the narrative director's). */
-type BuildOperation = Exclude<OperationName, WikiOperationName>;
+/** The build assistant's write tools: every operation except the wiki's and progression's (the director's). */
+type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOperationName>;
 
 const writeDescriptions: Record<BuildOperation, string> = {
   createCharacter:

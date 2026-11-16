@@ -3,8 +3,36 @@ import { callTools, FakeModel, runAgentTurn, say, toolCall, type TurnRunner } fr
 const page = (id: string, kind: string, title: string, extra: Record<string, unknown> = {}) =>
   toolCall("createWikiPage", { page: { id, kind, title, ...extra } });
 
-/** Scripted narrative director: drafts a small wiki skeleton from any pitch. */
+const region = (id: string, name: string, extra: Record<string, unknown> = {}) => toolCall("createRegion", { region: { id, name, ...extra } });
+const connection = (id: string, from: string, to: string, extra: Record<string, unknown> = {}) =>
+  toolCall("createConnection", { connection: { id, from, to, ...extra } });
+
+/** gate <-> city <-dash-> tower -lamp_key-> deep: three spheres, critical path Dash -> Lamp Key. */
+const fakeStructure: TurnRunner = (request) =>
+  runAgentTurn({
+    ...request,
+    model: new FakeModel([
+      callTools(
+        region("gate", "Sunken Gate", { rooms: 4, enemies: ["crawler"] }),
+        region("city", "Drowned City", { rooms: 12, enemies: ["crawler", "charger"], boss: "charger" }),
+        region("tower", "Bell Tower"),
+        region("deep", "The Deep", { rooms: 3 }),
+        toolCall("createAbility", { ability: { id: "dash", name: "Dash", mechanic: "dash", obtainedIn: { regionId: "city", source: "boss" } } }),
+        toolCall("createAbility", { ability: { id: "lamp_key", name: "Lamp Key", mechanic: "key", obtainedIn: { regionId: "tower", source: "shrine" } } }),
+        connection("gate_city", "gate", "city"),
+        connection("city_tower", "city", "tower", { requires: ["dash"] }),
+        connection("tower_deep", "tower", "deep", { requires: ["lamp_key"], oneWay: true }),
+        toolCall("setProgressionEnds", { start: "gate", ending: "deep" }),
+      ),
+      say("Drafted four regions, the Dash and the Lamp Key. Should the Lamp Key come from a boss instead?"),
+    ]),
+  });
+
+/** Scripted director: drafts the progression when asked about structure, otherwise a small wiki skeleton. */
 const fakeDirector: TurnRunner = (request) =>
+  /structure|progression/i.test(request.userMessage) ? fakeStructure(request) : fakeWiki(request);
+
+const fakeWiki: TurnRunner = (request) =>
   runAgentTurn({
     ...request,
     model: new FakeModel([

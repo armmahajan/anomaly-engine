@@ -18,8 +18,8 @@ const AGENT_TEXT: Record<AgentId, { title: string; hint: string; placeholder: st
     placeholder: "Describe a change…",
   },
   narrative: {
-    title: "Narrative director",
-    hint: "Describe your game: the world, the tone, who the player is, how it ends. The director fills in the gaps as drafts for you to review.",
+    title: "Director",
+    hint: "Describe your game: the world, the tone, who the player is, how it ends, how the world opens up. The director fills in the wiki and the progression as drafts for you to review.",
     placeholder: "Describe your game's direction…",
   },
 };

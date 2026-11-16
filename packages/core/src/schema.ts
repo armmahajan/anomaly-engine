@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Behavior } from "./behavior.ts";
 import { Color, Id } from "./common.ts";
 import { defaultWiki, Wiki } from "./wiki/wiki.ts";
+import { defaultProgression, Progression, progressionIssues } from "./progression/progression.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -111,8 +112,12 @@ export const ProjectSpec = z
     sandbox: Sandbox,
     /** The game wiki (narrative, characters, lore). Older projects get an empty one. */
     wiki: Wiki.default(defaultWiki),
+    /** Regions, abilities and gates. Older projects get an empty one. */
+    progression: Progression.default(defaultProgression),
   })
   .superRefine((project, ctx) => {
+    for (const issue of progressionIssues(project.progression, project.characters)) ctx.addIssue({ code: "custom", ...issue });
+
     const pageIds = new Set<string>();
     project.wiki.pages.forEach((p, i) => {
       if (pageIds.has(p.id)) {

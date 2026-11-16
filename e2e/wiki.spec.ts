@@ -11,7 +11,7 @@ test("the narrative director drafts the wiki; the creator reviews, edits and ext
   const review = page.getByRole("button", { name: /Needs review/ });
 
   await page.getByRole("tab", { name: "Wiki" }).click();
-  await expect(page.getByTestId("chat-narrative").getByRole("heading")).toHaveText("Narrative director");
+  await expect(page.getByTestId("chat-narrative").getByRole("heading")).toHaveText("Director");
   await expect(page.getByRole("heading", { name: "Your game's wiki" })).toBeVisible();
 
   // The director drafts a skeleton from a pitch, as drafts.
@@ -26,7 +26,7 @@ test("the narrative director drafts the wiki; the creator reviews, edits and ext
 
   // The overview shows first; links navigate; missing links are flagged.
   await expect(article.getByRole("heading", { level: 1 })).toHaveText("Drowned Lamp");
-  await expect(article).toContainText("Draft by the narrative director");
+  await expect(article).toContainText("Draft by the director");
   await article.getByRole("button", { name: "the last lamplighter" }).click();
   await expect(article.getByRole("heading", { level: 1 })).toHaveText("The Lamplighter");
   await expect(article.getByRole("button", { name: "Wanderer →" })).toBeVisible();

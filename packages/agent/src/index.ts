@@ -9,4 +9,5 @@ export * from "./fakeModel.ts";
 export * from "./profile.ts";
 export * from "./narrative/summary.ts";
 export * from "./narrative/tools.ts";
+export * from "./narrative/progression.ts";
 export * from "./narrative/prompt.ts";

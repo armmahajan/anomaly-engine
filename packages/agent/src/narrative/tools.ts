@@ -2,10 +2,12 @@ import { z } from "zod";
 import { Id, WikiPage, WikiPageChanges, wikiGaps, wikiLinks, type ProjectSpec } from "@anomaly/core";
 import { projectSummaryTool, stageOperation, toolset, type Draft, type ToolSpec } from "../tools.ts";
 import { summarizeWiki } from "./summary.ts";
+import { progressionTools } from "./progression.ts";
 
 /**
- * The narrative director's tools. Everything it writes is a draft; canon
- * pages (the creator's) can only be changed when the creator asked for it.
+ * The director's wiki tools (progression tools are in ./progression.ts).
+ * Everything it writes is a draft; canon pages (the creator's) can only be
+ * changed when the creator asked for it.
  */
 
 /** Gaps on the page just written. Links to pages created later in the same turn are expected. */
@@ -102,4 +104,4 @@ const narrativeTools: ToolSpec[] = [
   },
 ];
 
-export const NARRATIVE_TOOLS = toolset(narrativeTools);
+export const NARRATIVE_TOOLS = toolset([...narrativeTools, ...progressionTools]);

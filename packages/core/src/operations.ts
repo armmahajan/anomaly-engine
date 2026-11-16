@@ -3,6 +3,7 @@ import { Character, EnemyStats, PlayerStats, ProjectSpec, type EnemyCharacter } 
 import { Id } from "./common.ts";
 import type { Transition } from "./behavior.ts";
 import { wikiOperations } from "./wiki/operations.ts";
+import { progressionOperations, withoutEnemy } from "./progression/operations.ts";
 
 /**
  * Project operations: pure functions (project, untrusted input) -> result.
@@ -325,6 +326,7 @@ export function deleteCharacter(project: ProjectSpec, input: unknown): Operation
     ...project,
     characters: project.characters.filter((c) => c.id !== characterId),
     sandbox: { ...project.sandbox, spawns: project.sandbox.spawns.filter((s) => s.characterId !== characterId) },
+    progression: withoutEnemy(project.progression, characterId),
   });
 }
 
@@ -417,6 +419,7 @@ const operations = {
   moveSpawn,
   removeSpawn,
   ...wikiOperations,
+  ...progressionOperations,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;
 
 export type OperationName = keyof typeof operations;
