@@ -50,6 +50,7 @@ use a different folder.
 packages/core   Project schema (Zod), operations, undo, API + runtime protocol types. Pure.
 packages/server Project store (disk, history, undo, locking) + token-protected HTTP API. Mounted in Vite.
 packages/agent  AI agent: tools generated from the core schemas, turn loop, fake model for tests.
+packages/art    Art pipeline: OpenRouter image/vision clients, prompts, concept -> rig -> animation stages, fakes.
 apps/studio     React workspace. session.ts mirrors the server's project, drives the runtime.
 game/           Godot project. Builds the scene from whatever spec it is sent.
 e2e/            Playwright acceptance test.
@@ -254,3 +255,49 @@ between regions (two-way or one-way, gated by abilities), **story beats**
 - **Backends:** `claudeCode.ts` (Agent SDK runs the tool loop) and `loop.ts`
   (our own loop over an OpenAI-style `ModelClient`, ready for OpenRouter).
   `FakeModel` replays scripted replies for tests.
+
+## Art
+
+The **Art** tab (select a character) makes its look with AI, in stages. The
+AI loops within a stage on its own, and you pick between stages (or tick
+**Auto** to take its picks all the way):
+
+1. **Concepts**: a brief becomes a 2x2 concept sheet (cheap raster sketches,
+   inspiration only). The AI marks its pick; click a design to choose it, or
+   ask for **Variations** of the chosen one. Left-facing designs are mirrored.
+2. **Rig**: a vision model traces the design as a *rig*: flat shapes
+   (blobs, ellipses, tapered strokes) on bones, pure data
+   (`packages/core/src/art/rig.ts`). It works in the concept's own pixels over
+   a grid; the pipeline renders the rig in the real runtime, lays it over the
+   concept, and lets the critic score and fix it (3 rounds, best kept).
+3. **Animation**: clips per slot (idle, walk, run, windup, attack, hurt,
+   jump, fall, fly) as keyframe tracks plus motion primitives (sway, bob,
+   shift, pulse, squash, shake) (`clip.ts`), reviewed once from filmstrips.
+   Enemies pick a clip from their behavior's action; ▶ previews a clip in
+   the arena.
+
+One generic GDScript renderer (`game/scripts/art/rig_view.gd`) draws every
+rig: ink outlines, shading, glow, hand-drawn line boil, bending between
+bones. The art direction (style words, palette, outline) is project-wide.
+
+- **Cost:** about $0.015 per character with the defaults
+  (`openai/gpt-image-1-mini` at low quality for concepts,
+  `anthropic/claude-haiku-5.5` for everything else). Each job has a budget
+  (`STUDIO_ART_BUDGET`, default $0.25) and the tab shows what was spent.
+- **Settings** (`.env`): `OPENROUTER_API_KEY` (required),
+  `STUDIO_ART_IMAGE_MODEL`, `STUDIO_ART_IMAGE_QUALITY`,
+  `STUDIO_ART_VISION_MODEL`, `STUDIO_ART_BUDGET`; `STUDIO_ART_BACKEND=fake`
+  uses scripted models (e2e).
+- **Storage:** images live in `<project>/files/` under content hashes; the
+  project only references them, so undo is exact. Each finished stage is one
+  AI change (one undo step). The job log is `<project>/art-jobs.jsonl`.
+- **API:** `POST /api/art/jobs {stage, characterId, brief?, feedback?, refine?, sheet?, cell?}`
+  (stages `concepts`, `choose`, `rig`, `animate`, `auto`), `GET /api/art`,
+  `POST /api/art/cancel`, `GET /api/files/<ref>`.
+- **Rendering** for the critic runs the web export in headless Chromium
+  (`packages/server/src/art/renderer.ts`); `node scripts/render-rig.ts out.png`
+  renders the example rig. The chat can recolor parts, write clips and
+  change the art direction (art operations in `packages/core/src/art/operations.ts`).
+- **Extending:** assets share the concept stage and differ by
+  representation (`asset.ts`): characters are rigs; props, tiles and biome
+  kits (backgrounds) are meant to plug in as new asset kinds.
