@@ -16,6 +16,9 @@ import {
   BudgetExceeded,
   chooseConcept,
   generateConcepts,
+  worldComposeStage,
+  worldKitStage,
+  worldRepaintStage,
   StageError,
   type ArtContext,
   type ArtRenderer,
@@ -50,6 +53,8 @@ type Result = { ok: true; jobId: string } | { ok: false; error: OperationError }
 
 interface Running {
   id: string;
+  /** The biome a world job works on (set once a new biome exists). */
+  biomeId?: string;
   request: ReturnType<typeof ArtJobRequest.parse>;
   startedAt: string;
   activity: ArtActivityEntry[];
@@ -114,6 +119,7 @@ export class ArtService {
         id: r.id,
         stage: r.request.stage,
         characterId: r.request.characterId,
+        biomeId: r.biomeId,
         startedAt: r.startedAt,
         cost: r.cost,
         activity: r.activity,
@@ -135,8 +141,13 @@ export class ArtService {
     if (!this.options.models) {
       return fail("unavailable", this.options.unavailableReason ?? "art generation is not configured (no model API key)");
     }
-    if (!this.store.getState().project.characters.some((c) => c.id === parsed.data.characterId)) {
-      return fail("not_found", `no character "${parsed.data.characterId}"`);
+    const project = this.store.getState().project;
+    const { characterId, biomeId } = parsed.data;
+    if (characterId !== undefined && !project.characters.some((c) => c.id === characterId)) {
+      return fail("not_found", `no character "${characterId}"`);
+    }
+    if (biomeId !== undefined && !project.art.assets.some((a) => a.id === biomeId && a.kind === "biome")) {
+      return fail("not_found", `no biome "${biomeId}"`);
     }
     const lock = await this.store.beginAiTurn();
     if (!lock.ok) return lock;
@@ -144,6 +155,7 @@ export class ArtService {
     const running: Running = {
       id: `art_${Date.now().toString(36)}`,
       request: parsed.data,
+      biomeId: parsed.data.biomeId,
       startedAt: new Date().toISOString(),
       activity: [],
       cost: 0,
@@ -191,11 +203,37 @@ export class ArtService {
     };
 
     const stages: { stage: Exclude<ArtStage, "auto">; run: () => Promise<StageResult> }[] = [];
-    const conceptStep = { stage: "concepts" as const, run: () => generateConcepts(ctx, request) };
-    const chooseStep = { stage: "choose" as const, run: () => chooseConcept(ctx, request) };
-    const rigStep = { stage: "rig" as const, run: () => buildRig(ctx, request) };
-    const animStep = { stage: "animate" as const, run: () => animate(ctx, request) };
+    const character = { ...request, characterId: request.characterId ?? "" };
+    const conceptStep = { stage: "concepts" as const, run: () => generateConcepts(ctx, character) };
+    const chooseStep = { stage: "choose" as const, run: () => chooseConcept(ctx, character) };
+    const rigStep = { stage: "rig" as const, run: () => buildRig(ctx, character) };
+    const animStep = { stage: "animate" as const, run: () => animate(ctx, character) };
     switch (request.stage) {
+      case "worldKit": {
+        const isNew = !request.biomeId;
+        stages.push({
+          stage: "worldKit",
+          run: async () => {
+            const result = await worldKitStage(ctx, { ...request, theme: request.brief });
+            running.biomeId = result.biomeId;
+            return result;
+          },
+        });
+        // A new biome gets its first room right away (one cheap call), so there is something to look at.
+        if (isNew) {
+          stages.push({
+            stage: "worldCompose",
+            run: () => worldComposeStage(ctx, { biomeId: running.biomeId!, dressArena: request.dressArena }),
+          });
+        }
+        break;
+      }
+      case "worldCompose":
+        stages.push({ stage: "worldCompose", run: () => worldComposeStage(ctx, { ...request, biomeId: request.biomeId! }) });
+        break;
+      case "worldRepaint":
+        stages.push({ stage: "worldRepaint", run: () => worldRepaintStage(ctx, { biomeId: request.biomeId!, part: request.part!, feedback: request.feedback }) });
+        break;
       case "concepts":
         stages.push(conceptStep);
         break;
@@ -210,7 +248,7 @@ export class ArtService {
         break;
       case "auto": {
         // Auto takes the AI's picks; feedback and sheet/cell choices apply to the first stage only.
-        const plain = { characterId: request.characterId };
+        const plain = { characterId: request.characterId ?? "" };
         stages.push(
           conceptStep,
           { stage: "choose", run: () => chooseConcept(ctx, plain) },
@@ -254,6 +292,7 @@ export class ArtService {
       id: running.id,
       stage: request.stage,
       characterId: request.characterId,
+      biomeId: running.biomeId,
       at: running.startedAt,
       outcome,
       cost: running.cost,
@@ -267,7 +306,7 @@ export class ArtService {
     this.totalCost += running.cost;
     this.jobs = [...this.jobs, summary].slice(-RECENT_JOBS);
     await appendFile(this.path, JSON.stringify(summary) + "\n");
-    console.info(`[art] ${request.stage} ${request.characterId}: ${outcome}, ~$${running.cost.toFixed(4)}${error ? ` (${error})` : ""}`);
+    console.info(`[art] ${request.stage} ${request.characterId ?? running.biomeId ?? "new biome"}: ${outcome}, ~$${running.cost.toFixed(4)}${error ? ` (${error})` : ""}`);
     this.emit();
   }
 

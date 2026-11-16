@@ -18,6 +18,8 @@ export interface ImageRequest {
   aspectRatio?: string;
   /** Ask for a transparent background (models that support it). */
   transparent?: boolean;
+  /** Override the model's quality setting for this image (e.g. "low", "medium"). */
+  quality?: string;
   signal?: AbortSignal;
 }
 
@@ -140,6 +142,7 @@ export class OpenRouterImageModel implements ImageModel {
       aspect_ratio: request.aspectRatio ?? "1:1",
       ...this.extra,
       ...(request.transparent ? { background: "transparent", output_format: "png" } : {}),
+      ...(request.quality && "quality" in this.extra ? { quality: request.quality } : {}),
       ...(request.references?.length
         ? { input_references: request.references.map((r) => ({ type: "image_url", image_url: { url: dataUrl(r) } })) }
         : {}),

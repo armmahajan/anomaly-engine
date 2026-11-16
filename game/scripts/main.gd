@@ -137,8 +137,6 @@ func handle_message(message: Dictionary) -> void:
 			})
 		"renderRig", "renderWorld":
 			_render_service.render(message, _send)
-		"previewWorld":
-			_preview_world(message)
 		"stage":
 			var stage = message.get("stage")
 			if typeof(stage) != TYPE_DICTIONARY:
@@ -375,49 +373,6 @@ func _apply_preview_clips() -> void:
 	for child in _world.get_children():
 		if child is CharacterBody2D and child.has_method("set_preview_clip"):
 			child.set_preview_clip(_preview_clips.get(child.character_id, "") if _mode == "edit" else "")
-
-
-# --- world preview (prototype) ------------------------------------------------
-
-var _world_preview: Node2D = null
-var _world_camera: Camera2D = null
-var _world_scene: Dictionary = {}
-var _world_time := 0.0
-
-
-## Show a generated world scene with a slow camera pan (studio world preview page).
-func _preview_world(message: Dictionary) -> void:
-	var scene = message.get("scene")
-	if typeof(scene) != TYPE_DICTIONARY:
-		_error("invalid_world", "scene must be an object")
-		return
-	if _world != null:
-		_world.visible = false
-	if _world_preview != null:
-		_world_preview.queue_free()
-		_world_camera.queue_free()
-	_world_scene = scene
-	_world_preview = WorldView.new()
-	add_child(_world_preview)
-	_world_camera = Camera2D.new()
-	add_child(_world_camera)
-	_world_camera.make_current()
-	var view := get_viewport_rect().size
-	_world_preview.build(scene, WorldView.textures_from(message.get("images", {})), view / WorldView.fit_zoom(scene, view))
-	_world_time = 0.0
-	_send({"type": "loaded", "revision": -1})
-
-
-func _process(delta: float) -> void:
-	if _world_preview == null:
-		return
-	_world_time += delta
-	# Ease back and forth across the room, ~40s per sweep.
-	var t := 0.5 - 0.5 * cos(_world_time * TAU / 40.0)
-	var view := get_viewport_rect().size
-	var half := view.x / WorldView.fit_zoom(_world_scene, view) / 2.0
-	var x := lerpf(half, float(_world_scene.get("width", 2400)) - half, t)
-	WorldView.aim(_world_camera, _world_preview, _world_scene, view, x)
 
 
 # --- stages (studio modes) -------------------------------------------------------

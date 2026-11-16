@@ -76,7 +76,9 @@ export class FakeImageModel implements ImageModel {
 
   async generate(request: ImageRequest): Promise<GeneratedImage> {
     this.requests.push(request);
-    return { image: this.image, ext: "png", usage: { cost: 0.002, promptTokens: 100, completionTokens: 272 }, model: this.id };
+    // Each request gets different pixels (like a real model), unless a fixed image was given.
+    const image = this.image === TINY_PNG ? solidPng(64, 64, [this.requests.length % 256, 120, 140]) : this.image;
+    return { image, ext: "png", usage: { cost: 0.002, promptTokens: 100, completionTokens: 272 }, model: this.id };
   }
 }
 
@@ -114,7 +116,9 @@ export class FakeVisionModel implements VisionModel {
     } else if (prompt.includes("Compose one room")) {
       reply = {
         palette: { ambient: "#8090a0", fog: "#3a5068", light: "#ffd9a0", shadow: "#05070a" },
-        platforms: [{ x: 0, y: 610, width: 2880, height: 110 }, { x: 600, y: 470, width: 220, height: 30 }],
+        ...(prompt.includes("Also design the walkable layout")
+          ? { platforms: [{ x: 0, y: 610, width: 1600, height: 110 }, { x: 600, y: 470, width: 220, height: 30 }] }
+          : {}),
         placements: [
           { piece: "s0_tall_pillar", layer: "mid", x: 500, y: 610, scale: 1.5, flip: false },
           { piece: "s1_root_curtain", layer: "front", x: 900, y: 0, scale: 1, flip: true },

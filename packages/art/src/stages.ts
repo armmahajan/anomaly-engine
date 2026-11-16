@@ -45,6 +45,10 @@ export interface FileStore {
 export interface ArtRenderer {
   renderRig(request: Omit<RenderRigRequest, "requestId">): Promise<{ png: Buffer; warnings: string[] }>;
   crop(image: Buffer, region: { x: number; y: number; width: number; height: number }, maxSize: number): Promise<Buffer>;
+  /** World kits: make an image tile left-to-right (narrower by `blend`). */
+  tileableX(image: Buffer, blend?: number): Promise<Buffer>;
+  /** World kits: cut a sheet into cells trimmed to their visible pixels (empty cells dropped). */
+  sliceGrid(image: Buffer, cols: number, rows: number, maxSize?: number): Promise<{ png: Buffer; width: number; height: number; cell: number }[]>;
   /** Stack images (stretched to width x height) over a background, optionally with a labelled pixel grid. PNG. */
   compose(request: {
     width: number;

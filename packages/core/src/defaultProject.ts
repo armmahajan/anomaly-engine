@@ -103,6 +103,7 @@ export function createDefaultProject(): ProjectSpec {
         { id: "crawler_1", characterId: "crawler", x: 1150, y: 660 },
         { id: "charger_1", characterId: "charger", x: 640, y: 660 },
       ],
+      dressing: null,
     },
     wiki: defaultWiki(),
     progression: defaultProgression(),

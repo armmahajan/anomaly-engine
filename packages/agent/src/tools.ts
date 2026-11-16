@@ -21,6 +21,13 @@ import {
   AssignAppearanceInput,
   UpdatePartInput,
   SetStateClipInput,
+  UpdateRoomInput,
+  DeleteRoomInput,
+  UpdatePlacementInput,
+  AddPlacementInput,
+  RemovePlacementInput,
+  SetDressingInput,
+  ApplyRoomLayoutInput,
   Clip,
   type OperationCall,
   type OperationName,
@@ -65,7 +72,7 @@ export interface ToolSpec {
 }
 
 /** Art operations only the art pipeline runs (concepts, whole rigs); the build assistant uses art jobs instead. */
-export const PIPELINE_ONLY_OPERATIONS = ["createAsset", "addConcept", "chooseConcept", "setRig"] as const;
+export const PIPELINE_ONLY_OPERATIONS = ["createAsset", "addConcept", "chooseConcept", "setRig", "setBiomeKit", "addRoom"] as const;
 
 /** The build assistant's write tools: every operation except the wiki's and progression's (the director's) and pipeline-only art ones. */
 type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOperationName | (typeof PIPELINE_ONLY_OPERATIONS)[number]>;
@@ -93,6 +100,14 @@ const writeDescriptions: Record<BuildOperation, string> = {
   setClip:
     "Create, replace or delete (clip: null) an animation clip on a character asset. Slot names (idle, walk, run, windup, attack, hurt, jump, fall, fly) are used automatically.",
   setStateClip: "Make a behavior state play a specific clip instead of its automatic slot (clipId null = automatic).",
+  updateRoom:
+    "Change a world room's name or atmosphere: palette (ambient darkness, fog, light, shadow colors), fog density per layer, dust, light shafts or extra lights.",
+  deleteRoom: "Delete a world room (the arena goes back to plain if it was dressed with it).",
+  updatePlacement: "Move, re-layer (far/mid/back/play/front), scale or flip one placed piece in a world room, by placement id.",
+  addPlacement: "Place a biome kit piece in a world room (x = room x it is seen at; y = its bottom, or its top for hanging pieces).",
+  removePlacement: "Remove one placed piece from a world room, by placement id.",
+  setDressing: "Dress the arena with a biome room (art only; collision stays the arena's platforms), or biomeId null for the plain arena.",
+  applyRoomLayout: "Accept a room's suggested platform layout: the arena's platforms become it and the arena is dressed with that room.",
 };
 
 /** Precise parameter schemas for the model; the operations themselves accept `unknown` and validate. */
@@ -112,8 +127,25 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   deleteAsset: AssetRef,
   assignAppearance: AssignAppearanceInput,
   updatePart: UpdatePartInput,
-  setClip: z.strictObject({ assetId: Id, clipId: Id, clip: Clip.nullable() }),
+  // A compact spec instead of the full Clip schema keeps every chat turn cheaper; the operation validates fully.
+  setClip: z.strictObject({
+    assetId: Id,
+    clipId: Id,
+    clip: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .describe(
+        'null deletes. Else {"duration": s, "loop": bool, "tracks": [{"bone", "property": "rotate"|"x"|"y"|"scaleX"|"scaleY", "keys": [[t 0..1, value], ...], "ease": "smooth"|"linear"|"step"}], "motions": [{"type": "sway"|"bob"|"shift"|"pulse", "bone", "degrees" (sway) or "amount", "cycles": int, "phase": 0..1} | {"type": "squash", "bone", "amount", "at", "width"} | {"type": "shake", "bone", "amount"}], "visibility": [{"part", "keys": [[t, bool]]}]}. Values are offsets from rest: degrees clockwise, px (y down), scale multipliers. Use getCharacter / the asset to see bone ids.',
+      ),
+  }),
   setStateClip: SetStateClipInput,
+  updateRoom: UpdateRoomInput,
+  deleteRoom: DeleteRoomInput,
+  updatePlacement: UpdatePlacementInput,
+  addPlacement: AddPlacementInput,
+  removePlacement: RemovePlacementInput,
+  setDressing: SetDressingInput,
+  applyRoomLayout: ApplyRoomLayoutInput,
 };
 
 /** Apply an operation to the draft and stage it for the end-of-turn commit. */

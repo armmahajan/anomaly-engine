@@ -84,7 +84,7 @@ export const CreateAssetInput = z.strictObject({
   asset: z.strictObject({
     id: Id,
     name: z.string(),
-    kind: z.enum(["character"]),
+    kind: z.enum(["character", "biome"]),
     brief: z.string(),
   }),
   assignTo: Id.optional().describe("Character id to draw with this asset right away."),
@@ -134,9 +134,11 @@ export function deleteAsset(project: ProjectSpec, input: unknown): OperationResu
     const { appearance: _removed, ...rest } = c;
     return rest;
   });
+  const dressing = project.sandbox.dressing?.biome === p.data.assetId ? null : project.sandbox.dressing;
   return commit({
     ...project,
     characters,
+    sandbox: { ...project.sandbox, dressing },
     art: { ...project.art, assets: project.art.assets.filter((a) => a.id !== p.data.assetId) },
   });
 }

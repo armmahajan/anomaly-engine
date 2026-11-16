@@ -5,6 +5,7 @@ import { defaultWiki, Wiki } from "./wiki/wiki.ts";
 import { defaultProgression, Progression, progressionIssues } from "./progression/progression.ts";
 import { AbilityTuning, MovementAbility } from "./movement/params.ts";
 import { ArtSection, defaultArtSection } from "./art/asset.ts";
+import { Dressing } from "./art/world.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -113,6 +114,8 @@ export const Sandbox = z.strictObject({
   /** Movement abilities the player has when playtesting the arena. */
   playerAbilities: z.array(MovementAbility).max(5).default([]),
   spawns: z.array(Spawn).max(200),
+  /** Biome room drawn over the arena (art only; collision stays these platforms). */
+  dressing: Dressing.nullable().default(null),
 });
 
 export const ProjectSpec = z
@@ -141,6 +144,15 @@ export const ProjectSpec = z
       }
       assetIds.add(a.id);
     });
+    const dressing = project.sandbox.dressing;
+    if (dressing) {
+      const biome = project.art.assets.find((a) => a.id === dressing.biome);
+      if (!biome || biome.kind !== "biome") {
+        ctx.addIssue({ code: "custom", path: ["sandbox", "dressing", "biome"], message: `unknown biome "${dressing.biome}"` });
+      } else if (!biome.kit || !biome.rooms.some((r) => r.id === dressing.room)) {
+        ctx.addIssue({ code: "custom", path: ["sandbox", "dressing", "room"], message: `biome "${dressing.biome}" has no room "${dressing.room}"` });
+      }
+    }
     project.characters.forEach((c, i) => {
       if (c.appearance !== undefined && !project.art.assets.some((a) => a.id === c.appearance && a.kind === "character")) {
         ctx.addIssue({

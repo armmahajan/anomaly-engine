@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { FileRef } from "@anomaly/core";
@@ -25,7 +25,8 @@ export class FileStore {
       // not stored yet
     }
     await mkdir(this.dir, { recursive: true });
-    const tmp = `${path}.${process.pid}.tmp`;
+    // Unique per write: the same bytes can be stored twice at once (parallel jobs, identical images).
+    const tmp = `${path}.${randomUUID()}.tmp`;
     await writeFile(tmp, data);
     await rename(tmp, path);
     return ref;

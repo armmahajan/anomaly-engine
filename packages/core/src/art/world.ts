@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
-import { FileRef } from "./asset.ts";
+import { FileRef } from "./fileRef.ts";
 
 /**
  * World art (prototype): a *biome kit* (one painted backdrop, sliced piece
@@ -64,6 +64,8 @@ export const WorldScene = z.strictObject({
   placements: z
     .array(
       z.strictObject({
+        /** Stable id for editing (rooms assign them). */
+        id: Id.optional(),
         piece: Id,
         layer: WorldLayer,
         /** Room x the piece is seen at (its centre). */
@@ -94,3 +96,39 @@ export const WorldScene = z.strictObject({
   dust: z.strictObject({ color: Color, amount: z.number().int().min(0).max(400) }),
 });
 export type WorldScene = z.infer<typeof WorldScene>;
+
+export const PlatformRect = z.strictObject({ x: X, y: Y, width: z.number().min(8).max(20_000), height: z.number().min(8).max(4000) });
+export type PlatformRect = z.infer<typeof PlatformRect>;
+
+/** A biome's paid-for images: a seamless backdrop, a ground texture and sliced pieces. */
+export const BiomeKit = z.strictObject({
+  backdrop: FileRef,
+  ground: FileRef,
+  pieces: z.array(WorldPiece).max(64),
+  /** draft: cheapest images; final: better piece sheets. */
+  quality: z.enum(["draft", "final"]).default("draft"),
+});
+export type BiomeKit = z.infer<typeof BiomeKit>;
+
+/** How a room uses its biome's kit: everything except the layout, kit and size. */
+export const RoomComposition = WorldScene.pick({ palette: true, placements: true, lights: true, fog: true, rays: true, dust: true });
+export type RoomComposition = z.infer<typeof RoomComposition>;
+
+/**
+ * One composed room. It dresses the arena's layout; `layout` is a suggested
+ * platform layout (from "suggest layout") that the creator can accept.
+ */
+export const Room = z.strictObject({
+  id: Id,
+  name: z.string().min(1).max(80),
+  composition: RoomComposition,
+  layout: z.array(PlatformRect).max(64).nullable().default(null),
+  /** USD spent composing it. */
+  cost: z.number().min(0).default(0),
+  at: z.string(),
+});
+export type Room = z.infer<typeof Room>;
+
+/** The arena dressed with a biome room. */
+export const Dressing = z.strictObject({ biome: Id, room: Id });
+export type Dressing = z.infer<typeof Dressing>;

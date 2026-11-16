@@ -2,6 +2,8 @@ import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import { Clip } from "./clip.ts";
 import { Rig } from "./rig.ts";
+import { FileRef } from "./fileRef.ts";
+import { BiomeKit, Room } from "./world.ts";
 
 /**
  * Assets: everything visual the AI makes. Every asset kind shares the
@@ -17,11 +19,7 @@ import { Rig } from "./rig.ts";
  * stays small JSON.
  */
 
-export const FileRef = z
-  .string()
-  .regex(/^[0-9a-f]{16,64}\.(png|jpg|webp)$/, "file refs are <hash>.<png|jpg|webp>")
-  .describe("A file in the project's asset store.");
-export type FileRef = z.infer<typeof FileRef>;
+export { FileRef };
 
 /** One generated concept sheet: a 2x2 grid of design variations. */
 export const ConceptSheet = z.strictObject({
@@ -82,7 +80,19 @@ export const CharacterAsset = z.strictObject({
 });
 export type CharacterAsset = z.infer<typeof CharacterAsset>;
 
-export const Asset = z.discriminatedUnion("kind", [CharacterAsset]);
+/**
+ * A biome: one place's art kit (backdrop, piece sheets, ground) and the rooms
+ * composed from it. `brief` is the theme. Rooms dress a layout (the arena).
+ */
+export const BiomeAsset = z.strictObject({
+  ...assetBase,
+  kind: z.literal("biome"),
+  kit: BiomeKit.nullable().default(null),
+  rooms: z.array(Room).max(32).default([]),
+});
+export type BiomeAsset = z.infer<typeof BiomeAsset>;
+
+export const Asset = z.discriminatedUnion("kind", [CharacterAsset, BiomeAsset]);
 export type Asset = z.infer<typeof Asset>;
 export type AssetKind = Asset["kind"];
 

@@ -142,3 +142,34 @@ describe("art jobs over HTTP", () => {
     });
   });
 });
+
+describe("world jobs over HTTP", () => {
+  it("a new biome gets its kit and a first room (two AI changes), and can dress the arena", async () => {
+    expect(await post("/api/art/jobs", { stage: "worldKit", brief: "a fungal cathedral", quality: "draft", dressArena: true })).toMatchObject({ ok: true });
+    await art.idle();
+    const job = (await get<ArtState>("/api/art")).jobs.at(-1)!;
+    expect(job).toMatchObject({ outcome: "committed", stage: "worldKit", biomeId: "a_fungal_cathedral" });
+    expect(job.revisions).toHaveLength(2);
+    const { project } = await get<ProjectState>("/api/project");
+    const biome = project.art.assets.find((a) => a.kind === "biome")!;
+    expect(biome.kind === "biome" && biome.kit?.pieces.length).toBeGreaterThan(0);
+    expect(biome.kind === "biome" && biome.rooms).toHaveLength(1);
+    expect(project.sandbox.dressing).toEqual({ biome: biome.id, room: biome.kind === "biome" ? biome.rooms[0]!.id : "" });
+
+    // More rooms are one cheap call each; a repaint redoes one part of the kit.
+    expect(await post("/api/art/jobs", { stage: "worldCompose", biomeId: biome.id, newLayout: true })).toMatchObject({ ok: true });
+    await art.idle();
+    expect(await post("/api/art/jobs", { stage: "worldRepaint", biomeId: biome.id, part: "backdrop" })).toMatchObject({ ok: true });
+    await art.idle();
+    const after = (await get<ProjectState>("/api/project")).project.art.assets.find((a) => a.id === biome.id)!;
+    expect(after.kind === "biome" && after.rooms).toHaveLength(2);
+    expect(after.kind === "biome" && biome.kind === "biome" && after.kit!.backdrop).not.toBe(biome.kit!.backdrop);
+  });
+
+  it("validates world requests", async () => {
+    expect((await post("/api/art/jobs", { stage: "worldCompose" })).error?.code).toBe("invalid_request");
+    expect((await post("/api/art/jobs", { stage: "worldKit" })).error?.code).toBe("invalid_request");
+    expect((await post("/api/art/jobs", { stage: "worldCompose", biomeId: "nope" })).error?.code).toBe("not_found");
+    expect((await post("/api/art/jobs", { stage: "rig" })).error?.code).toBe("invalid_request");
+  });
+});

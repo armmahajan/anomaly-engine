@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Author } from "./history.ts";
 import type { OperationError } from "./operations.ts";
 import { ProjectSpec } from "./schema.ts";
-import { FileRef } from "./art/asset.ts";
+import { FileRef } from "./art/fileRef.ts";
 import { Id } from "./common.ts";
 
 /**
@@ -131,19 +131,43 @@ export type ChatEvent = z.infer<typeof ChatEvent>;
  * animate:  write the clips the character needs
  * auto:     all of the above in order, taking the AI's recommendations
  */
-export const ArtStage = z.enum(["concepts", "choose", "rig", "animate", "auto"]);
+export const ArtStage = z.enum(["concepts", "choose", "rig", "animate", "auto", "worldKit", "worldCompose", "worldRepaint"]);
 export type ArtStage = z.infer<typeof ArtStage>;
 
-export const ArtJobRequest = z.strictObject({
-  stage: ArtStage,
-  characterId: Id,
-  brief: z.string().trim().max(2000).optional(),
+/** Stages that work on a biome (the rest work on a character). */
+export const WORLD_STAGES: readonly ArtStage[] = ["worldKit", "worldCompose", "worldRepaint"];
+
+/**
+ * Character stages need `characterId`. World stages:
+ *   worldKit:     paint a biome's kit (new biome from `brief` = theme, or `biomeId` to repaint all of it); `quality`
+ *   worldCompose: compose a room for `biomeId` around the arena (`newLayout` also suggests platforms; `dressArena`)
+ *   worldRepaint: repaint one `part` of `biomeId`'s kit
+ */
+export const ArtJobRequest = z
+  .strictObject({
+    stage: ArtStage,
+    characterId: Id.optional(),
+    biomeId: Id.optional(),
+    /** New biome / room name. */
+    name: z.string().trim().max(80).optional(),
+    quality: z.enum(["draft", "final"]).optional(),
+    newLayout: z.boolean().optional(),
+    dressArena: z.boolean().optional(),
+    part: z.enum(["backdrop", "structures", "props", "ground"]).optional(),
+    brief: z.string().trim().max(2000).optional(),
   feedback: z.string().trim().max(1000).optional(),
   /** concepts: variations on the chosen design (it is sent as a reference image). */
   refine: z.boolean().optional(),
   sheet: z.number().int().min(0).optional(),
   cell: z.number().int().min(0).max(3).optional(),
-});
+  })
+  .superRefine((r, ctx) => {
+    const world = WORLD_STAGES.includes(r.stage);
+    if (!world && !r.characterId) ctx.addIssue({ code: "custom", path: ["characterId"], message: `${r.stage} needs a characterId` });
+    if (world && r.stage !== "worldKit" && !r.biomeId) ctx.addIssue({ code: "custom", path: ["biomeId"], message: `${r.stage} needs a biomeId` });
+    if (r.stage === "worldKit" && !r.biomeId && !r.brief) ctx.addIssue({ code: "custom", path: ["brief"], message: "a new biome needs a brief (its theme)" });
+    if (r.stage === "worldRepaint" && !r.part) ctx.addIssue({ code: "custom", path: ["part"], message: "worldRepaint needs a part" });
+  });
 export type ArtJobRequest = z.input<typeof ArtJobRequest>;
 
 export const ArtActivityEntry = z.object({
@@ -159,7 +183,9 @@ export const ArtJobOutcome = z.enum(["committed", "failed", "cancelled", "over_b
 export const ArtJobSummary = z.object({
   id: z.string(),
   stage: ArtStage,
-  characterId: z.string(),
+  /** The character or biome the job worked on. */
+  characterId: z.string().optional(),
+  biomeId: z.string().optional(),
   at: z.string(),
   outcome: ArtJobOutcome,
   /** USD. */
@@ -182,7 +208,8 @@ export const ArtState = z.object({
     .object({
       id: z.string(),
       stage: ArtStage,
-      characterId: z.string(),
+      characterId: z.string().optional(),
+      biomeId: z.string().optional(),
       startedAt: z.string(),
       cost: z.number(),
       activity: z.array(ArtActivityEntry),
