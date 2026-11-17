@@ -81,17 +81,17 @@ void fragment() {
 
 ## A soft sample of the texture: `blur` image px wide (a ring of taps on a coarser mip), alpha-weighted.
 const SOFT_SAMPLE := """
-vec4 soft_sample(sampler2D tex, vec2 uv, vec2 texel, float blur) {
-	if (blur < 0.05) {
+vec4 soft_sample(sampler2D tex, vec2 uv, vec2 texel, float radius) {
+	if (radius < 0.05) {
 		return texture(tex, uv);
 	}
-	float lod = log2(max(blur, 1.0));
+	float lod = log2(max(radius, 1.0));
 	vec4 c = textureLod(tex, uv, lod);
 	vec3 rgb = c.rgb * c.a * 0.2;
 	float a = c.a * 0.2;
 	for (int i = 0; i < 8; i++) {
 		float t = float(i) * 0.785398 + 0.39;
-		vec4 s = textureLod(tex, uv + vec2(cos(t), sin(t)) * texel * blur, lod);
+		vec4 s = textureLod(tex, uv + vec2(cos(t), sin(t)) * texel * radius, lod);
 		rgb += s.rgb * s.a * 0.1;
 		a += s.a * 0.1;
 	}

@@ -29,6 +29,7 @@ export type Snapshot = {
   mapOpen: boolean;
   healthBars: string[];
   props: { id: string; visible: boolean; solid: boolean }[];
+  camera: { x: number; y: number; zoom: number } | null;
 };
 
 export const runtimeState = (page: Page) =>
