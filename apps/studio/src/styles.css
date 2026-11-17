@@ -1808,3 +1808,12 @@ body.resizing iframe {
 
 /* Over the room painter: the props overlay (PropsOverlay.tsx) covers the room exactly. */
 .props-overlay { position: absolute; }
+
+/* Modals and map */
+.modal-list { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.modal-chip.selected { border-color: var(--accent); color: var(--accent); }
+.modal-editor { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.modal-editor-head { display: flex; align-items: center; gap: 6px; }
+.modal-editor-head code { flex: 1; }
+.modal-editor textarea { width: 100%; resize: vertical; font: inherit; }
+.modal-image { display: block; max-width: 100%; max-height: 120px; margin-top: 4px; border-radius: 4px; }
