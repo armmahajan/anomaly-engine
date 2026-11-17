@@ -55,6 +55,14 @@ export const EnemyStats = z.strictObject({
   armor: z.number().min(0).max(1).optional().describe("0..1 (default 0): how much it resists being pushed back by sword hits; 1 = never budges."),
 });
 
+/** Seconds an enemy's body stays after it dies (game/scripts/enemy.gd uses the same defaults). */
+export const DEATH_DEFAULTS = { linger: 0.6, fade: 0.4 } as const;
+
+export const EnemyDeath = z.strictObject({
+  linger: z.number().min(0).max(5).default(DEATH_DEFAULTS.linger).describe("Seconds the body stays still after its death clip (or the fallback pop) ends."),
+  fade: z.number().min(0.05).max(3).default(DEATH_DEFAULTS.fade).describe("Seconds it takes to fade out and be gone."),
+});
+
 const characterBase = {
   id: Id.describe("Unique lowercase snake_case id, e.g. \"stone_beetle\"."),
   name: z.string().min(1).max(80).describe("Display name."),
@@ -80,6 +88,12 @@ export const EnemyCharacter = z.strictObject({
     .describe("ground: falls with gravity and walks. flying: ignores gravity; chase, retreat, returnHome and charge(towardPlayer) move in 2D."),
   stats: EnemyStats,
   behavior: Behavior,
+  death: EnemyDeath.optional().describe(
+    `What is left when it dies: it stops hurting and acting at once, plays its death clip (or a pop, flash and shrink without one), stays \`linger\` s, then fades over \`fade\` s. Default linger ${DEATH_DEFAULTS.linger} s, fade ${DEATH_DEFAULTS.fade} s.`,
+  ),
+  variantOf: Id.optional().describe(
+    "A tougher copy of another enemy for deeper regions (made by the difficulty stage): same look and behavior, scaled stats. Edit the original; the variants follow when difficulty runs again.",
+  ),
 });
 
 /** A character *type*. Every spawn of it shares these values. */
@@ -165,6 +179,14 @@ export const ProjectSpec = z
         ctx.addIssue({ code: "custom", path: ["characters", i, "id"], message: `duplicate character id "${c.id}"` });
       }
       ids.add(c.id);
+    });
+
+    project.characters.forEach((c, i) => {
+      if (c.kind !== "enemy" || c.variantOf === undefined) return;
+      const base = project.characters.find((o) => o.id === c.variantOf);
+      if (!base || base.kind !== "enemy" || base.variantOf !== undefined || base.id === c.id) {
+        ctx.addIssue({ code: "custom", path: ["characters", i, "variantOf"], message: `"${c.variantOf}" is not an enemy character that isn't itself a variant` });
+      }
     });
 
     const players = project.characters.filter((c) => c.kind === "player").length;

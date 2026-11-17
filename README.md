@@ -536,6 +536,28 @@ them, and a "phase" is a set of states entered through `healthBelow`.
   is wide, summons that summon (caps multiply) or name no enemy, and contact damage
   with knockback 0.
 - **Armor** (enemy stat, 0..1, default 0) resists the push of sword hits.
+- **Deaths** (`enemy.gd`): the killing hit makes it harmless at once (no touch, no
+  attacks, no collision; `dead`, so the room, the HUD and the sword are done with
+  it) and fires `killed` → enemyKilled / roomCleared in that same frame, as before.
+  The body is thrown up and along the push, falls (flyers too) and plays its
+  `death` clip, held on its last frame; without one (no art, or an older rig) a
+  fallback: a white flash, a pop, a collapse that flattens and darkens it, and a
+  particle burst (`fx.gd` `burst`). Then it lingers and fades (the character's
+  optional `death {linger, fade}`, default 0.6 s and 0.4 s) and is gone (hidden, still
+  listed with health 0). The body runs on room time, so hit-stops freeze it; a
+  rebuilt room has no corpses. `game/test/death.test.ts`.
+- **Difficulty by region** (`packages/core/src/combat/difficulty.ts`, the Architect's
+  cast stage): a region's depth is its place in the progression (spheres, then
+  connections from the start; the start is 0). An enemy as written is its depth-0
+  self; where it spawns deeper, those spawns point at a variant `<id>_d<depth>`
+  (`variantOf` the original: same look, art and behavior) with health ×(1 + 0.3·depth)
+  rounded up (at most ×2.5), contact and attack damage ×(1 + 0.3·depth) rounded (at
+  most ×2), and its own movement speed ×(1 + 0.05·depth) (at most ×1.2); windups,
+  reach, knockback and projectiles stay, so `lintCombat` has nothing new to say.
+  Summoned enemies follow their summoner's depth; enemyKilled handlers naming the
+  original follow its variants. Variants are derived: each run folds them back first,
+  so it is idempotent and edits to the original carry over; art drawn for the
+  original is drawn for its variants; pinned rooms are left alone.
 - **Health bars:** any spawn can show one (`spawn.healthBar {title}`,
   `setSpawnHealthBar`): a titled bar at the top of the screen while it lives in the
   current room, stacked in spawn order (runtime state `healthBars`).
@@ -587,7 +609,8 @@ its picks all the way):
    slider draws the design behind the live rig, aligned with the rig's frame;
    **Bones** shows the skeleton.
 3. **Animation**: exactly the clips the character's characters need (core
-   `wantedClipSlots`: idle, walk, run, windup, attack, hurt, jump, fall, fly, and
+   `wantedClipSlots`: idle, walk, run, windup, attack, hurt, death (every enemy;
+   plays once and holds), jump, fall, fly, and
    for attacks a clip per phase: strike / shoot / leap / slam / cast, then
    recover), as keyframe tracks plus motion primitives (sway, bob, shift, pulse,
    squash, shake) (`clip.ts`), reviewed once from filmstrips. Pick a clip to play

@@ -68,6 +68,53 @@ func slow_motion(scale: float, seconds: float) -> void:
 	_slow_budget = 0.0
 
 
+## A one-off burst of `count` particles flying out from `at` (in `parent`'s space) in `color`,
+## e.g. an enemy's death. It lives under `parent` (the room), so a hit-stop freezes it and a
+## rebuilt room drops it; `seed` makes it repeatable.
+func burst(parent: Node, at: Vector2, color: Color, count := 14, seed := 0) -> void:
+	if parent == null:
+		return
+	var node := Burst.new()
+	node.position = at
+	node.setup(color, count, seed)
+	parent.add_child(node)
+
+
+class Burst extends Node2D:
+	const LIFE := 0.5
+	const GRAVITY := 900.0
+	var _color := Color.WHITE
+	var _parts: Array = []  # [position, velocity, size, life]
+	var _time := 0.0
+
+	func setup(color: Color, count: int, seed: int) -> void:
+		_color = color.lightened(0.25)
+		z_index = 5
+		var rng := RandomNumberGenerator.new()
+		rng.seed = seed
+		for i in count:
+			var angle := TAU * (float(i) + rng.randf_range(-0.3, 0.3)) / float(maxi(count, 1))
+			var speed := rng.randf_range(120.0, 320.0)
+			_parts.append([Vector2.ZERO, Vector2(cos(angle), sin(angle) - 0.4) * speed, rng.randf_range(2.5, 5.0), rng.randf_range(0.6, 1.0) * LIFE])
+
+	func _physics_process(delta: float) -> void:
+		_time += delta
+		if _time >= LIFE:
+			queue_free()
+			return
+		for p in _parts:
+			p[1] = p[1] + Vector2(0.0, GRAVITY * delta)
+			p[0] = p[0] + p[1] * delta
+		queue_redraw()
+
+	func _draw() -> void:
+		for p in _parts:
+			var left: float = 1.0 - _time / p[3]
+			if left > 0.0:
+				var s: float = p[2] * (0.5 + 0.5 * left)
+				draw_rect(Rect2(p[0] - Vector2(s, s) / 2.0, Vector2(s, s)), Color(_color, left))
+
+
 ## Stop / a new run: end any shake, flash or slow motion.
 func reset() -> void:
 	_shake_left = 0.0

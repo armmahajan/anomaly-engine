@@ -136,5 +136,20 @@ export function exampleClips(): Record<string, Clip> {
       motions: [...legs(32, 3), { type: "bob", bone: "body", amount: 1.5, cycles: 6, phase: 0 }],
       visibility: [],
     },
+    // Plays once and holds: rears up from the blow, slumps, legs curl, the eye goes dark.
+    death: {
+      duration: 0.7,
+      loop: false,
+      tracks: [
+        { bone: "body", property: "rotate", keys: [[0, 0], [0.2, -16], [0.65, 18], [1, 14]], ease: "smooth" },
+        { bone: "body", property: "y", keys: [[0, 0], [0.2, -6], [0.6, 5], [1, 4]], ease: "smooth" },
+        { bone: "head", property: "rotate", keys: [[0, 0], [0.3, -10], [1, 32]], ease: "smooth" },
+        { bone: "leg_front", property: "rotate", keys: [[0, 0], [1, -70]], ease: "smooth" },
+        { bone: "leg_mid", property: "rotate", keys: [[0, 0], [1, -60]], ease: "smooth" },
+        { bone: "leg_back", property: "rotate", keys: [[0, 0], [1, -50]], ease: "smooth" },
+      ],
+      motions: [{ type: "squash", bone: "body", amount: 0.2, at: 0.62, width: 0.3 }],
+      visibility: [{ part: "eye", keys: [[0, true], [0.55, false]] }],
+    },
   };
 }

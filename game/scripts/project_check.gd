@@ -123,6 +123,9 @@ static func _check_character(c: Variant) -> String:
 				return "enemy '%s' needs numeric knockback, health and contactDamage" % c.id
 			if c.stats.has("armor") and not _is_num(c.stats, "armor"):
 				return "enemy '%s' armor must be a number" % c.id
+			var death = c.get("death")
+			if death != null and (typeof(death) != TYPE_DICTIONARY or not _all_num(death, death.keys())):
+				return "enemy '%s' death needs numeric linger and fade" % c.id
 			if not c.get("movement", "ground") in ["ground", "flying"]:
 				return "enemy '%s' has an unknown movement type" % c.id
 			return _check_behavior(c.id, c.get("behavior"))

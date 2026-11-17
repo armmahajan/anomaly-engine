@@ -276,7 +276,7 @@ export class ArtService {
           break;
         }
         case "animate":
-          add("animate", () => animate(ctx, { characterId: r.characterId! }), true);
+          add("animate", () => animate(ctx, { characterId: r.characterId!, ...(r.slots ? { slots: r.slots } : {}) }), true);
           break;
         case "worldKit":
           add(

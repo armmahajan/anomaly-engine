@@ -342,11 +342,13 @@ export function deleteCharacter(project: ProjectSpec, input: unknown): Operation
   const character = project.characters.find((c) => c.id === characterId);
   if (!character) return noCharacter(project, characterId);
   if (character.kind === "player") return fail("invalid_input", "the player cannot be deleted");
+  // Its variants (variantOf: tougher copies for deeper regions) go with it.
+  const gone = project.characters.filter((c) => c.id === characterId || (c.kind === "enemy" && c.variantOf === characterId)).map((c) => c.id);
   return commit({
     ...project,
-    characters: project.characters.filter((c) => c.id !== characterId),
-    progression: withoutEnemy(project.progression, characterId),
-    world: withoutRoomSpawns(project.world, characterId),
+    characters: project.characters.filter((c) => !gone.includes(c.id)),
+    progression: gone.reduce(withoutEnemy, project.progression),
+    world: gone.reduce(withoutRoomSpawns, project.world),
   });
 }
 

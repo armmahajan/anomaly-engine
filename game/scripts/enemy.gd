@@ -47,6 +47,19 @@ const FLASH_TIME := 0.1
 const RECOIL_SPEED := 260.0
 const RECOIL_TIME := 0.1
 
+# --- death: harmless and still at once; its death clip (or the fallback pop), linger, fade, gone.
+## Defaults of the character's `death` (core DEATH_DEFAULTS).
+const DEATH_LINGER := 0.6
+const DEATH_FADE := 0.4
+## The fallback without a death clip: a pop, a white flash, then it shrinks, flattens and darkens.
+const DEATH_POP_TIME := 0.35
+## A death clip longer than this is held from here (the body still lingers and fades).
+const DEATH_CLIP_MAX := 3.0
+## The killing blow throws the body up (px/s) and along the push; it slides to a stop.
+const DEATH_HOP := 220.0
+const DEATH_FRICTION := 900.0
+const DEATH_FLASH := 0.12
+
 var _states: Dictionary = {}
 var _interrupts: Array = []
 var _entered := false
@@ -72,6 +85,14 @@ var _kill_y := 0.0
 var _asset := {}
 var _rig: Node2D = null
 var _preview_clip := ""
+## Seconds since the killing hit, and how its death runs: the death clip's (or the fallback's)
+## length, then linger, then fade. `gone` once it has faded out (hidden, out of play).
+var death_time := 0.0
+var gone := false
+var _death_clip := false
+var _death_anim := DEATH_POP_TIME
+var _death_linger := DEATH_LINGER
+var _death_fade := DEATH_FADE
 
 
 func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
@@ -92,6 +113,10 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 	_kill_y = float(bounds.height) + 400.0
 	home = spawn
 	position = spawn
+	var death = character.get("death")
+	if typeof(death) == TYPE_DICTIONARY:
+		_death_linger = maxf(0.0, float(death.get("linger", DEATH_LINGER)))
+		_death_fade = maxf(0.05, float(death.get("fade", DEATH_FADE)))
 
 	collision_layer = 4
 	collision_mask = 1 | preload("res://scripts/level.gd").ENEMY_BOUNDS_LAYER  # world, and the room's edges (doorways are for the player)
@@ -111,6 +136,9 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 
 
 func _physics_process(delta: float) -> void:
+	if dead:
+		_dying(delta)
+		return
 	if not _entered:
 		_enter(behavior_state)
 
@@ -203,12 +231,85 @@ func take_hit(damage: int, push: Vector2) -> void:
 	_recoil_time = RECOIL_TIME
 	queue_redraw()
 	if health == 0:
-		dead = true
-		visible = false
-		collision_layer = 0
-		set_physics_process(false)
-		show_attack(null)
+		_die(push)
 		killed.emit()
+
+
+## The killing hit: harmless and out of the fight at once (nothing touches, acts or can be hit;
+## `dead` is what the room, the HUD and the sword go by), then the body plays out its death.
+func _die(push: Vector2) -> void:
+	dead = true
+	collision_layer = 0
+	show_attack(null)
+	shaking = false
+	hold_air = false
+	phase = ""
+	set_tint(null)
+	_recoil_time = 0.0
+	_flash = DEATH_FLASH
+	death_time = 0.0
+	var resist := 1.0 - _armor
+	velocity = Vector2(push.x * RECOIL_SPEED * resist, -DEATH_HOP * resist)
+	_death_clip = _rig != null and _rig.has_clip("death")
+	_death_anim = clampf(_rig.clip_duration("death"), 0.05, DEATH_CLIP_MAX) if _death_clip else DEATH_POP_TIME
+	if _rig != null:
+		_rig.position = Vector2.ZERO
+		_rig.manual_time = true  # posed by death_time, so a hit-stop freezes the body too
+		if _death_clip:
+			_rig.play("death", true)
+		elif _rig.has_clip("hurt"):
+			_rig.play("hurt", true)
+	if not _death_clip:
+		_burst(14)
+	_update_rig()
+	queue_redraw()
+
+
+## After the killing hit: fall and slide to a stop, play the death (clip or fallback), linger, fade, gone.
+func _dying(delta: float) -> void:
+	death_time += delta
+	if _flash > 0.0:
+		_flash -= delta
+	velocity.x = move_toward(velocity.x, 0.0, DEATH_FRICTION * delta)
+	if not is_on_floor():
+		velocity.y += _gravity * delta  # flyers drop too
+	move_and_slide()
+	var fading := death_time - _death_anim - _death_linger
+	if fading >= _death_fade or position.y > _kill_y:
+		_remove_body()
+		return
+	if fading >= 0.0 and fading < delta and _death_clip:
+		_burst(8)  # the drawn body dissolves as it fades
+	modulate.a = 1.0 - clampf(fading / _death_fade, 0.0, 1.0)
+	_update_rig()
+	queue_redraw()
+
+
+## Faded out: hidden and out of play (it stays listed as a dead entity until the room is rebuilt).
+func _remove_body() -> void:
+	gone = true
+	visible = false
+	velocity = Vector2.ZERO
+	collision_mask = 0
+	set_physics_process(false)
+
+
+## Particles from its middle (the feedback effects' burst), in its body color.
+func _burst(count: int) -> void:
+	var main := _main()
+	if main != null and main._fx != null:
+		main._fx.burst(get_parent(), center(), _color, count, hash(spawn_id))
+
+
+## The fallback death without a death clip, `death_time` in: [scale, darkening 0..1].
+## A quick pop bigger, then it flattens and shrinks onto its feet and darkens.
+func _fallback_pose() -> Array:
+	var t := clampf(death_time / DEATH_POP_TIME, 0.0, 1.0)
+	if t < 0.3:
+		var k := t / 0.3
+		return [Vector2.ONE.lerp(Vector2(1.18, 1.18), k), 0.0]
+	var k := ease((t - 0.3) / 0.7, 0.5)
+	return [Vector2(1.18, 1.18).lerp(Vector2(0.8, 0.35), k), k]
 
 
 # --- actor API ---
@@ -371,6 +472,9 @@ func set_preview_clip(clip: String) -> void:
 func _update_rig() -> void:
 	if _rig == null:
 		return
+	if dead:
+		_update_dying_rig()
+		return
 	_rig.scale.x = facing
 	# Same feedback as the box: shake in place, flash white when struck, tint while telegraphing.
 	_rig.position.x = ((2.0 if int(state_time * 30.0) % 2 == 0 else -2.0) if shaking else 0.0)
@@ -391,7 +495,32 @@ func _update_rig() -> void:
 	_rig.play(CharacterArt.clip_for_state(_asset, _rig, behavior_state, action_type, flying, phase))
 
 
+## Dying: the death clip posed at death_time (held on its last frame), or the fallback pop and
+## collapse on whatever clip it had (hurt when there is one); white while the killing flash lasts.
+func _update_dying_rig() -> void:
+	_rig.position = Vector2.ZERO
+	var white := _flash > 0.0
+	if _death_clip:
+		_rig.scale = Vector2(facing, 1.0)
+		_rig.modulate = Color(2.5, 2.5, 2.5) if white else Color.WHITE
+		_rig.pose_at(minf(death_time, _death_anim), int(death_time * 8.0))
+		return
+	var pose := _fallback_pose()
+	_rig.scale = Vector2(facing * pose[0].x, pose[0].y)
+	_rig.modulate = Color(2.5, 2.5, 2.5) if white else Color.WHITE.lerp(Color(0.35, 0.35, 0.4), pose[1])
+	if _rig.current_clip() == "hurt":
+		_rig.pose_at(minf(death_time, _rig.clip_duration("hurt")), int(death_time * 8.0))
+
+
 func _draw() -> void:
+	if dead:
+		if _rig == null:
+			var pose := _fallback_pose()
+			draw_set_transform(Vector2.ZERO, 0.0, pose[0])
+			var body := Color.WHITE if _flash > 0.0 else _color.lerp(Color(0.1, 0.1, 0.13), pose[1] * 0.6)
+			draw_rect(Rect2(Vector2(-_size.x / 2.0, -_size.y), _size), body)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		return
 	if _attack != null:
 		var box: Rect2 = _attack.rect
 		var color: Color = _attack.color

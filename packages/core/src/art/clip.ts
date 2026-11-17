@@ -97,6 +97,7 @@ export const CLIP_SLOTS = {
   slam: "Crashing down onto the ground.",
   cast: "Calling up something (summon) or vanishing and reappearing (teleport).",
   recover: "Recovering after an attack: the opening to hit back.",
+  death: "Defeated (plays once, loop false, about 0.5-1 s): collapses, falls or breaks apart and holds its last, still pose; never returns to rest.",
 } as const;
 export type ClipSlot = keyof typeof CLIP_SLOTS;
 
@@ -143,6 +144,12 @@ export function clipSlotsFor(actionType: string, phase: string | null = null, fl
   if (flying && (slots.includes("walk") || slots.includes("run"))) slots = ["fly", ...slots];
   return slots;
 }
+
+/** Clip slots every enemy uses, whatever its behavior: struck by the sword, and killed. */
+export const ENEMY_CLIP_SLOTS: readonly ClipSlot[] = ["hurt", "death"];
+
+/** Clips that play once and hold their last frame whatever the behavior does (the runtime stops acting on death). */
+export const ONE_SHOT_CLIP_SLOTS: readonly ClipSlot[] = ["hurt", "death"];
 
 /** Clip slots the player uses. */
 export const PLAYER_CLIP_SLOTS: readonly ClipSlot[] = ["idle", "run", "jump", "fall", "attack", "hurt"];

@@ -83,8 +83,8 @@ describe("art pipeline stages", () => {
     const anim = await animate(h.ctx, { characterId: "charger" });
     h.commit(anim.operations);
     const animated = asset();
-    expect(animated.kind === "character" && Object.keys(animated.clips).sort()).toEqual(["attack", "idle", "walk", "windup"]);
-    expect(animated.kind === "character" && Object.keys(animated.clipPreviews).length).toBe(4);
+    expect(animated.kind === "character" && Object.keys(animated.clips).sort()).toEqual(["attack", "death", "idle", "walk", "windup"]);
+    expect(animated.kind === "character" && Object.keys(animated.clipPreviews).length).toBe(5);
     expect(h.spent()).toBeGreaterThan(0);
     expect(h.log.some((a) => a.file)).toBe(true);
   });
@@ -138,8 +138,8 @@ describe("art pipeline stages", () => {
       stateClips: {},
     });
     project.characters = project.characters.map((c) => (c.id === "player" || c.id === "charger" ? { ...c, appearance: "look" } : c));
-    expect(slotsFor(project, "look").sort()).toEqual(["attack", "fall", "hurt", "idle", "jump", "run", "walk", "windup"]);
+    expect(slotsFor(project, "look").sort()).toEqual(["attack", "death", "fall", "hurt", "idle", "jump", "run", "walk", "windup"]);
     project.characters = project.characters.map((c) => (c.id === "charger" ? { ...c, movement: "flying" } : c.id === "player" ? { ...c, appearance: undefined } : c));
-    expect(slotsFor(project, "look").sort()).toEqual(["attack", "fly", "hurt", "idle", "windup"]);
+    expect(slotsFor(project, "look").sort()).toEqual(["attack", "death", "fly", "hurt", "idle", "windup"]);
   });
 });
