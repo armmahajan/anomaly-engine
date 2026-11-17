@@ -58,7 +58,9 @@ describe("world stages", () => {
     // the planes: landscape, medium quality, the silhouettes on a transparent background
     const planes = h.image.requests.filter((r) => r.aspectRatio === "3:2");
     expect(planes.map((r) => [r.quality, Boolean(r.transparent)])).toEqual([["medium", false], ["medium", true], ["medium", true]]);
-    expect(h.image.requests.filter((r) => r.aspectRatio !== "3:2").every((r) => r.quality === "low")).toBe(true);
+    // Piece sheets at medium (low comes back as blocky pixel art); the ground stays low.
+    expect(h.image.requests.filter((r) => r.aspectRatio !== "3:2").map((r) => r.quality).sort()).toEqual(["low", "medium", "medium"]);
+    expect(h.image.requests.filter((r) => r.transparent && r.aspectRatio !== "3:2").every((r) => r.prompt.includes("not pixel art"))).toBe(true);
     expect(h.image.requests.filter((r) => r.transparent)).toHaveLength(4);
     const layered = h.biome().kit!;
     expect(layered.backgrounds!.map((p) => p.name)).toEqual(["sky", "far", "near"]);

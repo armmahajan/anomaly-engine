@@ -150,12 +150,12 @@ describe("play camera and parallax", () => {
     const dx = cb.x - ca.x;
     const dy = cb.y - ca.y;
     expect(Math.abs(dy)).toBeGreaterThan(500);
-    // Placed layers: x and y offsets follow the camera by (1 - factor); play doesn't move, front keeps to the view vertically.
-    for (const [layer, f] of [["mid", 0.38], ["back", 0.72], ["play", 1]] as const) {
+    // Placed layers: x and y offsets follow the camera by (1 - factor); play doesn't move. The front layer scrolls
+    // faster than the room on both axes (it doesn't ride along with the view: its silhouettes pass by).
+    for (const [layer, f] of [["mid", 0.38], ["back", 0.72], ["play", 1], ["front", 1.35]] as const) {
       expect(b.layers[layer]!.x - a.layers[layer]!.x).toBeCloseTo(dx * (1 - f), 1);
       expect(b.layers[layer]!.y - a.layers[layer]!.y).toBeCloseTo(dy * (1 - f), 1);
     }
-    expect(b.layers.front!.y - a.layers.front!.y).toBeCloseTo(dy, 1);
     // Planes (screen px): scroll by depth x the camera's move; climbing, they sink (the sky only as far as its headroom).
     for (const plane of planes) {
       const pa = a.planes.find((p) => p.name === plane.name)!;

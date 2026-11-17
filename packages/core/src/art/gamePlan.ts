@@ -47,7 +47,7 @@ export interface ArtStep {
 export const ART_COST_ESTIMATES = {
   character: 0.03,
   animate: 0.01,
-  biome: 0.055, // three medium background planes, three low sheets, labelling (measured $0.050)
+  biome: 0.09, // three medium background planes, medium piece sheets, a low ground, labelling
   room: 0.005,
   props: 0.004,
   modal: 0.01,

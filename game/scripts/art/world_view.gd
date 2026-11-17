@@ -9,8 +9,9 @@ extends Node2D
 ## (screen space): they stand on its bottom edge, scroll at their depth and sink
 ## as the camera climbs. Layers of placed pieces scroll at their factor (SCROLL);
 ## a piece is seen where it was placed when the camera looks at it (x: centred on
-## it; y: as near as the camera gets). The front layer frames the view: it
-## scrolls past horizontally and keeps to the view's top and bottom edges.
+## it; y: as near as the camera gets). The front layer is nearest: it scrolls
+## faster than the room on both axes; its silhouettes hang from the room's top or
+## rise from below its floor, so they pass by as the camera moves, never ride along.
 
 const LAYER_ORDER := ["far", "mid", "back", "play", "front"]
 ## How fast each layer scrolls relative to the camera (1 = with the world).
@@ -308,8 +309,7 @@ func _update_layers() -> void:
 		var f: float = SCROLL[layer]
 		var node: Node2D = _layers[layer]
 		node.position.x = focus.x * (1.0 - f)
-		# The front layer keeps to the view vertically; the others scroll at their factor.
-		node.position.y = (focus.y if layer == "front" else focus.y * (1.0 - f)) + _explode.get(layer, 0.0)
+		node.position.y = focus.y * (1.0 - f) + _explode.get(layer, 0.0)
 	_update_planes()
 
 
@@ -715,11 +715,8 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 		y += clampf(tex.get_height() * s * CONTACT_SINK, CONTACT_SINK_MIN, CONTACT_SINK_MAX)
 	var drawn := tex.get_height() * s
 	var align := 0.0
-	if layer == "front":
-		# Kept to the view's top or bottom edge, wherever the camera is (the layer follows the view's centre).
-		align = -_view_h() / 2.0 if top_edge else -_height + _view_h() / 2.0
-	else:
-		align = _align_y(layer, y + drawn / 2.0 if hanging else y - drawn / 2.0)
+	# Seen where it was placed when the camera is as near it as it gets (front: at the room's top or bottom).
+	align = _align_y(layer, y + drawn / 2.0 if (hanging or top_edge) else y - drawn / 2.0)
 	sprite.position = Vector2(_local_x(layer, float(placement.x)), y + align)
 	sprite.set_meta("placement", str(placement.get("id", "")))
 	sprite.set_meta("layer", layer)
@@ -884,11 +881,11 @@ func _add_particles(dust: Dictionary, view_size: Vector2) -> void:
 		p.preprocess = float(look.lifetime)
 		p.texture = _radial_texture()
 		p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
-		# Cover every place the camera can show in this layer: x scrolls by f, y by f (front: the view).
+		# Cover every place the camera can show in this layer: x and y scroll by f.
 		var x0 := -view_w / 2.0
 		var x1 := _width * f + view_w / 2.0
-		var y0 := -view_h / 2.0 if layer == "front" else reach.x * f - view_h / 2.0
-		var y1 := view_h / 2.0 if layer == "front" else reach.y * f + view_h / 2.0
+		var y0 := reach.x * f - view_h / 2.0
+		var y1 := reach.y * f + view_h / 2.0
 		p.emission_rect_extents = Vector2((x1 - x0) / 2.0, (y1 - y0) / 2.0)
 		p.position = Vector2((x0 + x1) / 2.0, (y0 + y1) / 2.0)
 		p.direction = look.direction

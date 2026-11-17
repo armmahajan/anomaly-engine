@@ -59,7 +59,8 @@ type PaintPart = "backdrop" | "plane" | "structures" | "props" | "ground";
  * planes are always medium: they cover the whole screen, so they are what looks cheap first.
  */
 const QUALITY: Record<WorldQuality, Record<PaintPart, string>> = {
-  draft: { backdrop: "low", plane: "medium", structures: "low", props: "low", ground: "low" },
+  // Piece sheets at low quality come back as blocky pixel art (props drawn ~50 px tall still look chunky): medium.
+  draft: { backdrop: "low", plane: "medium", structures: "medium", props: "medium", ground: "low" },
   final: { backdrop: "medium", plane: "medium", structures: "medium", props: "medium", ground: "low" },
 };
 
@@ -70,8 +71,8 @@ export function worldPrompts(theme: string, direction: ArtDirection, feedback?: 
   const extra = feedback?.trim() ? ` Creator's direction: ${feedback.trim()}.` : "";
   return {
     backdrop: `Farthest parallax background layer for a 2D side-scrolling platformer: ${theme}. Distant architecture and shapes fading into thick atmospheric haze, soft light from above, low contrast, wide horizontal composition with no strong focal point at the left or right edge, nothing in the immediate foreground, no ground plane in front.${extra} ${style(direction)}`,
-    structures: `Sprite sheet: a 3x3 grid of nine separate LARGE background structures for a 2D side-view platformer set in ${theme}: tall pillars, broken arches, ruined walls, hanging root curtains, stalactite clusters, giant plant stalks and similar big shapes, plus one bare horizontal beam, plank or fallen log on its own: long and thin, lying flat, with nothing under it (no legs, posts or base). Each one isolated, upright (the beam lying flat), side view, filling most of its cell, with empty space around it, on a fully transparent background.${extra} ${style(direction)}`,
-    props: `Sprite sheet: a 3x3 grid of nine separate small props for a 2D side-view platformer set in ${theme}: a light source (lantern or glowing thing), glowing plants or mushrooms, rubble, a hanging chain or vine, signs of past inhabitants, and other details that sit on the ground. Each prop isolated and centered in its cell with empty space around it, side view, on a fully transparent background.${extra} ${style(direction)}`,
+    structures: `Sprite sheet: a 3x3 grid of nine separate LARGE background structures for a 2D side-view platformer set in ${theme}: tall pillars, broken arches, ruined walls, hanging root curtains, stalactite clusters, giant plant stalks and similar big shapes, plus one bare horizontal beam, plank or fallen log on its own: long and thin, lying flat, with nothing under it (no legs, posts or base). Each one isolated, upright (the beam lying flat), side view, filling most of its cell, with empty space around it, on a fully transparent background. Smooth, clean anti-aliased edges and painted detail at full resolution: not pixel art.${extra} ${style(direction)}`,
+    props: `Sprite sheet: a 3x3 grid of nine separate small props for a 2D side-view platformer set in ${theme}: a light source (lantern or glowing thing), glowing plants or mushrooms, rubble, a hanging chain or vine, signs of past inhabitants, and other details that sit on the ground. Each prop isolated and centered in its cell with empty space around it, side view, on a fully transparent background. Smooth, clean anti-aliased edges and painted detail at full resolution: not pixel art.${extra} ${style(direction)}`,
     ground: `Seamless tileable square texture for the solid ground of a 2D platformer set in ${theme}: packed stone or earth with subtle cracks and moss, flat even lighting, no perspective, no objects, no lanterns, no light sources, no edges or borders.${extra} ${style(direction)}`,
   };
 }
