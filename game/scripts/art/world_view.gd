@@ -9,6 +9,10 @@ const LAYER_ORDER := ["far", "mid", "back", "play", "front"]
 const SCROLL := {"far": 0.12, "mid": 0.38, "back": 0.72, "play": 1.0, "front": 1.35}
 ## How much each layer is tinted toward the fog color.
 const FOG_TINT := {"far": 0.0, "mid": 0.5, "back": 0.35, "play": 0.0, "front": 0.0}
+## A standing piece in the play layer sinks this share of its drawn height into its surface (px bounds).
+const CONTACT_SINK := 0.05
+const CONTACT_SINK_MIN := 4.0
+const CONTACT_SINK_MAX := 12.0
 ## Fog never gets thicker than this per layer, whatever the scene asks (too much hides the backdrop).
 const FOG_MAX := {"mid": 0.42, "back": 0.32, "play": 0.22}
 ## Far and mid layers live on their own canvas, untouched by the scene's darkness (they are distant and hazy).
@@ -155,9 +159,13 @@ func build(scene: Dictionary, textures: Dictionary, view_size: Vector2) -> void:
 	_distant_canvas.follow_viewport_enabled = true
 	add_child(_distant_canvas)
 
+	# Art is drawn smaller than its source (a 1024 px backdrop fills a ~450 px room): sample the
+	# mipmaps, or it aliases into jagged, shimmering pixels.
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	for layer in LAYER_ORDER:
 		var node := Node2D.new()
 		node.name = layer
+		node.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS  # distant layers sit under a CanvasLayer: no inheritance
 		if layer in DISTANT:
 			_distant_canvas.add_child(node)
 		else:
@@ -466,6 +474,10 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 		sprite.scale = Vector2(-s if bool(placement.get("flip", false)) else s, s)
 		if str(piece.kind) == "span":
 			y = minf(y, tex.get_height() * s)
+	if layer == "play" and not hanging and str(piece.kind) != "span":
+		# Painted bases taper or fade at the bottom, and the ground draws a lit rim on its top:
+		# sink a standing piece a little into the surface it rests on so it sits, not floats.
+		y += clampf(tex.get_height() * s * CONTACT_SINK, CONTACT_SINK_MIN, CONTACT_SINK_MAX)
 	sprite.position = Vector2(_local_x(layer, float(placement.x)), y)
 	sprite.set_meta("placement", str(placement.get("id", "")))
 	sprite.set_meta("layer", layer)
