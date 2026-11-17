@@ -81,11 +81,12 @@ describe("handlers", () => {
 
   it("are linted for flags never set and timers never started", () => {
     let p = stocked(); // the gate's solid reads flag "open"
-    expect(lintProject(p).map((w) => w.code)).toEqual(["flag_never_set"]);
+    const lint = (project: ProjectSpec) => lintProject(project).filter((w) => w.code !== "modal_unused"); // stocked()'s modal is shown by nothing
+    expect(lint(p).map((w) => w.code)).toEqual(["flag_never_set"]);
     p = ok(op(p, "addHandler", { handler: { on: { type: "timer", timer: "t" }, do: [{ type: "setFlag", flag: "open" }] } }));
-    expect(lintProject(p).map((w) => w.code)).toEqual(["timer_never_started"]);
+    expect(lint(p).map((w) => w.code)).toEqual(["timer_never_started"]);
     p = ok(op(p, "addHandler", { handler: { on: { type: "gameStarted" }, do: [{ type: "startTimer", timer: "t", seconds: 2 }] } }));
-    expect(lintProject(p)).toEqual([]);
+    expect(lint(p)).toEqual([]);
   });
 
   it("list every event and effect type the runtime must implement", () => {

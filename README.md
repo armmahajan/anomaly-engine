@@ -350,6 +350,34 @@ event happens and every condition holds, the effects run in order.
   enemy spawn's health bar and handlers. All of these are edited with the shared
   `HandlerEditor`, whose forms come from the core schemas.
 
+## Modals and the map
+
+A **modal** (`world.modals`) is a screen over the game: a title, text, an optional
+image (one already in the project) and up to 4 buttons, each a list of effects
+(none = one "Continue"). Operations: `createModal`, `updateModal`, `deleteModal`
+(refused, naming the places, while a handler or another modal's button shows it)
+and `setMap` (`packages/core/src/modals/`).
+
+- **Runtime** (`game/scripts/modal.gd`): `showModal` queues a modal; while one is
+  open gameplay pauses (the room, doors and timers). Left / right (or up / down)
+  choose a button, Enter / Space / Z press it (the mouse works too); its effects
+  run, the modal closes, then the next queued one opens or play resumes once the
+  keys are let go. `endGame {modal?}` shows the modal, then starts a fresh game from
+  the same start (save cleared, gameStarted fires again).
+- **Screens are data.** A title screen is a modal a gameStarted handler shows; an
+  ending is `endGame` with a modal; credits are a modal another modal's button
+  shows. There is no screen type in code.
+- **The map** (`world.map.enabled`, off by default): M / Tab opens it over the paused
+  game (`map_view.gd`): rooms the player visited plus those revealed by `revealMap`
+  (default: all), at their world-map position, doors between them as lines, the
+  current room highlighted. Revealed rooms are saved with the run.
+- **Lint:** a modal nothing shows (info), a modal every button of which shows it
+  again (it can never close), the map on with fewer than 2 rooms.
+- **Studio:** the Game tab's **Modals** (edit, live **Preview** in the runtime,
+  buttons' effects with the shared `EffectList`) and **Map** switch. Tests:
+  `game/test/modals.test.ts` (headless, through `game/tests/modal_probe.gd`) and
+  `e2e/modals.spec.ts`.
+
 ## Characters (art)
 
 **Characters** mode makes a character's look with AI, in stages. The main area
