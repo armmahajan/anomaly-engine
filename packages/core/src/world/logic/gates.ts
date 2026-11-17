@@ -22,14 +22,26 @@ export interface GateCheck {
   shortcut?: boolean;
 }
 
-/** Regions the progression reaches from its start without the `lacking` abilities (connections both ways unless one-way). */
+/**
+ * Regions the progression reaches from its start never having the `lacking` abilities: the player only
+ * gets an ability once its region is reached and its own needs (obtainedIn.requires) are met, and
+ * passes a connection only with everything it requires (both ways unless one-way).
+ */
 export function designedReach(project: ProjectSpec, lacking: ReadonlySet<string>): Set<string> {
   const p = project.progression;
   const reached = new Set(p.start ? [p.start] : []);
+  const have = new Set<string>();
   for (let grew = true; grew; ) {
     grew = false;
+    for (const a of p.abilities) {
+      if (have.has(a.id) || lacking.has(a.id) || !a.obtainedIn || !reached.has(a.obtainedIn.regionId)) continue;
+      if (a.obtainedIn.requires.every((r) => have.has(r))) {
+        have.add(a.id);
+        grew = true;
+      }
+    }
     for (const o of p.connections) {
-      if (o.requires.some((r) => lacking.has(r))) continue;
+      if (!o.requires.every((r) => have.has(r))) continue;
       for (const [x, y] of o.oneWay ? [[o.from, o.to]] : [[o.from, o.to], [o.to, o.from]]) {
         if (reached.has(x!) && !reached.has(y!)) {
           reached.add(y!);

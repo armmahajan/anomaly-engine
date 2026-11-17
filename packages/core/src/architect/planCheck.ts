@@ -100,8 +100,8 @@ export function planIssues(project: ProjectSpec): { issues: StageIssue[]; toCast
 
 /**
  * Progression connections whose gate the plan's links get around: the `to` region is reachable from the
- * start region without the connection's requirements (everything else allowed), walking the plan's links
- * as geometry builds them. `links` are the region-crossing links used on the way in.
+ * start region never having the connection's requirements (other abilities as they're picked up), walking
+ * the plan's links as geometry builds them. `links` are the region-crossing links used on the way in.
  */
 export function gateLeaks(project: ProjectSpec): { connection: string; to: string; requires: string[]; links: string[]; roomId?: string }[] {
   const plan = project.architect;
@@ -112,21 +112,13 @@ export function gateLeaks(project: ProjectSpec): { connection: string; to: strin
   const leaks: { connection: string; to: string; requires: string[]; links: string[]; roomId?: string }[] = [];
   for (const c of p.connections.filter((c) => c.requires.length > 0)) {
     const lacking = new Set(c.requires);
-    // Breadth first over rooms; remember the region-crossing link that first reached each room.
-    const via = new Map<string, string | null>([[start.id, null]]);
-    const queue = [start.id];
-    for (let i = 0; i < queue.length; i++) {
-      const here = queue[i]!;
-      for (const l of plan.links) {
-        const forward = l.a.room === here && !l.requires.some((r) => lacking.has(r));
-        const backward = l.b.room === here && !l.oneWay;
-        if (!forward && !backward) continue;
-        const next = forward ? l.b.room : l.a.room;
-        if (via.has(next)) continue;
-        via.set(next, region.get(next) !== region.get(here) ? l.id : via.get(here)!);
-        queue.push(next);
-      }
-    }
+    const reach = planReach(project, lacking);
+    // The way in without the requirements: a link walked backwards from outside (its gate is on the far side),
+    // else one walked forwards that doesn't require them.
+    const entry =
+      plan.links.find((l) => !l.oneWay && region.get(l.a.room) === c.to && region.get(l.b.room) !== c.to && reach.has(l.b.room)) ??
+      plan.links.find((l) => region.get(l.b.room) === c.to && region.get(l.a.room) !== c.to && reach.has(l.a.room) && !l.requires.some((r) => lacking.has(r)));
+    const via = new Map<string, string | null>([...reach].map((id) => [id, entry?.id ?? null]));
     // The progression itself may offer another way in (either/or connections): not a leak then.
     const designed = designedReach(project, lacking);
     const inside = [...via.keys()].find((id) => region.get(id) === c.to);
@@ -139,20 +131,35 @@ export function gateLeaks(project: ProjectSpec): { connection: string; to: strin
   return leaks;
 }
 
-/** Plan rooms reachable from the start room without `lacking` (links as geometry builds them: gated a -> b, one-way a -> b). */
+/**
+ * Plan rooms reachable from the start room never having the `lacking` abilities, the way geometry builds
+ * links (gated a -> b only; one-way a -> b): abilities and keys are picked up in the rooms reached
+ * (pickups, guardians' grants), and a link's gate opens once everything it requires is held.
+ */
 export function planReach(project: ProjectSpec, lacking: ReadonlySet<string>): Set<string> {
   const plan = project.architect;
   const start = plan.rooms.find((r) => r.contents.some((c) => c.kind === "start"));
   const seen = new Set<string>(start ? [start.id] : []);
-  const queue = [...seen];
-  for (let i = 0; i < queue.length; i++) {
-    const here = queue[i]!;
-    for (const l of plan.links) {
-      const next = l.a.room === here && !l.requires.some((r) => lacking.has(r)) ? l.b.room : l.b.room === here && !l.oneWay ? l.a.room : null;
-      if (next && !seen.has(next)) {
-        seen.add(next);
-        queue.push(next);
+  const have = new Set<string>();
+  const byId = new Map(plan.rooms.map((r) => [r.id, r]));
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const id of seen) {
+      for (const c of byId.get(id)?.contents ?? []) {
+        for (const g of c.kind === "pickup" ? [c.grants] : c.kind === "enemy" ? c.grants : []) {
+          if (!lacking.has(g) && !have.has(g)) {
+            have.add(g);
+            grew = true;
+          }
+        }
       }
+    }
+    for (const l of plan.links) {
+      const forward = seen.has(l.a.room) && !seen.has(l.b.room) && l.requires.every((r) => have.has(r));
+      const backward = seen.has(l.b.room) && !seen.has(l.a.room) && !l.oneWay;
+      if (forward) seen.add(l.b.room);
+      if (backward) seen.add(l.a.room);
+      if (forward || backward) grew = true;
     }
   }
   return seen;

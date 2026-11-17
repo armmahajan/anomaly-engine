@@ -52,7 +52,10 @@ export function seedPlan(project: ProjectSpec, options: { maxRoomsPerRegion?: nu
     const n = used.get(c.from) ?? 0;
     used.set(c.from, n + 1);
     const a = from[Math.max(0, from.length - 1 - n)]!;
-    links.push({ ...link(c.id, a.id, to[0]!.id), requires: [...c.requires], oneWay: c.oneWay });
+    // A built gate only blocks a -> b: a gated two-way connection gets its gate on the side the player meets
+    // first (the region earlier in play order), whichever way round the progression lists it.
+    const reversed = !c.oneWay && c.requires.length > 0 && order.indexOf(c.to) < order.indexOf(c.from);
+    links.push(reversed ? { ...link(c.id, to.at(-1)!.id, from[0]!.id), requires: [...c.requires] } : { ...link(c.id, a.id, to[0]!.id), requires: [...c.requires], oneWay: c.oneWay });
   }
 
   const add = (room: RoomPlan | undefined, content: RoomContent) => {

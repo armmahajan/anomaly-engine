@@ -113,3 +113,31 @@ describe("in-region requirements and designed shortcuts", () => {
     expect(gateChecks(base).find((g) => g.connection === "up_to_summit")!.shortcut).toBeUndefined();
   });
 });
+
+describe("abilities gained over time", () => {
+  it("a two-way shortcut gated by an ability only earned past another gate is a way around that gate (eval pitch 7)", async () => {
+    const { default: raw } = await import("./fixtures/architectEval3-c7-plan.json", { with: { type: "json" } });
+    const { gateLeaks, migrateProject } = await import("../src/index.ts");
+    const project = ProjectSpec.parse(migrateProject(raw));
+    // Double jump gates the cellar; a shortcut cellar -> reading room needs dash, earned only after double jump,
+    // but it's built on the cellar side, so from the reading room it's open.
+    expect(gateLeaks(project)).toEqual([expect.objectContaining({ connection: "stacks_to_cellar", links: ["cellar_to_room_shortcut"] })]);
+    expect(planIssues(project).issues.map((i) => i.code)).toContain("gate-bypass-route");
+    // One-way from the cellar back to the reading room: no way around.
+    const fixed = ProjectSpec.parse({ ...project, architect: { ...project.architect, links: project.architect.links.map((l) => (l.id === "cellar_to_room_shortcut" ? { ...l, requires: [], oneWay: true } : l)) } });
+    expect(gateLeaks(fixed)).toEqual([]);
+  });
+});
+
+describe("seeded gates face the player", () => {
+  it("a gated two-way connection listed from the later region is seeded with its gate on the earlier side (no way around)", async () => {
+    const { default: raw } = await import("./fixtures/architectEval3-c7-plan.json", { with: { type: "json" } });
+    const { gateLeaks, migrateProject } = await import("../src/index.ts");
+    const project = ProjectSpec.parse(migrateProject(raw));
+    const seeded = ProjectSpec.parse({ ...project, architect: seedPlan(project) });
+    const shortcut = seeded.architect.links.find((l) => l.id === "cellar_to_room_shortcut")!;
+    expect(seeded.architect.rooms.find((r) => r.id === shortcut.a.room)!.regionId).toBe("reading_room");
+    expect(gateLeaks(seeded)).toEqual([]);
+    expect(planIssues(seeded).issues).toEqual([]);
+  });
+});
