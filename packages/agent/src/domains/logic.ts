@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { checkGame, MovementAbility, type LogicStep } from "@anomaly/core";
+import { checkGame, gateChecks, MovementAbility, type LogicStep } from "@anomaly/core";
 import type { DomainTools } from "./types.ts";
 
 const CheckInput = z.strictObject({
@@ -37,6 +37,19 @@ export const logicTools: DomainTools<never> = {
           ...(r.stats.truncated ? { truncated: true } : {}),
         };
       },
+    },
+    {
+      name: "checkGates",
+      description:
+        "For each progression connection that needs a movement ability: is the far region reachable without it (it must not be) and with it (it must be)? Gates built only from flags or bosses don't hold; build them as geometry (createChunkRoom gate).",
+      schema: z.strictObject({}),
+      run: (project) => ({
+        ok: true,
+        gates: gateChecks(project).map((g) => ({
+          ...g,
+          verdict: !g.reachableWith ? `the ${g.to} region can't be reached at all` : g.holdsWithout ? "holds" : `doesn't hold: ${g.to} is reachable without ${g.needs.join(" and ")}`,
+        })),
+      }),
     },
   ],
 };

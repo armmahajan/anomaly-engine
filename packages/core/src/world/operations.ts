@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { Id } from "../common.ts";
 import { MovementAbility } from "../movement/params.ts";
+import { movementParams } from "../movement/params.ts";
+import { chunkLibrary, gateChunks, mirrorChunk } from "./chunks.ts";
 import { slugify, uniqueId } from "../ids.ts";
 import type { OperationResult } from "../operations.ts";
 import type { ProjectSpec } from "../schema.ts";
@@ -64,6 +66,39 @@ export function createWorldRoom(project: ProjectSpec, input: unknown): Operation
     ...(regionId !== undefined && { regionId }),
   };
   return withWorld(project, { rooms: [...rooms, room] });
+}
+
+export const CreateChunkRoomInput = z.strictObject({
+  name: z.string().min(1).max(80),
+  id: Id.optional().describe("Defaults to the name in snake_case."),
+  chunk: z
+    .enum(["corridor", "stairs", "drop", "hall", "oneway_stairs", "hazard_pit", "gate"])
+    .describe("Which piece of the chunk library. gate: a passage only `ability` gets through (and no other ability bypasses)."),
+  ability: MovementAbility.optional().describe("For a gate: the ability it needs."),
+  mirror: z.boolean().optional().describe("Swap left and right (the entry on the right)."),
+  at: z.strictObject({ x: z.number().int(), y: z.number().int() }).optional().describe("World map position in tiles; default: right of the other rooms."),
+  regionId: Id.optional(),
+});
+
+/**
+ * A room made from a chunk of the chunk library: proven geometry sized from the player's
+ * movement (a gate only its ability passes). Doors "entry" and "exit" are its openings, unconnected.
+ */
+export function createChunkRoom(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(CreateChunkRoomInput, input, "createChunkRoom");
+  if (!p.ok) return p;
+  const player = project.characters.find((c) => c.kind === "player");
+  if (!player || player.kind !== "player") return fail("invalid_input", "the project has no player character");
+  const params = movementParams(player, project.world.gravity);
+  if (p.data.chunk === "gate" && !p.data.ability) return fail("invalid_input", "a gate chunk needs an ability (the one it requires)");
+  const made = p.data.chunk === "gate" ? gateChunks(params)[p.data.ability!] : chunkLibrary(params).find((c) => c.kind === p.data.chunk)!;
+  const chunk = p.data.mirror ? mirrorChunk(made) : made;
+  // Validate (id, name, region) through createWorldRoom, then keep its room with the chunk's doors.
+  const created = createWorldRoom(project, { name: p.data.name, id: p.data.id, grid: chunk.grid, at: p.data.at, regionId: p.data.regionId });
+  if (!created.ok) return created;
+  const room = created.project.world.rooms.at(-1)!;
+  const doors = chunk.openings.map((o, i) => ({ id: i === 0 ? "entry" : "exit", side: o.side, offset: o.offset, size: o.size, to: null }));
+  return withWorld(project, { rooms: [...project.world.rooms, { ...room, doors }] });
 }
 
 export const UpdateWorldRoomInput = z.strictObject({
@@ -466,6 +501,7 @@ export const withoutRoomSpawns = (world: World, characterId: string): World => (
 
 export const worldRoomOperations = {
   createWorldRoom,
+  createChunkRoom,
   updateWorldRoom,
   deleteWorldRoom,
   resizeWorldRoom,

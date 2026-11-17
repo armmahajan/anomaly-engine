@@ -116,6 +116,8 @@ const writeDescriptions: Record<BuildOperation, string> = {
   setDressing: "Dress a world room (default: the playtest room) with a biome room (art only), or biomeId null for plain tiles.",
   applyRoomLayout: "Accept a biome room's suggested layout: a world room's tiles (default: the playtest room's) become it.",
   createWorldRoom: "Create a game-world room: a grid of 32 px tiles, empty with a solid border. Rooms join through doors.",
+  createChunkRoom:
+    "Create a room from the chunk library: proven geometry sized from the player's movement, with doors entry/exit (connect them). A gate chunk is a passage only its ability gets through: use it for every gate the progression puts on a movement ability.",
   updateWorldRoom: "Rename a game-world room, move it on the world map (tiles), dress it with a biome room or set its region.",
   deleteWorldRoom: "Delete a game-world room; doors to it become unconnected.",
   resizeWorldRoom: "Resize a room's grid; shiftX/shiftY move the content right/down. New cells: empty, solid outer edge.",
@@ -202,6 +204,14 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   updateWorldRoom: z.strictObject({
     roomId: z.string(),
     changes: z.strictObject({ name: z.string().optional(), at: xy.optional(), dressing: z.strictObject({ biome: z.string(), room: z.string() }).nullable().optional(), regionId: z.string().nullable().optional() }),
+  }),
+  createChunkRoom: z.strictObject({
+    name: z.string(),
+    id: z.string().optional(),
+    chunk: z.enum(["corridor", "stairs", "drop", "hall", "oneway_stairs", "hazard_pit", "gate"]),
+    ability: MovementAbility.optional().describe("gate: the ability it needs"),
+    mirror: z.boolean().optional().describe("entry on the right"),
+    regionId: z.string().optional(),
   }),
   deleteWorldRoom: z.strictObject({ roomId: z.string() }),
   resizeWorldRoom: z.strictObject({ roomId: z.string(), cols: int, rows: int, shiftX: int.optional(), shiftY: int.optional() }),

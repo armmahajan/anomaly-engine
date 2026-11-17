@@ -94,7 +94,10 @@ for (const regionId of order) {
   );
 }
 await say("build", "Set the world start in the start region and the playtest there too. Add a title screen shown on gameStarted, and an ending: touching something in the ending region runs endGame with an ending screen.");
-await say("build", "Run checkGame. If the game isn't beatable or has dead states, fix the cause each counterexample shows, and run it again until it passes. Then fix any remaining warnings.");
+await say(
+  "build",
+  "Run checkGame and checkGates. If the game isn't beatable, has dead states, or a gate doesn't hold, fix the cause each one shows, and run them again until they pass. Then fix any remaining warnings.",
+);
 
 // 3. Art.
 let artCost = 0;
