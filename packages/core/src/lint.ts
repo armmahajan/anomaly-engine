@@ -64,9 +64,10 @@ export function lintProject(project: ProjectSpec): ProjectWarning[] {
     }
   }
 
+  const summoned = new Set(project.characters.flatMap((c) => (c.kind === "enemy" ? Object.values(c.behavior.states).flatMap((s) => (s.action.type === "summon" ? [s.action.character] : [])) : [])));
   project.characters.forEach((character, i) => {
     if (character.kind !== "enemy") return;
-    const inRooms = project.world.rooms.some((r) => r.spawns.some((s) => s.characterId === character.id));
+    const inRooms = summoned.has(character.id) || project.world.rooms.some((r) => r.spawns.some((s) => s.characterId === character.id));
     if (!inRooms) {
       warnings.push({
         code: "unplaced_character",
