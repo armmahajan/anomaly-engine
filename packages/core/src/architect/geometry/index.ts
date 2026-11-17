@@ -127,12 +127,24 @@ export function roomRequest(room: RoomPlan, doors: DoorNeed[]): RoomRequest {
   };
 }
 
+/** One composition attempt: sub-seeds first, then plainer rooms (no steps, pits or platforms). */
+export const composeAttempt = (req: RoomRequest, params: MovementParams, attempt: number) => composeRoom(req, params, attempt, attempt >= ATTEMPTS);
+
+export interface BuiltRoom {
+  built: Composed | null;
+  proof: Proof | null;
+  /** The attempt it came from (composeAttempt rebuilds it), and how many were tried. */
+  attempt: number;
+  attempts: number;
+  errors: string[];
+}
+
 /** Compose and prove a room: the first attempt the checker proves, else the one with the fewest problems. */
-export function buildRoom(req: RoomRequest, params: MovementParams, options: { ledgeThickness?: number } = {}): { built: Composed | null; proof: Proof | null; attempts: number; errors: string[] } {
-  let best: { built: Composed; proof: Proof } | null = null;
+export function buildRoom(req: RoomRequest, params: MovementParams, options: { ledgeThickness?: number } = {}): BuiltRoom {
+  let best: { built: Composed; proof: Proof; attempt: number } | null = null;
   const errors: string[] = [];
   for (let attempt = 0; attempt < ATTEMPTS + PLAIN_ATTEMPTS; attempt++) {
-    const out = composeRoom(req, params, attempt, attempt >= ATTEMPTS);
+    const out = composeAttempt(req, params, attempt);
     if ("error" in out) {
       errors.push(out.error);
       continue;
@@ -142,10 +154,10 @@ export function buildRoom(req: RoomRequest, params: MovementParams, options: { l
       return { ...d, gate: need.gate, flow: need.flow };
     });
     const proof = proveRoom(out.grid, doors, params, options);
-    if (proof.ok) return { built: out, proof, attempts: attempt + 1, errors };
-    if (!best || proof.problems.length < best.proof.problems.length) best = { built: out, proof };
+    if (proof.ok) return { built: out, proof, attempt, attempts: attempt + 1, errors };
+    if (!best || proof.problems.length < best.proof.problems.length) best = { built: out, proof, attempt };
   }
-  return { built: best?.built ?? null, proof: best?.proof ?? null, attempts: ATTEMPTS + PLAIN_ATTEMPTS, errors };
+  return { built: best?.built ?? null, proof: best?.proof ?? null, attempt: best?.attempt ?? -1, attempts: ATTEMPTS + PLAIN_ATTEMPTS, errors };
 }
 
 export function geometryStage(project: ProjectSpec, options: StageOptions = {}): StageOutcome {

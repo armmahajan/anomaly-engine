@@ -32,7 +32,9 @@ export function minimumSize(
       return w + gridCols(b.grid) + 4;
     }, 0);
   const cols = sideWidth("left") + sideWidth("right") + Math.max(edgeWidth("top"), edgeWidth("bottom")) + 2 * (u.ladder + 2) + 10;
-  if (on("top").some((d) => d.flow === "in" && !d.gate.length)) rows = Math.max(rows, u.chute + 6);
-  if (on("top").length) rows = Math.max(rows, u.topRung + band + 4);
+  // The top band is taller under a chute or a top door's ladder; side doors need a band each below it.
+  const first = Math.max(band, on("top").some((d) => d.flow === "in" && !d.gate.length) ? u.chute + 5 : 0, on("top").length ? u.topRung + band + 2 : 0);
+  const most = Math.max(on("left").length, on("right").length, 1);
+  rows = Math.max(rows, first + (most - 1) * (band + u.rise) + 3);
   return { cols: Math.min(240, Math.max(16, cols)), rows: Math.min(135, rows) };
 }

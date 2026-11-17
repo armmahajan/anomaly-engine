@@ -56,7 +56,8 @@ export interface RoomRequest {
 
 export interface Composed {
   grid: TileGrid;
-  doors: TraversalOpening[];
+  /** With each gated door's block (tiles, inclusive). */
+  doors: (TraversalOpening & { area?: { c0: number; r0: number; c1: number; r1: number } })[];
 }
 
 interface Band {
@@ -76,6 +77,8 @@ interface Piece {
   floor: number[];
   anchors: Anchor[];
   zones: [number, number][];
+  /** Side doors' floors: a ladder from the band above may come down onto them (same floor row). */
+  soft: Anchor[];
   /** Has a door, a gate's entry, a ladder to a top door, a chute or a hole: must be reachable. */
   needed: boolean;
   arena?: [number, number];
@@ -127,16 +130,27 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   // Side blocks are placed first (their entries fix rows that must be floors), then bands around them.
   const placed: Placed[] = [];
   const sideBlocks: Placed[] = [];
+  const gap = u.air + 2;
+  const edgeTarget = new Map<string, number>();
+  let found: Band[] | null = null;
+  let lastWhy = "";
+  for (let layoutTry = 0; layoutTry < 10 && !found; layoutTry++) {
+  sideBlocks.length = 0;
+  edgeTarget.clear();
+  try {
   for (const s of ["left", "right"] as const) {
-    for (const d of rng.shuffle(side(s).filter(gated))) {
-      const block = gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both" });
+    // Top to bottom, each leaving room below for the rest.
+    const list = rng.shuffle(side(s).filter(gated)).map((d) => ({ d, block: gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both" }) }));
+    let cursor = 0;
+    for (const [i, { d, block }] of list.entries()) {
       const bw = gridCols(block.grid);
       const bh = gridRows(block.grid);
       if (bw + u.ladder + 4 > C) fail(`the ${d.gate.join("+")} gate is ${bw} tiles wide; the room is ${C}`);
       if (bh > H) fail(`the ${d.gate.join("+")} gate is ${bh} tiles tall; the room is ${H}`);
+      const below = list.slice(i + 1).reduce((sum, b) => sum + gridRows(b.block.grid) + gap, 0);
       const x = s === "left" ? 0 : C - bw;
       const ys: number[] = [];
-      for (let y = 0; y + bh <= H; y++) {
+      for (let y = cursor; y + bh + below <= H; y++) {
         const clash = sideBlocks.some((b) => {
           const [w, h] = [gridCols(b.block.grid), gridRows(b.block.grid)];
           const rowsMeet = y < b.y + h + u.air + 2 && b.y < y + bh + u.air + 2;
@@ -148,13 +162,12 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
       const doorRow = (y: number) => y + block.door.offset + block.door.size;
       const y = ys.sort((a, b) => Math.abs(doorRow(a) - (d.prefer ?? doorRow(a))) - Math.abs(doorRow(b) - (d.prefer ?? doorRow(b))) + (rng.next() - 0.5) * 8)[0]!;
       sideBlocks.push({ block, x, y, door: d });
+      cursor = y + bh + gap;
     }
   }
-  placed.push(...sideBlocks);
   const required = sideBlocks.map((b) => b.y + b.block.entry.offset + b.block.entry.size);
   // Top and bottom gate blocks stretch (their riser or dropper) to meet a floor: pick the row now so a band has it.
   // All of one edge's blocks share the row (one band's floor); a row just above the bottom band moves up a band.
-  const edgeTarget = new Map<string, number>();
   for (const s of ["top", "bottom"] as const) {
     const list = side(s).filter(gated);
     if (!list.length) continue;
@@ -182,7 +195,6 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   const minHeight = (k: number, vary: number, slab: number) => (k === 0 ? Math.max(u.air + vary + 1, chute ? u.chute + 3 : 0, tops.length ? u.topRung + 3 + vary : 0) : slab + u.air + vary);
   const tall = u.air * 3;
   const lean = Math.max(0, Math.min(1, v + (rng.next() - 0.5) * 0.3));
-  let found: Band[] | null = null;
   /** Each side has a band for each plain door, besides those its gates cover. */
   const sidesFit = (bs: Band[]) =>
     (["left", "right"] as const).every((s) => {
@@ -198,6 +210,13 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     }
     if (found) break;
   }
+  } catch (e) {
+    if (!(e instanceof Fail)) throw e;
+    lastWhy = e.message;
+  }
+  }
+  if (!found && lastWhy) fail(lastWhy);
+  placed.push(...sideBlocks);
   if (!found) fail(`no stack of floors fits ${H} rows with these doors and gates`);
   const bands = found!;
   const bandAt = (row: number) => bands.findIndex((b) => row >= b.e0 && row <= b.e1);
@@ -252,8 +271,11 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
       options.push({ x: 0, facing: "right" }, { x: C - bw, facing: "left" });
       const mid = Math.max(1, Math.min(C - bw - 1, (d.prefer ?? Math.floor((C - bw) / 2)) - 1));
       options.push({ x: mid, facing: rng.chance(0.5) ? "left" : "right" });
+      // Then anywhere else along the edge.
+      for (const x of rng.shuffle(Array.from({ length: Math.max(0, Math.floor((C - bw - 2) / 3)) }, (_, i) => 1 + i * 3))) options.push({ x, facing: x + bw / 2 < C / 2 ? "right" : "left" });
       let done = false;
-      for (const o of rng.chance(0.5) ? options : [options[1]!, options[0]!, options[2]!]) {
+      const firstTwo = rng.chance(0.5) ? [options[0]!, options[1]!] : [options[1]!, options[0]!];
+      for (const o of [...firstTwo, ...options.slice(2)]) {
         // Size the riser or dropper so the entry lands on some band's floor.
         const target = edgeTarget.get(d.id);
         const rows: [number, number][] = target === undefined ? [] : [[bandAt(target), target]];
@@ -298,7 +320,7 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     const blocked = cuts.filter((c) => c.band === k).sort((a, b) => a.c0 - b.c0);
     let c = 1;
     const add = (c0: number, c1: number) => {
-      if (c1 - c0 + 1 >= 4) pieces.push({ band: k, c0, c1, used: false, floor: [], anchors: [], zones: [], needed: false });
+      if (c1 - c0 + 1 >= 4) pieces.push({ band: k, c0, c1, used: false, floor: [], anchors: [], zones: [], needed: false, soft: [] });
     };
     for (const b of blocked) {
       add(c, b.c0 - 1);
@@ -322,7 +344,7 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   };
 
   // Side doors.
-  const doorsOut: TraversalOpening[] = [];
+  const doorsOut: Composed["doors"] = [];
   for (const d of [...side("left"), ...side("right")].filter((d) => !gated(d))) {
     const k = sideDoorBand.get(d.id)!;
     const col = d.side === "left" ? 1 : C - 2;
@@ -331,6 +353,7 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     const [c0, c1] = d.side === "left" ? [1, 4] : [C - 5, C - 2];
     if (!zoneFree(q, c0, c1)) fail(`the ${d.side} door's floor is taken`);
     reserve(q, c0, c1, row);
+    q.soft.push({ c0, c1, row });
     doorsOut.push({ id: d.id, side: d.side, offset: row - 3, size: 3 });
   }
   // Block entries and doors.
@@ -345,7 +368,7 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     reserve(q, c0, c1, ef);
     const door = b.block.door;
     const offset = door.side === "left" || door.side === "right" ? b.y + door.offset : b.x + door.offset;
-    doorsOut.push({ id: b.door.id, side: b.door.side, offset, size: door.size });
+    doorsOut.push({ id: b.door.id, side: b.door.side, offset, size: door.size, area: { c0: b.x, r0: b.y, c1: b.x + gridCols(b.block.grid) - 1, r1: b.y + gridRows(b.block.grid) - 1 } });
   }
 
   // ------------------------------------------------------------ ladders between bands, connectivity
@@ -357,13 +380,20 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     const lo = Math.max(upper.c0, lower.c0) + 1;
     const hi = Math.min(upper.c1, lower.c1) - 1 - u.ladder;
     const xs: number[] = [];
-    for (let x = lo; x <= hi; x++) if (zoneFree(upper, x - 1, x + u.ladder) && zoneFree(lower, x - 1, x + u.ladder)) xs.push(x);
+    /** Free in the lower piece but for side doors' floors (all at one row), and that row. */
+    const lowerRow = (c0: number, c1: number): number | null | undefined => {
+      const hard = lower.zones.filter(([a, b]) => !lower.soft.some((f) => f.c0 === a && f.c1 === b));
+      if (c0 < lower.c0 || c1 > lower.c1 || hard.some(([a, b]) => !(c1 < a || c0 > b))) return undefined;
+      const rows = new Set(lower.soft.filter((f) => !(c1 < f.c0 || c0 > f.c1)).map((f) => f.row));
+      return rows.size > 1 ? undefined : rows.size ? [...rows][0]! : null;
+    };
+    for (let x = lo; x <= hi; x++) if (zoneFree(upper, x - 1, x + u.ladder) && lowerRow(x - 1, x + u.ladder) !== undefined) xs.push(x);
     if (!xs.length) return false;
     // Pack next to what is there (a wall, a zone) more often than not, so later features still find room.
     const snug = xs.filter((x) => [upper, lower].some((q) => x - 1 === q.c0 || x + u.ladder === q.c1 || q.zones.some(([a, b]) => b === x - 2 || a === x + u.ladder + 1)));
     const x = snug.length && rng.chance(0.7) ? rng.pick(snug) : rng.pick(xs);
     reserve(upper, x - 1, x + u.ladder, pickRow(upper.band), false);
-    reserve(lower, x - 1, x + u.ladder, pickRow(lower.band), false);
+    reserve(lower, x - 1, x + u.ladder, lowerRow(x - 1, x + u.ladder) ?? pickRow(lower.band), false);
     climbs.push({ upper, lower, x, aLeft: rng.chance(0.5) });
     return true;
   };
@@ -425,12 +455,12 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   }
 
   // Wide flat floor to fight on (the arena), in the widest piece of a low band.
-  if (open >= 0.3 && !plain) {
+  if ((open > 0.45 || req.fight) && !plain) {
     const candidates = pieces.filter((q) => q.c1 - q.c0 + 1 >= 10).sort((a, b) => b.band - a.band || b.c1 - b.c0 - (a.c1 - a.c0));
     const q = candidates[0];
     if (q) {
       const width = q.c1 - q.c0 + 1;
-      const want = Math.max(8, Math.min(width - 2, Math.round(width * open)));
+      const want = Math.max(Math.min(width - 2, req.fight ? 18 : 8), Math.min(width - 2, Math.round(width * open)));
       const starts: number[] = [];
       for (let c = q.c0; c + want - 1 <= q.c1; c++) if (zoneFree(q, c, c + want - 1)) starts.push(c);
       let w = want;
@@ -463,19 +493,32 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   const stepChance = plain ? 0 : Math.min(0.9, 0.25 + 0.6 * v + 0.25 * dens);
   for (const q of pieces.filter((q) => q.used)) {
     const [lo, hi] = floorRange(q.band);
+    // Terraces: where the band has air to spare, the floor may climb above its anchors' range (a jump a step).
+    let roof = 0;
+    for (let c = q.c0; c <= q.c1; c++) roof = Math.max(roof, q.band === 0 ? 1 : bands[q.band - 1]!.base + bands[q.band - 1]!.slab);
+    const spare = Math.max(0, lo - roof - u.air - 1);
+    const lift = plain ? 0 : Math.min(spare, Math.round(v * 2 * u.rise * (0.6 + 0.6 * rng.next())));
+    const top = lo - lift;
     const anchors = [...q.anchors].sort((a, b) => a.c0 - b.c0);
     let row = anchors[0]?.row ?? rng.int(lo, hi);
     let c = q.c0;
     const floor = new Array<number>(C).fill(-1);
     for (const a of [...anchors, { c0: q.c1 + 1, c1: q.c1 + 1, row: -1 }]) {
       while (c < a.c0) {
-        const width = Math.min(a.c0 - c, rng.int(3, segMax));
-        if (a.c0 - c - width < 3 && a.c0 - c - width > 0) {
-          // Don't leave a sliver: run to the anchor.
-          for (; c < a.c0; c++) floor[c] = row;
-          break;
+        const room = a.c0 - c;
+        // Steps (at most a jump each) left to get back to the anchor's row, a few tiles each.
+        const back = a.row < 0 ? 0 : Math.ceil(Math.abs(row - a.row) / u.rise);
+        let width = Math.min(room, rng.int(3, segMax));
+        if (room - width < 3 && room - width > 0) width = room;
+        if (back > 0 && room <= (back + 1) * 3) {
+          // Head for the anchor.
+          row += Math.sign(a.row - row) * Math.min(u.rise, Math.abs(a.row - row));
+          width = Math.min(room, Math.max(2, Math.floor(room / back)));
+        } else if (rng.chance(stepChance)) {
+          const next = Math.max(top, Math.min(hi, row + rng.int(-u.rise, u.rise)));
+          // Only if the way back to the anchor still fits.
+          if (a.row < 0 || Math.ceil(Math.abs(next - a.row) / u.rise) * 3 + 3 <= room - width) row = next;
         }
-        if (rng.chance(stepChance)) row = rng.int(lo, hi);
         for (let i = 0; i < width; i++) floor[c++] = row;
       }
       if (a.row < 0) break;
@@ -502,12 +545,22 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
       for (let i = 0; i < n; i++) {
         const w = rng.int(Math.min(2, u.pit), u.pit);
         const c0 = rng.int(q.c0 + 2, q.c1 - 2 - w);
-        const flat = (from: number, to: number) => {
-          for (let c = from; c <= to; c++) if (q.floor[c] !== q.floor[c0]) return false;
-          return true;
-        };
-        if (c0 < q.c0 + 2 || !zoneFree(q, c0 - 2, c0 + w + 1) || !flat(c0 - 2, c0 + w + 1)) continue;
+        if (c0 < q.c0 + 2 || !zoneFree(q, c0 - 2, c0 + w + 1)) continue;
         if (pits.some((t) => t.k === q.band && c0 - 3 <= t.c1 && c0 + w + 2 >= t.c0)) continue;
+        // Level the stretch up to its highest floor (filling, never digging into the slab), if the steps at its ends stay a jump.
+        let level = Infinity;
+        for (let c = c0 - 2; c <= c0 + w + 1; c++) level = Math.min(level, q.floor[c]!);
+        const left = q.floor[c0 - 3];
+        const right = q.floor[c0 + w + 2];
+        if ((left !== undefined && left >= 0 && Math.abs(left - level) > u.rise) || (right !== undefined && right >= 0 && Math.abs(right - level) > u.rise)) continue;
+        let clear = true;
+        for (let c = c0 - 2; c <= c0 + w + 1; c++) if (q.floor[c] !== level && ceilAt(q.band, c) > level - u.air) clear = false;
+        if (!clear) continue;
+        for (let c = c0 - 2; c <= c0 + w + 1; c++) {
+          if (q.floor[c] === level) continue;
+          paint.fill(c, level, 1, q.floor[c]! - level, "solid");
+          q.floor[c] = level;
+        }
         pits.push({ k: q.band, c0, c1: c0 + w - 1 });
         q.zones.push([c0 - 1, c0 + w]);
         paint.fill(c0, q.floor[c0]!, w, 1, "hazard");
@@ -538,21 +591,27 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     for (const q of pieces.filter((q) => q.used)) {
       const width = q.c1 - q.c0 + 1;
       const arena = q.arena;
-      const n = Math.round(dens * width / 9 + (rng.next() - 0.5));
+      let air = 0;
+      for (let c = q.c0; c <= q.c1; c++) air += q.floor[c]! - ceilAt(q.band, c);
+      air /= width;
+      const n = Math.round((dens * width * air) / 35 + (rng.next() - 0.5));
       const made: { c0: number; c1: number; r: number }[] = [];
       for (let i = 0; i < n * 3 && made.length < n * (1 + v); i++) {
         const w = rng.int(3, 6);
         const c0 = rng.int(q.c0 + 2, q.c1 - 1 - w);
         const c1 = c0 + w - 1;
-        if (c0 < q.c0 + 2 || !zoneFree(q, c0 - 1, c1 + 1)) continue;
+        if (c0 < q.c0 + 2) continue;
+        // Over ladders, holes, chutes and gate entries never; over a side door's floor or the arena only well above it (below).
+        const soft = (z: [number, number]) => q.soft.some((f) => f.c0 === z[0] && f.c1 === z[1]) || (q.arena && q.arena[0] === z[0] && q.arena[1] === z[1]);
+        if (q.zones.some((z) => !soft(z) && c0 - 1 <= z[1] && c1 + 1 >= z[0])) continue;
         // On a tier above another platform it overlaps, or above the floor.
         const under = made.filter((m) => m.c0 <= c1 + 1 && m.c1 >= c0 - 1);
         let base = Infinity;
         for (let c = c0 - 1; c <= c1 + 1; c++) base = Math.min(base, q.floor[c]!);
         let r = base - u.rise;
-        if (under.length && rng.chance(0.5 + v * 0.4)) r = Math.min(...under.map((m) => m.r)) - u.rise;
-        else if (under.length) continue;
+        if (under.length) r = Math.min(...under.map((m) => m.r)) - u.rise;
         if (arena && c1 >= arena[0] - 1 && c0 <= arena[1] + 1 && base - r < u.rise + u.body + 2) continue;
+        if (q.soft.some((f) => c0 - 1 <= f.c1 && c1 + 1 >= f.c0 && r > f.row - 4)) continue;
         let top = 0;
         for (let c = c0 - 1; c <= c1 + 1; c++) top = Math.max(top, ceilAt(q.band, c));
         if (r - top < u.body + 1) continue;

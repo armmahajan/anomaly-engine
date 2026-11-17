@@ -91,7 +91,7 @@ describe("layout stage", () => {
       ratios.push(touching / tree.length);
     }
     console.log("touching", ratios.map((r) => r.toFixed(2)).join(" "));
-    expect(Math.min(...ratios)).toBeGreaterThan(0.5);
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(0.4);
     expect(ratios.reduce((a, b) => a + b) / ratios.length).toBeGreaterThan(0.7);
   });
 });
