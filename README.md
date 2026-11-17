@@ -92,6 +92,14 @@ e2e/            Playwright acceptance test.
     toolbar, replayable) that drives `chance`.
   - Primitive tests run the real game headless (`game/tests/simulate.gd`)
     at a fixed 60 fps and assert positions and states.
+- **Geometry is tiles.** Rooms (and the arena) are grids of 32 px tiles
+  (`packages/core/src/world/tiles.ts`): `.` empty, `#` solid, `=` ledge
+  (thin and solid; thickness is one per-game setting, `world.ledgeThickness`),
+  `-` one-way (jump up through it), `^` hazard, `%` breakable (a ground pound
+  smashes the whole connected area). Collision rectangles are derived from
+  the grid (`gridToSolids`) and sent to the runtime with the project
+  (`toRuntimeProject`), never stored. The game's rooms, doors and rules live
+  in `project.world` (`world/world.ts`).
 - **Movement is exact and modelled.** The player moves with its own
   box-against-rectangles code (not Godot's `move_and_slide`), mirrored line
   for line by `packages/core/src/movement/` in TypeScript. On top of that

@@ -2,6 +2,8 @@ import { SCHEMA_VERSION, type EnemyCharacter, type ProjectSpec } from "./schema.
 import { defaultWiki } from "./wiki/wiki.ts";
 import { defaultProgression } from "./progression/progression.ts";
 import { defaultAbilityTuning } from "./movement/params.ts";
+import { borderedGrid, fillTiles, TILE, type TileGrid } from "./world/tiles.ts";
+import { defaultWorld } from "./world/world.ts";
 import { defaultArtSection } from "./art/asset.ts";
 
 /** Starter project: a sandbox arena with a player, a patroller and a charger. */
@@ -84,31 +86,39 @@ export function createDefaultProject(): ProjectSpec {
       },
     ],
     sandbox: {
-      width: 1600,
-      height: 720,
       gravity: 1800,
       backgroundColor: "#1b2030",
       platformColor: "#4a5470",
       playerAbilities: [],
-      platforms: [
-        { x: 0, y: 660, width: 1600, height: 60 }, // floor
-        { x: -40, y: 0, width: 40, height: 720 }, // left wall
-        { x: 1600, y: 0, width: 40, height: 720 }, // right wall
-        { x: -40, y: -40, width: 1680, height: 40 }, // ceiling (wall jumps can climb)
-        { x: 380, y: 530, width: 220, height: 20 },
-        { x: 720, y: 420, width: 220, height: 20, breakable: true },
-      ],
+      grid: defaultArenaGrid(),
       spawns: [
-        { id: "player_1", characterId: "player", x: 160, y: 660 },
-        { id: "crawler_1", characterId: "crawler", x: 1150, y: 660 },
-        { id: "charger_1", characterId: "charger", x: 640, y: 660 },
+        { id: "player_1", characterId: "player", x: 160, y: ARENA_FLOOR },
+        { id: "crawler_1", characterId: "crawler", x: 1150, y: ARENA_FLOOR },
+        { id: "charger_1", characterId: "charger", x: 640, y: ARENA_FLOOR },
       ],
       dressing: null,
     },
     wiki: defaultWiki(),
     progression: defaultProgression(),
     art: defaultArtSection(),
+    world: defaultWorld(),
   };
+}
+
+/** Top of the default arena's floor, px. */
+export const ARENA_FLOOR = 21 * TILE;
+
+/**
+ * The starter arena: 50 x 23 tiles (1600 x 736 px) with walls, a ceiling and
+ * a two-tile floor; a ledge (x 384-608, top y 544) and a breakable block
+ * (x 736-928, y 416-448) to stand on.
+ */
+export function defaultArenaGrid(): TileGrid {
+  let grid = borderedGrid(50, 23);
+  grid = fillTiles(grid, { col: 0, row: 21, cols: 50, rows: 1 }, "solid");
+  grid = fillTiles(grid, { col: 12, row: 17, cols: 7, rows: 1 }, "ledge");
+  grid = fillTiles(grid, { col: 23, row: 13, cols: 6, rows: 1 }, "breakable");
+  return grid;
 }
 
 /** A plain patrolling enemy: the starting point for "+ Enemy" in the studio. */

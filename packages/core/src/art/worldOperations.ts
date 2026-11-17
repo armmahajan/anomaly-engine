@@ -5,6 +5,7 @@ import type { OperationError, OperationResult } from "../operations.ts";
 import { ProjectSpec } from "../schema.ts";
 import type { BiomeAsset } from "./asset.ts";
 import { BiomeKit, Room, WorldLayer, WorldScene, type PlatformRect } from "./world.ts";
+import { fillTiles, gridCols, gridPlatforms, gridRows, gridSize, rectsToGrid, type TileGrid } from "../world/tiles.ts";
 
 /**
  * World operations (biomes, rooms, placements, the arena's dressing). Same
@@ -265,7 +266,17 @@ export function setDressing(project: ProjectSpec, input: unknown): OperationResu
 
 export const ApplyRoomLayoutInput = z.strictObject({ assetId: Id, roomId: Id });
 
-/** Accept a room's suggested layout: the arena's platforms become it, and the arena is dressed with the room. */
+/** A suggested layout on the arena's grid (same size), keeping its walls and ceiling. */
+function layoutGrid(arena: TileGrid, layout: PlatformRect[]): TileGrid {
+  const cols = gridCols(arena);
+  const rows = gridRows(arena);
+  let grid = rectsToGrid(layout, cols, rows);
+  grid = fillTiles(grid, { col: 0, row: 0, cols: 1, rows }, "solid");
+  grid = fillTiles(grid, { col: cols - 1, row: 0, cols: 1, rows }, "solid");
+  return fillTiles(grid, { col: 0, row: 0, cols, rows: 1 }, "solid");
+}
+
+/** Accept a room's suggested layout: the arena's tiles become it, and the arena is dressed with the room. */
 export function applyRoomLayout(project: ProjectSpec, input: unknown): OperationResult {
   const p = parse(ApplyRoomLayoutInput, input, "applyRoomLayout");
   if (!p.ok) return p;
@@ -279,7 +290,7 @@ export function applyRoomLayout(project: ProjectSpec, input: unknown): Operation
   return commit({
     ...project,
     art: { ...project.art, assets },
-    sandbox: { ...project.sandbox, platforms: found.room.layout, dressing: { biome: found.biome.id, room: found.room.id } },
+    sandbox: { ...project.sandbox, grid: layoutGrid(project.sandbox.grid, found.room.layout), dressing: { biome: found.biome.id, room: found.room.id } },
   });
 }
 
@@ -311,18 +322,19 @@ export function worldSceneFor(project: ProjectSpec, biomeId: string, roomId: str
   if (!biome || biome.kind !== "biome" || !biome.kit) return null;
   const room = biome.rooms.find((r) => r.id === roomId);
   if (!room) return null;
-  const platforms: PlatformRect[] = useRoomLayout && room.layout ? room.layout : project.sandbox.platforms;
+  const grid = useRoomLayout && room.layout ? layoutGrid(project.sandbox.grid, room.layout) : project.sandbox.grid;
+  const ledgeThickness = project.world.ledgeThickness;
+  const size = gridSize(grid);
   const scene = WorldScene.safeParse({
     name: room.name,
-    width: Math.max(960, project.sandbox.width),
-    height: Math.max(360, project.sandbox.height),
+    width: Math.max(960, size.width),
+    height: Math.max(360, size.height),
+    terrain: { grid, ledgeThickness },
     backdrop: biome.kit.backdrop,
     ground: biome.kit.ground,
     pieces: biome.kit.pieces,
-    // Breakable platforms keep their own look in play (they can disappear), so the room leaves them out.
-    platforms: platforms
-      .filter((r) => r.width >= 8 && r.height >= 8 && !("breakable" in r && r.breakable))
-      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    // Breakable tiles keep their own look in play (they can disappear), so the room's shapes leave them out.
+    platforms: gridPlatforms(grid, ledgeThickness),
     ...room.composition,
   });
   return scene.success ? scene.data : null;

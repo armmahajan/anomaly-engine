@@ -4,6 +4,7 @@ import {
   MAX_SEED,
   PROTOCOL_VERSION,
   snapPlacement,
+  toRuntimeProject,
   type AgentId,
   type ArtJobRequest,
   type Stage,
@@ -141,8 +142,7 @@ export class Session {
     const { runtimeStatus, mode, project } = this.state;
     if (runtimeStatus !== "ready" || mode !== "edit" || this.requestedRevision === project.revision) return;
     // The runtime never needs the design documents.
-    const runtimeProject = { ...project, wiki: { pages: [] }, progression: { abilities: [], regions: [], connections: [], beats: [] } };
-    if (this.bridge.send({ type: "load", project: runtimeProject })) this.requestedRevision = project.revision;
+    if (this.bridge.send({ type: "load", project: toRuntimeProject(project) })) this.requestedRevision = project.revision;
     // A dressed arena needs its biome's images (sent once; the runtime redraws when they arrive).
     const dressing = project.sandbox.dressing;
     const biome = dressing && project.art.assets.find((a) => a.id === dressing.biome);

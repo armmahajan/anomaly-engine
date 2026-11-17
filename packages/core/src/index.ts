@@ -28,3 +28,6 @@ export * from "./art/world.ts";
 export * from "./art/worldOperations.ts";
 export * from "./art/worldSnap.ts";
 export * from "./art/fileRef.ts";
+export * from "./world/tiles.ts";
+export * from "./world/world.ts";
+export * from "./world/runtime.ts";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyBatch, applyOperation, createDefaultProject, lintProject, migrateProject, ProjectSpec, worldSceneFor, type BiomeAsset, type OperationResult, type ProjectSpec as Project } from "../src/index.ts";
+import { applyBatch, applyOperation, createDefaultProject, lintProject, migrateProject, ProjectSpec, SCHEMA_VERSION, worldSceneFor, type BiomeAsset, type OperationResult, type ProjectSpec as Project } from "../src/index.ts";
 
 const REF = (n: number) => `${String(n).repeat(16)}.png`;
 
@@ -60,11 +60,13 @@ describe("world data", () => {
     expect(project.sandbox.dressing).toEqual({ biome: "cathedral", room: "hall" });
   });
 
-  it("leaves breakable platforms out of the room's scene (they keep their own look and can disappear)", () => {
+  it("gives the room's scene the arena's tiles, with breakables left out of its shapes (they keep their own look)", () => {
     const project = withBiome();
-    const floor = { x: 0, y: 660, width: 1600, height: 60 };
-    const withBreakable: Project = { ...project, sandbox: { ...project.sandbox, platforms: [floor, { x: 600, y: 480, width: 120, height: 24, breakable: true }] } };
-    expect(worldSceneFor(withBreakable, "cathedral", "hall")?.platforms).toEqual([floor]);
+    const scene = worldSceneFor(project, "cathedral", "hall")!;
+    expect(scene.terrain).toEqual({ grid: project.sandbox.grid, ledgeThickness: 20 });
+    expect(scene.platforms).toContainEqual({ x: 32, y: 672, width: 1536, height: 64 });
+    expect(scene.platforms).toContainEqual({ x: 384, y: 544, width: 224, height: 20 });
+    expect(scene.platforms.some((p) => p.y === 416)).toBe(false);
   });
 
   it("old projects load without a dressing", () => {
@@ -91,9 +93,11 @@ describe("world data", () => {
     expect(biome(project).rooms[0]!.composition.palette.ambient).toBe("#a0a0b0");
   });
 
-  it("accepting a suggested layout replaces the arena's platforms (one undoable step)", () => {
+  it("accepting a suggested layout replaces the arena's tiles, keeping its walls and ceiling (one undoable step)", () => {
     const project = ok(applyOperation(withBiome(), "applyRoomLayout", { assetId: "cathedral", roomId: "hall" }));
-    expect(project.sandbox.platforms).toEqual([{ x: 0, y: 600, width: 1600, height: 120 }]);
+    expect(project.sandbox.grid.rows[0]).toBe("#".repeat(50));
+    expect(project.sandbox.grid.rows[10]).toBe(`#${".".repeat(48)}#`);
+    expect(project.sandbox.grid.rows.slice(19)).toEqual(Array(4).fill("#".repeat(50)));
     expect(biome(project).rooms[0]!.layout).toBeNull();
   });
 
@@ -110,11 +114,13 @@ describe("world data", () => {
 describe("loading older projects", () => {
   it("snaps world pieces stranded outside their room back in, and leaves the rest alone", () => {
     const project = withBiome();
-    const old = JSON.parse(JSON.stringify({ ...project, schemaVersion: 3 }));
+    // A project as saved at v3: the arena was platform rectangles.
+    const { grid: _grid, ...sandbox } = project.sandbox;
+    const old = JSON.parse(JSON.stringify({ ...project, schemaVersion: 3, sandbox: { ...sandbox, width: 1600, height: 720, platforms: [{ x: 0, y: 660, width: 1600, height: 60 }] } }));
     const placements = old.art.assets.find((a: { id: string }) => a.id === "cathedral").rooms[0].composition.placements;
     placements[0].y = 0; // the mid pillar, wholly above the room's top
     const migrated = ProjectSpec.parse(migrateProject(old));
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     const [pillar, lantern] = biome(migrated).rooms[0]!.composition.placements;
     expect(pillar).toMatchObject({ id: "pl_1", x: 300, y: 660 });
     expect(lantern).toEqual(biome(project).rooms[0]!.composition.placements[1]);

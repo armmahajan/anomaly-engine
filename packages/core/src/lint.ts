@@ -1,5 +1,6 @@
 import type { ProjectSpec } from "./schema.ts";
 import { lintArt, type ArtWarningCode } from "./art/lint.ts";
+import { gridSize, gridToSolids } from "./world/tiles.ts";
 
 /**
  * Semantic checks the schema can't express. A project with warnings is still
@@ -35,18 +36,20 @@ const MOVEMENT_ONLY: Record<string, { movement: "ground" | "flying"; otherwise: 
 export function lintProject(project: ProjectSpec): ProjectWarning[] {
   const warnings: ProjectWarning[] = [];
   const { sandbox } = project;
+  const size = gridSize(sandbox.grid);
+  const solids = gridToSolids(sandbox.grid, project.world.ledgeThickness).filter((s) => s.kind !== "oneway");
 
   sandbox.spawns.forEach((spawn, i) => {
     const path = `sandbox.spawns.${i}`;
-    if (spawn.x < 0 || spawn.x > sandbox.width || spawn.y < 0 || spawn.y > sandbox.height) {
+    if (spawn.x < 0 || spawn.x > size.width || spawn.y < 0 || spawn.y > size.height) {
       warnings.push({
         code: "spawn_out_of_bounds",
         path,
-        message: `spawn "${spawn.id}" at (${spawn.x}, ${spawn.y}) is outside the ${sandbox.width}x${sandbox.height} arena`,
+        message: `spawn "${spawn.id}" at (${spawn.x}, ${spawn.y}) is outside the ${size.width}x${size.height} arena`,
       });
     }
     // Feet strictly inside a solid (not resting on its top edge) means stuck in it.
-    const embedded = sandbox.platforms.find(
+    const embedded = solids.find(
       (p) => spawn.x > p.x && spawn.x < p.x + p.width && spawn.y > p.y + 1 && spawn.y < p.y + p.height,
     );
     if (embedded) {

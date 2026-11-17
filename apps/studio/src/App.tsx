@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { newEnemyCharacter, progressionReport, snapPlacement, uniqueId, worldSceneFor, type ChangeResult } from "@anomaly/core";
+import { gridSize, newEnemyCharacter, progressionReport, snapPlacement, uniqueId, worldSceneFor, type ChangeResult } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { Inspector } from "./Inspector.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
@@ -67,7 +67,7 @@ export function App({ session }: { session: Session }) {
   const characterIds = project.characters.map((c) => c.id);
   const playerSpawn = project.sandbox.spawns.find((s) => s.characterId === "player");
   /** Where new things appear: arena centre, on the player's floor. */
-  const defaultSpawn = { x: Math.round(project.sandbox.width / 2), y: playerSpawn?.y ?? 0 };
+  const defaultSpawn = { x: Math.round(gridSize(project.sandbox.grid).width / 2), y: playerSpawn?.y ?? 0 };
 
   const report = (result: ChangeResult) => {
     if (!result.ok) session.reportProblem(result.error.message);

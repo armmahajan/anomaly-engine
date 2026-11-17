@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { collectConsoleErrors, commitField, openStudio, projectRevision, runtimeState, waitForRuntimeAfter, resetProject, type Snapshot } from "./helpers.ts";
 
-const FLOOR = 660;
+const FLOOR = 672;
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const find = (s: Snapshot, spawnId: string) => s.entities.find((e) => e.spawnId === spawnId)!;
 

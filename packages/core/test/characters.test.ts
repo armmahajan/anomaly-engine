@@ -106,7 +106,7 @@ describe("spawns", () => {
 
   it("moves one axis at a time", () => {
     const project = ok(moveSpawn(createDefaultProject(), { spawnId: "charger_1", x: 700 }));
-    expect(project.sandbox.spawns.find((s) => s.id === "charger_1")).toMatchObject({ x: 700, y: 660 });
+    expect(project.sandbox.spawns.find((s) => s.id === "charger_1")).toMatchObject({ x: 700, y: 672 });
     expect(moveSpawn(project, { spawnId: "nope", x: 1 })).toMatchObject({ error: { code: "not_found" } });
   });
 

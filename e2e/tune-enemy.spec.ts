@@ -53,8 +53,8 @@ test("tune the enemy, playtest, reset, tune again", async ({ page }) => {
   await expect(status).toHaveText("Editing");
   const reset = await runtimeState(page);
   expect(reset.mode).toBe("edit");
-  expect(reset.entities.find((e) => e.characterId === "player")).toMatchObject({ x: 160, y: 660 });
-  expect(reset.entities.find((e) => e.characterId === "crawler")).toMatchObject({ x: 1150, y: 660 });
+  expect(reset.entities.find((e) => e.characterId === "player")).toMatchObject({ x: 160, y: 672 });
+  expect(reset.entities.find((e) => e.characterId === "crawler")).toMatchObject({ x: 1150, y: 672 });
   expect(reset.entities.find((e) => e.characterId === "charger")).toMatchObject({ x: 640, behaviorState: "patrol" });
 
   // Invalid values are rejected; project and game keep the last valid value.

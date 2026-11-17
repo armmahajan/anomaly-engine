@@ -7,6 +7,8 @@ import {
   PlatformRect,
   RoomComposition,
   snapPlacements,
+  gridPlatforms,
+  gridSize,
   uniqueId,
   withPlacementIds,
   WorldLayer,
@@ -259,7 +261,8 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
   const biome = findBiome(project, input.biomeId);
   if (!biome.kit) throw new StageError(`paint ${biome.name}'s kit first`);
   const kit = biome.kit;
-  const { width, height } = project.sandbox;
+  const { width, height } = gridSize(project.sandbox.grid);
+  const arenaPlatforms = gridPlatforms(project.sandbox.grid, project.world.ledgeThickness);
   const backdrop = await ctx.files.get(kit.backdrop);
   const schema = input.newLayout ? RoomComposition.extend({ platforms: z.array(PlatformRect).min(1).max(12) }) : RoomComposition;
   const composed = (await ask(
@@ -270,7 +273,7 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
         "You are a level art director for a 2D side-scrolling platformer. You compose beautiful, deep, atmospheric rooms from a kit of sprites by writing scene data. You value negative space, clear silhouettes and a readable play area.",
       content: [
         { type: "image", image: backdrop },
-        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : project.sandbox.platforms, input.feedback) },
+        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback) },
       ],
       maxTokens: 12000,
     },
@@ -286,10 +289,8 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
   const room: SnapRoom = {
     width: Math.max(960, width),
     height: Math.max(360, height),
-    // Nothing rests on breakable platforms (a ground pound removes them).
-    platforms: (platforms ?? project.sandbox.platforms)
-      .filter((r) => r.width >= 8 && r.height >= 8 && !("breakable" in r && r.breakable))
-      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+    // Nothing rests on breakable tiles (a ground pound removes them): gridPlatforms leaves them out.
+    platforms: (platforms ?? arenaPlatforms).filter((r) => r.width >= 8 && r.height >= 8).map(({ x, y, width, height }) => ({ x, y, width, height })),
   };
   const snapped = snapPlacements(withPlacementIds(known), kit.pieces, room);
   if (snapped.moved > 0) ctx.log({ text: `snapped ${snapped.moved} piece(s) onto surfaces` });

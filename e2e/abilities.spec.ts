@@ -98,14 +98,14 @@ test("a ground pound smashes the cracked platform", async ({ page }) => {
       baseRevision: base,
       operations: [
         { name: "setArenaAbilities", input: { abilities: ["ground_pound"] } },
-        { name: "moveSpawn", input: { spawnId: "player_1", x: 830, y: 420 } },
+        { name: "moveSpawn", input: { spawnId: "player_1", x: 830, y: 416 } },
       ],
     },
   });
   expect(res.ok(), await res.text()).toBe(true);
   await waitForRuntimeAfter(page, base);
   await play(page);
-  await expect.poll(async () => playerOf(await runtimeState(page)).y).toBe(420);
+  await expect.poll(async () => playerOf(await runtimeState(page)).y).toBe(416);
   await page.keyboard.down("Space");
   await pause(120);
   await page.keyboard.up("Space");
@@ -114,5 +114,5 @@ test("a ground pound smashes the cracked platform", async ({ page }) => {
   await pause(60);
   await page.keyboard.up("Space");
   await page.keyboard.up("s");
-  await expect.poll(async () => playerOf(await runtimeState(page)).y, { timeout: 3000 }).toBe(660);
+  await expect.poll(async () => playerOf(await runtimeState(page)).y, { timeout: 3000 }).toBe(672);
 });

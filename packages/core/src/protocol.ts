@@ -4,6 +4,7 @@ import type { ArtDirection } from "./art/asset.ts";
 import type { Clip } from "./art/clip.ts";
 import type { Rig } from "./art/rig.ts";
 import type { WorldLayer, WorldScene } from "./art/world.ts";
+import type { RuntimeProject } from "./world/runtime.ts";
 
 /**
  * Studio <-> runtime messages, sent with window.postMessage as JSON strings.
@@ -16,7 +17,7 @@ import type { WorldLayer, WorldScene } from "./art/world.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -25,7 +26,7 @@ export const RuntimeMode = z.enum(["edit", "play"]);
 export type RuntimeMode = z.infer<typeof RuntimeMode>;
 
 export type StudioToRuntime =
-  | { type: "load"; project: ProjectSpec }
+  | { type: "load"; project: RuntimeProject }
   /** `seed` drives every random choice in the run (e.g. `chance`), so a run can be replayed. */
   | { type: "play"; seed: number }
   | { type: "stop" }

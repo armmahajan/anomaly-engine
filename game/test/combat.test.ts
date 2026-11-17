@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { arena, entity, FPS, range, simulate, type Input, type Sample, type Scenario } from "./simulate.ts";
+import { ARENA_FLOOR } from "@anomaly/core";
 
-const FLOOR = 660;
+const FLOOR = ARENA_FLOOR;
 const s = (seconds: number) => Math.round(seconds * FPS);
 const press = (action: Input, from: number, to = from + 2) => ({ action, from, to });
 const track = (samples: Sample[], spawnId: string) => samples.map((x) => entity(x, spawnId));

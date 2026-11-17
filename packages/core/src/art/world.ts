@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import { FileRef } from "./fileRef.ts";
+import { TileGrid } from "../world/tiles.ts";
 
 /**
  * World art (prototype): a *biome kit* (one painted backdrop, sliced piece
@@ -49,6 +50,8 @@ const Y = z.number().min(-2000).max(4000);
 
 export const WorldScene = z.strictObject({
   name: z.string().max(120),
+  /** The tiles the runtime draws as terrain (`platforms` are the same shapes as rectangles, for snapping and older drawing). */
+  terrain: z.strictObject({ grid: TileGrid, ledgeThickness: z.number().int().min(4).max(32) }).optional(),
   width: z.number().min(960).max(20_000),
   height: z.number().min(360).max(4000),
   backdrop: FileRef,

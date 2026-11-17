@@ -79,7 +79,7 @@ var _wall_frames := 0
 var _wall_normal := 0.0
 var _pounding := false
 var _pound_recover := 0
-## Solid rectangles to collide with, set by main.gd: {x, y, w, h, breakable, body}.
+## Solid rectangles to collide with, set by main.gd: {x, y, w, h, kind, group, body}.
 var solids: Array = []
 # Position and velocity in 64-bit floats (Vector2 is 32-bit); mirrored to position/velocity.
 var _px := 0.0
@@ -331,13 +331,17 @@ func _jump(on_floor: bool) -> void:
 		_buffer = 0
 
 
-## A ground pound landed: smash the platform under the feet if it is breakable.
+## A ground pound landed: smash the breakable area under the feet (every solid of its group).
 func _smash_floor() -> bool:
-	if _floor_solid == null or not _floor_solid.breakable:
+	if _floor_solid == null or str(_floor_solid.kind) != "breakable":
 		return false
-	solids.erase(_floor_solid)
-	smashed.emit(Rect2(_floor_solid.x, _floor_solid.y, _floor_solid.w, _floor_solid.h))
-	_floor_solid.body.queue_free()
+	var hit = _floor_solid
+	for solid in solids.duplicate():
+		if solid == hit or (hit.group != null and str(solid.kind) == "breakable" and solid.group == hit.group):
+			solids.erase(solid)
+			smashed.emit(Rect2(solid.x, solid.y, solid.w, solid.h))
+			if solid.body != null:
+				solid.body.queue_free()
 	_floor_solid = null
 	return true
 
@@ -362,6 +366,9 @@ func _move(delta: float) -> void:
 		var best_axis := ""
 		var best_solid = null
 		for solid in solids:
+			# One-way platforms only catch you falling onto them from above.
+			if str(solid.kind) == "oneway" and not (ry > 0.0 and _py <= solid.y + EPS):
+				continue
 			var sx = _span(_px - hw, _px + hw, rx, solid.x, solid.x + solid.w)
 			var sy = _span(_py - _size.y, _py, ry, solid.y, solid.y + solid.h)
 			if sx.is_empty() or sy.is_empty():
@@ -370,9 +377,12 @@ func _move(delta: float) -> void:
 			var exit: float = minf(sx[1], sy[1])
 			if entry > exit - EPS or entry < -EPS or entry > 1.0 or (sx[0] < -EPS and sy[0] < -EPS):
 				continue
+			var axis := "x" if sx[0] > sy[0] else "y"
+			if str(solid.kind) == "oneway" and axis == "x":
+				continue
 			if entry < best_t:
 				best_t = entry
-				best_axis = "x" if sx[0] > sy[0] else "y"
+				best_axis = axis
 				best_solid = solid
 		if best_axis == "":
 			_px += rx

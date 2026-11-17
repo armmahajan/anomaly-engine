@@ -1,5 +1,6 @@
 import { SCHEMA_VERSION } from "./schema.ts";
 import { snapPlacement } from "./art/worldSnap.ts";
+import { fillTiles, isOpen, rectsToGrid, TILE, type TileGrid } from "./world/tiles.ts";
 
 /**
  * Upgrade a stored project (or history snapshot) to the current schema
@@ -80,6 +81,38 @@ const steps: Record<number, (project: Json) => Json> = {
       return { ...asset, rooms };
     });
     return { ...project, schemaVersion: 4, ...(isObject(project.art) && { art: { ...art, assets } }) };
+  },
+
+  /**
+   * v4 -> v5: the arena's platform rectangles become a 32 px tile grid (its
+   * size is the grid's). Walls, floor and ceiling that sat outside the old
+   * arena's edges become its border tiles; spawns left inside a solid tile
+   * move up out of it.
+   */
+  4: (project) => {
+    const { width: w, height: h, platforms, ...sandbox } = isObject(project.sandbox) ? project.sandbox : ({} as Json);
+    const width = Number(w) || 1600;
+    const height = Number(h) || 720;
+    const cols = Math.max(4, Math.ceil(width / TILE));
+    const rows = Math.max(4, Math.ceil(height / TILE));
+    type R = { x: number; y: number; width: number; height: number; breakable?: boolean };
+    const rects = (Array.isArray(platforms) ? platforms : []).filter(isObject) as unknown as R[];
+    let grid: TileGrid = rectsToGrid(rects, cols, rows);
+    const tall = (r: R) => r.height >= height / 2;
+    const wide = (r: R) => r.width >= width / 2;
+    if (rects.some((r) => r.x + r.width <= 0 && tall(r))) grid = fillTiles(grid, { col: 0, row: 0, cols: 1, rows }, "solid");
+    if (rects.some((r) => r.x >= width && tall(r))) grid = fillTiles(grid, { col: cols - 1, row: 0, cols: 1, rows }, "solid");
+    if (rects.some((r) => r.y + r.height <= 0 && wide(r))) grid = fillTiles(grid, { col: 0, row: 0, cols, rows: 1 }, "solid");
+    if (rects.some((r) => r.y >= height && wide(r))) grid = fillTiles(grid, { col: 0, row: rows - 1, cols, rows: 1 }, "solid");
+    const spawns = (Array.isArray(sandbox.spawns) ? sandbox.spawns : []).map((s: unknown) => {
+      if (!isObject(s)) return s;
+      const x = Math.min(Math.max(Number(s.x), TILE * 1.5), cols * TILE - TILE * 1.5);
+      let y = Number(s.y);
+      // A box about a character's size, moved up a tile at a time until it is clear.
+      for (let tries = 0; tries < rows && !isOpen(grid, x, y, 28, 40); tries++) y = (Math.ceil(y / TILE) - 1) * TILE;
+      return { ...s, x, y };
+    });
+    return { ...project, schemaVersion: 5, sandbox: { ...sandbox, grid, spawns } };
   },
 };
 

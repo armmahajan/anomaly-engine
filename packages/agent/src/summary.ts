@@ -1,4 +1,4 @@
-import { lintProject, movementModel, movementParams, type Action, type Character, type Condition, type ProjectSpec, type Transition } from "@anomaly/core";
+import { gridSize, lintProject, movementModel, movementParams, TILE, type Action, type Character, type Condition, type ProjectSpec, type Transition } from "@anomaly/core";
 
 /**
  * Compact, readable descriptions of the project for the model. The raw JSON
@@ -39,13 +39,14 @@ export function summarizeProject(project: ProjectSpec): string {
   const { sandbox } = project;
   const playerSpawn = sandbox.spawns.find((s) => project.characters.find((c) => c.id === s.characterId)?.kind === "player");
   const player = project.characters.find((c) => c.kind === "player");
+  const size = gridSize(sandbox.grid);
   const reach = player?.kind === "player" ? movementModel(movementParams(player, sandbox.gravity), sandbox.playerAbilities) : undefined;
   const warnings = lintProject(project);
   return [
     `Project "${project.name}" (revision ${project.revision})`,
-    `Arena: ${sandbox.width}x${sandbox.height} px, gravity ${sandbox.gravity} px/s^2, y grows downward.` +
+    `Arena: ${size.width}x${size.height} px (${TILE} px tiles), gravity ${sandbox.gravity} px/s^2, y grows downward.` +
       (playerSpawn ? ` The player stands on y = ${playerSpawn.y}.` : ""),
-    `Platforms (x, y, width, height): ${sandbox.platforms.map((p) => `(${p.x}, ${p.y}, ${p.width}, ${p.height}${p.breakable ? ", breakable" : ""})`).join(" ")}`,
+    `Arena tiles (row 0 at the top; . empty, # solid, = ledge, - one-way, ^ hazard, % breakable):\n${sandbox.grid.rows.join("\n")}`,
     reach
       ? `Player abilities in arena playtests: ${sandbox.playerAbilities.join(", ") || "none"}. With them the player jumps ${Math.round(reach.maxHeight)} px high and crosses gaps up to ${Math.round(reach.maxGap(0))} px between platforms at the same height${reach.climbsWalls ? "; climbs walls" : ""}${reach.breaksFloors ? "; smashes breakable platforms" : ""}.`
       : "",

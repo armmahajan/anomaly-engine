@@ -1,9 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { createDefaultProject, type ProjectSpec } from "@anomaly/core";
+import { ARENA_FLOOR, createDefaultProject, type ProjectSpec } from "@anomaly/core";
 import { arena, at, entity, FPS, range, simulate, type Sample, type Scenario } from "./simulate.ts";
 
-const FLOOR = 660;
-const PLATFORM = { left: 380, right: 600, top: 530 };
+const FLOOR = ARENA_FLOOR;
+/** The starter arena's ledge. */
+const PLATFORM = { left: 384, right: 608, top: 544 };
 const wait = { type: "wait" };
 const s = (seconds: number) => Math.round(seconds * FPS);
 const statesOf = (samples: Sample[], spawnId: string) => samples.map((x) => entity(x, spawnId).behaviorState);
@@ -106,14 +107,14 @@ const scenarios = {
   senses: {
     project: arena(
       [
-        { id: "high", at: [830, 420], initial: "idle", states: { idle: { action: wait, go: [[{ type: "playerBelow" }, "yes"]] }, yes: { action: wait } } },
+        { id: "high", at: [830, 416], initial: "idle", states: { idle: { action: wait, go: [[{ type: "playerBelow" }, "yes"]] }, yes: { action: wait } } },
         { id: "level", at: [1100, FLOOR], initial: "idle", states: { idle: { action: wait, go: [[{ type: "playerAbove" }, "yes"]] }, yes: { action: wait } } },
         { id: "facer", at: [600, FLOOR], initial: "idle", states: { idle: { action: wait, go: [[{ type: "playerBehind" }, "yes"]] }, yes: { action: wait } } },
         { id: "front", at: [600, FLOOR], initial: "idle", states: { idle: { action: wait, go: [[{ type: "playerInFront" }, "yes"]] }, yes: { action: wait } } },
         { id: "even", at: [1100, FLOOR], initial: "idle", states: { idle: { action: wait, go: [[{ type: "playerLevel" }, "yes"]] }, yes: { action: wait } } },
-        { id: "uneven", at: [830, 420], initial: "idle", states: { idle: { action: wait, go: [[{ type: "playerLevel" }, "yes"]] }, yes: { action: wait } } },
+        { id: "uneven", at: [830, 416], initial: "idle", states: { idle: { action: wait, go: [[{ type: "playerLevel" }, "yes"]] }, yes: { action: wait } } },
         { id: "seer", at: [1100, FLOOR], initial: "idle", states: { idle: { action: wait, go: [[{ type: "canSeePlayer" }, "yes"]] }, yes: { action: wait } } },
-        { id: "blind", at: [830, 420], initial: "idle", states: { idle: { action: wait, go: [[{ type: "canSeePlayer" }, "yes"]] }, yes: { action: wait } } },
+        { id: "blind", at: [830, 416], initial: "idle", states: { idle: { action: wait, go: [[{ type: "canSeePlayer" }, "yes"]] }, yes: { action: wait } } },
         {
           id: "edge",
           at: [490, PLATFORM.top],

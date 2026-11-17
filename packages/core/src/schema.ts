@@ -6,6 +6,8 @@ import { defaultProgression, Progression, progressionIssues } from "./progressio
 import { AbilityTuning, MovementAbility } from "./movement/params.ts";
 import { ArtSection, defaultArtSection } from "./art/asset.ts";
 import { Dressing } from "./art/world.ts";
+import { TileGrid } from "./world/tiles.ts";
+import { World, worldIssues } from "./world/world.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -13,7 +15,7 @@ import { Dressing } from "./art/world.ts";
  * are the character's feet (bottom-centre).
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 
 const Size = z.strictObject({
@@ -84,17 +86,6 @@ export const Character = z.discriminatedUnion("kind", [PlayerCharacter, EnemyCha
 
 const Coord = z.number().min(-10_000).max(10_000);
 
-const Rect = z.strictObject({
-  x: Coord,
-  y: Coord,
-  width: z.number().min(1).max(10_000),
-  height: z.number().min(1).max(10_000),
-});
-
-const Platform = Rect.extend({
-  breakable: z.boolean().optional().describe("A ground pound smashes it (it stays gone until the run restarts)."),
-});
-
 /** One placed instance of a character type. `id` is stable across edits. */
 export const Spawn = z.strictObject({
   id: Id,
@@ -103,18 +94,17 @@ export const Spawn = z.strictObject({
   y: Coord.describe("Feet y in px; y grows downward (the floor's top is usually the spawn y)."),
 });
 
-/** The empty test room where creators try out character interactions. */
+/** The test room where creators try out character interactions. Its size is its grid's. */
 export const Sandbox = z.strictObject({
-  width: z.number().min(100).max(10_000),
-  height: z.number().min(100).max(10_000),
   gravity: z.number().min(0).max(10_000),
   backgroundColor: Color,
   platformColor: Color,
-  platforms: z.array(Platform).max(500),
+  /** The arena's tiles (see world/tiles.ts). */
+  grid: TileGrid,
   /** Movement abilities the player has when playtesting the arena. */
   playerAbilities: z.array(MovementAbility).max(5).default([]),
   spawns: z.array(Spawn).max(200),
-  /** Biome room drawn over the arena (art only; collision stays these platforms). */
+  /** Biome room drawn over the arena (art only; collision is always the grid). */
   dressing: Dressing.nullable().default(null),
 });
 
@@ -133,9 +123,19 @@ export const ProjectSpec = z
     progression: Progression.default(defaultProgression),
     /** Art direction and generated assets. Older projects get the defaults. */
     art: ArtSection.default(defaultArtSection),
+    /** The game's rooms, doors and rules. Older projects get an empty world. */
+    world: World.prefault({}),
   })
   .superRefine((project, ctx) => {
     for (const issue of progressionIssues(project.progression, project.characters)) ctx.addIssue({ code: "custom", ...issue });
+    const enemies = new Set(project.characters.filter((c) => c.kind === "enemy").map((c) => c.id));
+    for (const issue of worldIssues(project.world, enemies)) ctx.addIssue({ code: "custom", ...issue });
+    const regions = new Set(project.progression.regions.map((r) => r.id));
+    project.world.rooms.forEach((room, i) => {
+      if (room.regionId !== undefined && !regions.has(room.regionId)) {
+        ctx.addIssue({ code: "custom", path: ["world", "rooms", i, "regionId"], message: `unknown progression region "${room.regionId}"` });
+      }
+    });
 
     const assetIds = new Set<string>();
     project.art.assets.forEach((a, i) => {
@@ -144,15 +144,17 @@ export const ProjectSpec = z
       }
       assetIds.add(a.id);
     });
-    const dressing = project.sandbox.dressing;
-    if (dressing) {
+    const checkDressing = (dressing: { biome: string; room: string } | null, path: (string | number)[]) => {
+      if (!dressing) return;
       const biome = project.art.assets.find((a) => a.id === dressing.biome);
       if (!biome || biome.kind !== "biome") {
-        ctx.addIssue({ code: "custom", path: ["sandbox", "dressing", "biome"], message: `unknown biome "${dressing.biome}"` });
+        ctx.addIssue({ code: "custom", path: [...path, "biome"], message: `unknown biome "${dressing.biome}"` });
       } else if (!biome.kit || !biome.rooms.some((r) => r.id === dressing.room)) {
-        ctx.addIssue({ code: "custom", path: ["sandbox", "dressing", "room"], message: `biome "${dressing.biome}" has no room "${dressing.room}"` });
+        ctx.addIssue({ code: "custom", path: [...path, "room"], message: `biome "${dressing.biome}" has no room "${dressing.room}"` });
       }
-    }
+    };
+    checkDressing(project.sandbox.dressing, ["sandbox", "dressing"]);
+    project.world.rooms.forEach((room, i) => checkDressing(room.dressing, ["world", "rooms", i, "dressing"]));
     project.characters.forEach((c, i) => {
       if (c.appearance !== undefined && !project.art.assets.some((a) => a.id === c.appearance && a.kind === "character")) {
         ctx.addIssue({

@@ -87,10 +87,10 @@ describe("executeTool", () => {
 describe("summaries and prompt", () => {
   it("summarize the project readably", () => {
     const summary = summarizeProject(createDefaultProject());
-    expect(summary).toContain("Arena: 1600x720 px");
-    expect(summary).toContain("The player stands on y = 660");
+    expect(summary).toContain("Arena: 1600x736 px");
+    expect(summary).toContain("The player stands on y = 672");
     expect(summary).toContain("windup: telegraph(color #ffd27a, shake false); [0] -> charge when after(seconds 0.6)");
-    expect(summary).toContain("charger_1 (640, 660)");
+    expect(summary).toContain("charger_1 (640, 672)");
     expect(summary).toContain("Warnings: none");
   });
 

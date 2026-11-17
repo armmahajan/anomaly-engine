@@ -3,7 +3,7 @@ extends Node2D
 ## builds the sandbox scene from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 8
+const PROTOCOL_VERSION := 9
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -18,6 +18,7 @@ const RenderService := preload("res://scripts/art/render_service.gd")
 const WorldView := preload("res://scripts/art/world_view.gd")
 const StageView := preload("res://scripts/art/stage_view.gd")
 const WorldStage := preload("res://scripts/art/world_stage.gd")
+const Level := preload("res://scripts/level.gd")
 
 var _project: Dictionary = {}
 var _mode := "edit"
@@ -211,16 +212,7 @@ func _build_world() -> void:
 		_dressing_view.vignette = false
 		_world.add_child(_dressing_view)
 		_dressing_view.build(dressing, _textures, Vector2(sandbox.width, sandbox.height) * 1.5)
-	var solids := []
-	for rect in sandbox.platforms:
-		var breakable := bool(rect.get("breakable", false))
-		var body := _make_platform(rect, platform_color, breakable)
-		# Dressed: the dressing draws the ground, so hide the plain box. Breakable platforms keep their
-		# own look (the dressing leaves them out), since they can disappear.
-		if _dressing_view != null and not breakable:
-			body.get_child(1).visible = false
-		_world.add_child(body)
-		solids.append({"x": float(rect.x), "y": float(rect.y), "w": float(rect.width), "h": float(rect.height), "breakable": breakable, "body": body})
+	var solids: Array = Level.build(_world, sandbox.solids, platform_color, _dressing_view != null)
 
 	var characters := {}
 	for c in _project.characters:
@@ -284,37 +276,6 @@ func _physics_process(_delta: float) -> void:
 		_freeze -= 1
 		if _freeze == 0 and _mode == "play" and _world != null:
 			_world.process_mode = Node.PROCESS_MODE_INHERIT
-
-
-## Breakable platforms are lighter and cracked; a ground pound smashes them (player.gd).
-func _make_platform(rect: Dictionary, color: Color, breakable: bool) -> StaticBody2D:
-	var size := Vector2(rect.width, rect.height)
-	var body := StaticBody2D.new()
-	if breakable:
-		body.set_meta("breakable", true)
-		color = color.lightened(0.25)
-	body.position = Vector2(rect.x, rect.y) + size / 2.0
-	body.collision_layer = 1
-	var shape := CollisionShape2D.new()
-	var box := RectangleShape2D.new()
-	box.size = size
-	shape.shape = box
-	body.add_child(shape)
-	var visual := ColorRect.new()
-	visual.color = color
-	visual.position = -size / 2.0
-	visual.size = size
-	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.add_child(visual)
-	if breakable:
-		for i in range(1, int(size.x / 24.0)):
-			var crack := ColorRect.new()
-			crack.color = color.darkened(0.45)
-			crack.position = Vector2(-size.x / 2.0 + i * 24.0, -size.y / 2.0 + 3.0)
-			crack.size = Vector2(2.0, size.y - 6.0)
-			crack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			body.add_child(crack)
-	return body
 
 
 func _set_mode(mode: String) -> void:
@@ -486,7 +447,8 @@ func _dressing_scene() -> Dictionary:
 		"backdrop": kit.backdrop,
 		"ground": kit.ground,
 		"pieces": kit.pieces,
-		"platforms": sandbox.platforms.filter(func(p): return float(p.width) >= 8.0 and float(p.height) >= 8.0 and not bool(p.get("breakable", false))),
+		"platforms": sandbox.solids.filter(func(p): return str(p.kind) != "breakable" and float(p.height) >= 8.0).map(func(p): return {"x": p.x, "y": p.y, "width": p.width, "height": p.height}),
+		"terrain": {"grid": sandbox.grid, "ledgeThickness": int(_project.get("world", {}).get("ledgeThickness", 20))},
 	}, true)
 	return scene
 

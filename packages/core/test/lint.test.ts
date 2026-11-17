@@ -18,7 +18,7 @@ describe("lintProject", () => {
       ["spawn_out_of_bounds", "sandbox.spawns.3"],
       ["spawn_inside_platform", "sandbox.spawns.4"],
     ]);
-    expect(warnings[1]?.message).toContain("y = 660");
+    expect(warnings[1]?.message).toContain("y = 672");
   });
 
   it("flags enemies with no spawn", () => {

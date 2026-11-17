@@ -3,13 +3,15 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDefaultProject, ProjectSpec, type EntityState } from "@anomaly/core";
+import { ARENA_FLOOR, createDefaultProject, ProjectSpec, toRuntimeProject, type EntityState, type GridSolid } from "@anomaly/core";
 
 const GAME_DIR = fileURLToPath(new URL("..", import.meta.url));
 export const FPS = 60;
 
 export interface Scenario {
   project: ProjectSpec;
+  /** Collision to use instead of the arena grid's (for exact, non-tile geometry in physics tests). */
+  solids?: GridSolid[];
   seed?: number;
   frames: number;
   samples: number[];
@@ -28,7 +30,12 @@ export interface Sample {
 export function simulate(scenarios: Scenario[]): Sample[][] {
   const dir = mkdtempSync(join(tmpdir(), "anomaly-sim-"));
   try {
-    writeFileSync(join(dir, "in.json"), JSON.stringify({ scenarios }));
+    const runtime = scenarios.map(({ solids, project, ...rest }) => {
+      const sent = toRuntimeProject(project);
+      if (solids) sent.sandbox.solids = solids;
+      return { ...rest, project: sent };
+    });
+    writeFileSync(join(dir, "in.json"), JSON.stringify({ scenarios: runtime }));
     execFileSync(
       process.env.GODOT ?? "godot",
       ["--headless", "--fixed-fps", String(FPS), "--path", GAME_DIR, "--script", "res://tests/simulate.gd", "--", join(dir, "in.json"), join(dir, "out.json")],
@@ -61,8 +68,8 @@ export interface EnemySetup {
   stats?: { knockback?: number; health?: number; contactDamage?: number };
 }
 
-/** The default arena (floor top y=660; platforms at x 380-600 y 530 and x 720-940 y 420) with the given enemies. */
-export function arena(enemies: EnemySetup[], player: [number, number] = [160, 660]): ProjectSpec {
+/** The default arena (floor top y=672; a ledge at x 384-608 y 544, a breakable block at x 736-928 y 416) with the given enemies. */
+export function arena(enemies: EnemySetup[], player: [number, number] = [160, ARENA_FLOOR]): ProjectSpec {
   const base = createDefaultProject();
   const toTransitions = (steps: Step[] = []) => steps.map(([when, to]) => ({ when, to }));
   return ProjectSpec.parse({

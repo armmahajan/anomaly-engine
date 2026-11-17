@@ -30,11 +30,11 @@ static func check(project: Variant) -> String:
 	for key in ["backgroundColor", "platformColor"]:
 		if not _is_color(sandbox.get(key)):
 			return "sandbox.%s must be a #rrggbb color" % key
-	if typeof(sandbox.get("platforms")) != TYPE_ARRAY or typeof(sandbox.get("spawns")) != TYPE_ARRAY:
-		return "sandbox.platforms and sandbox.spawns must be arrays"
-	for rect in sandbox.platforms:
-		if typeof(rect) != TYPE_DICTIONARY or not _all_num(rect, ["x", "y", "width", "height"]):
-			return "every platform needs numeric x, y, width, height"
+	if typeof(sandbox.get("solids")) != TYPE_ARRAY or typeof(sandbox.get("spawns")) != TYPE_ARRAY:
+		return "sandbox.solids and sandbox.spawns must be arrays (send core toRuntimeProject)"
+	var problem := check_solids(sandbox.solids)
+	if problem != "":
+		return problem
 	if sandbox.has("playerAbilities"):
 		if typeof(sandbox.playerAbilities) != TYPE_ARRAY:
 			return "sandbox.playerAbilities must be an array"
@@ -164,3 +164,13 @@ static func _valid_param(kind: String, value: Variant) -> bool:
 	if kind.begins_with("enum:"):
 		return typeof(value) == TYPE_STRING and value in kind.substr(5).split("|")
 	return false
+
+
+## Solids derived from a tile grid (core gridToSolids): numeric rectangles with a known kind.
+static func check_solids(solids: Array) -> String:
+	for rect in solids:
+		if typeof(rect) != TYPE_DICTIONARY or not _all_num(rect, ["x", "y", "width", "height"]):
+			return "every solid needs numeric x, y, width, height"
+		if not str(rect.get("kind", "")) in ["solid", "ledge", "oneway", "hazard", "breakable"]:
+			return "solid kind must be solid, ledge, oneway, hazard or breakable"
+	return ""

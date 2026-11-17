@@ -11,8 +11,10 @@ export interface Solid {
   y: number;
   width: number;
   height: number;
-  /** A ground pound smashes it. */
-  breakable?: boolean;
+  /** oneway: only stops you falling onto its top; breakable: a ground pound smashes it (with its group). Default solid. */
+  kind?: "solid" | "ledge" | "oneway" | "hazard" | "breakable";
+  /** Breakable solids that smash together. */
+  group?: number;
 }
 
 /** One physics frame of input: what is held, and what changed this frame. */
@@ -83,7 +85,8 @@ export type Derived = ReturnType<typeof deriveMovement>;
 
 /**
  * Advance one physics frame. Mirrors player.gd `_physics_process` (movement
- * part). A ground pound landing on a breakable solid removes it from `world`.
+ * part). A ground pound landing on a breakable solid removes it, and every
+ * breakable solid of its group, from `world`.
  */
 export function stepMovement(s: MoveState, input: FrameInput, p: MovementParams, d: Derived, world: Solid[]): MoveState {
   const n = { ...s };
@@ -164,8 +167,12 @@ export function stepMovement(s: MoveState, input: FrameInput, p: MovementParams,
   move(n, p, world);
 
   if (n.onFloor && n.pounding) {
-    if (n.floor?.breakable) {
-      world.splice(world.indexOf(n.floor), 1);
+    if (n.floor?.kind === "breakable") {
+      const smashed = n.floor;
+      for (let i = world.length - 1; i >= 0; i--) {
+        const s = world[i]!;
+        if (s === smashed || (smashed.group !== undefined && s.kind === "breakable" && s.group === smashed.group)) world.splice(i, 1);
+      }
       n.floor = null;
     } else {
       n.pounding = false;
@@ -198,6 +205,8 @@ function move(n: MoveState, p: MovementParams, world: readonly Solid[]) {
     const bottom = n.y;
     let best = { t: Infinity, axis: "" as "x" | "y" | "", solid: null as Solid | null };
     for (const r of world) {
+      // One-way platforms only catch you falling onto them from above.
+      if (r.kind === "oneway" && !(ry > 0 && bottom <= r.y + EPS)) continue;
       const span = (lo: number, hi: number, motion: number, rLo: number, rHi: number): [number, number] | null => {
         if (motion > 0) return [(rLo - hi) / motion, (rHi - lo) / motion];
         if (motion < 0) return [(rHi - lo) / motion, (rLo - hi) / motion];
@@ -210,7 +219,9 @@ function move(n: MoveState, p: MovementParams, world: readonly Solid[]) {
       const exit = Math.min(sx[1], sy[1]);
       if (entry > exit - EPS || entry < -EPS || entry > 1) continue;
       if (sx[0] < -EPS && sy[0] < -EPS) continue;
-      if (entry < best.t) best = { t: entry, axis: sx[0] > sy[0] ? "x" : "y", solid: r };
+      const axis = sx[0] > sy[0] ? "x" : "y";
+      if (r.kind === "oneway" && axis === "x") continue;
+      if (entry < best.t) best = { t: entry, axis, solid: r };
     }
     if (best.axis === "") {
       n.x += rx;

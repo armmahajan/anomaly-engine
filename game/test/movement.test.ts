@@ -11,6 +11,7 @@ import {
   WALL,
   wallClimbRun,
   type FrameInput,
+  type GridSolid,
   type MovementAbility,
   type PlayerCharacter,
   type Solid,
@@ -61,21 +62,23 @@ function spansFromFrames(inputs: FrameInput[]): Span[] {
   return spans;
 }
 
-/** A project whose arena is these solids (shifted into positive coordinates) with the player at `start`. */
-function arenaOf(solids: readonly Solid[], start: { x: number; y: number }, abilities: MovementAbility[], offset: { x: number; y: number }): ProjectSpec {
+/** A big empty arena with the player at `start` (collision comes from the scenario's own solids). */
+function arenaOf(start: { x: number; y: number }, abilities: MovementAbility[], offset: { x: number; y: number }): ProjectSpec {
   return ProjectSpec.parse({
     ...base,
     characters: [player],
     sandbox: {
       ...base.sandbox,
-      width: 10_000,
-      height: 9_000,
-      platforms: solids.map((r) => ({ ...r, x: r.x + offset.x, y: r.y + offset.y })),
+      grid: { rows: Array.from({ length: 282 }, () => ".".repeat(313)) },
       spawns: [{ id: "player_1", characterId: "player", x: start.x + offset.x, y: start.y + offset.y }],
       playerAbilities: abilities,
     },
   });
 }
+
+/** The scenario's solids, shifted into the arena. */
+const shifted = (solids: readonly Solid[], offset: { x: number; y: number }): GridSolid[] =>
+  solids.map((r) => ({ kind: "solid", ...r, x: r.x + offset.x, y: r.y + offset.y }));
 
 interface Run {
   solids: readonly Solid[];
@@ -88,7 +91,8 @@ interface Run {
 
 const OFFSET = { x: 4100, y: 400 };
 const scenario = (run: Run): Scenario => ({
-  project: arenaOf(run.solids, run.start, run.abilities, run.offset ?? OFFSET),
+  project: arenaOf(run.start, run.abilities, run.offset ?? OFFSET),
+  solids: shifted(run.solids, run.offset ?? OFFSET),
   frames: run.frames,
   samples: range(0, run.frames),
   input: run.spans,
@@ -144,10 +148,28 @@ const parity: Record<string, Run> = {
     frames: 70,
   },
   "fall at max speed": { solids: LEDGE, start: { x: 10, y: 0 }, abilities: [], spans: [span("move_right", 0, 3)], frames: 90 },
+  "one-way platform: up through it, land on top, walk off": {
+    solids: [...LEDGE, { x: -300, y: -120, width: 200, height: 20, kind: "oneway" }],
+    start: { x: -200, y: 0 },
+    abilities: [],
+    spans: [span("jump", 2, 40), span("move_right", 60, 90)],
+    frames: 130,
+  },
+  "ground pound smashes a whole breakable area": {
+    solids: [
+      { x: -500, y: 300, width: 1000, height: 40 },
+      { x: -100, y: 0, width: 200, height: 32, kind: "breakable", group: 1 },
+      { x: -100, y: 32, width: 200, height: 32, kind: "breakable", group: 1 },
+    ],
+    start: { x: 0, y: 0 },
+    abilities: ["ground_pound"],
+    spans: [span("jump", 2, 10), span("aim_down", 5, 30), span("jump", 12, 14)],
+    frames: 80,
+  },
   "ground pound through a breakable platform": {
     solids: [
       { x: -500, y: 300, width: 1000, height: 40 },
-      { x: -100, y: 0, width: 200, height: 20, breakable: true },
+      { x: -100, y: 0, width: 200, height: 20, kind: "breakable", group: 1 },
     ],
     start: { x: 0, y: 0 },
     abilities: ["ground_pound"],
@@ -222,6 +244,10 @@ describe("player.gd and the movement model", () => {
     const climb = model(parity["wall climb"]!);
     expect(-climb.at(-1)!.y).toBeGreaterThan(500);
     expect(at("ground pound through a breakable platform", 80)).toMatchObject({ y: 300, onFloor: true, pounding: false });
+    expect(at("ground pound smashes a whole breakable area", 80)).toMatchObject({ y: 300, onFloor: true });
+    const oneWay = model(parity["one-way platform: up through it, land on top, walk off"]!);
+    expect(oneWay[58]).toMatchObject({ y: -120, onFloor: true });
+    expect(oneWay.at(-1)).toMatchObject({ y: 0, onFloor: true });
   });
 
   it.each(predictions.map(([a, dy], i) => [a.join("+") || "no abilities", dy, i] as const))(

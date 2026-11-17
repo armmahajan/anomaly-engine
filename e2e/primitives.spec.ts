@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { collectConsoleErrors, commitField, openStudio, projectRevision, runtimeState, waitForRuntimeAfter, resetProject, type Snapshot } from "./helpers.ts";
-import { castOperations, FLOOR } from "./primitiveCast.ts";
+import { castOperations, FLOOR, LEDGE_TOP } from "./primitiveCast.ts";
 
 /** Play with `seed` and sample the runtime every frame-ish for `ms`, inside the page. */
 const playAndSample = (page: Page, seed: number, ms: number) =>
@@ -53,7 +53,7 @@ test("every new action and condition runs in the browser build", async ({ page }
     ["high", "level", "even", "uneven", "facer", "front", "seer", "blind", "edge", "dropper"].map((id) => [id, last(`${id}_1`).behaviorState]),
   );
   expect(sensed).toEqual({ high: "yes", level: "idle", even: "yes", uneven: "idle", facer: "yes", front: "idle", seer: "yes", blind: "idle", edge: "stop", dropper: "down" });
-  expect(last("edge_1").y).toBeCloseTo(530, 0);
+  expect(last("edge_1").y).toBeCloseTo(LEDGE_TOP, 0);
 
   const flips = async (seed: number) => {
     const run = await playAndSample(page, seed, 300);
@@ -84,7 +84,7 @@ test("the starter Charger ignores a player on the ledge above, and its `and` con
     return new Set(samples.map((s) => s.entities.find((e) => e.spawnId === "charger_1")!.behaviorState));
   };
 
-  await movePlayer(490, 530);
+  await movePlayer(490, LEDGE_TOP);
   expect(await chargerStates()).toEqual(new Set(["patrol"]));
   await movePlayer(420, FLOOR);
   expect(await chargerStates()).toContain("windup");
@@ -93,7 +93,7 @@ test("the starter Charger ignores a player on the ledge above, and its `and` con
   const margin = page.getByLabel("patrol to windup playerLevel margin");
   await expect(margin).toHaveValue("60");
   await commitField(page, margin, "200");
-  await movePlayer(490, 530);
+  await movePlayer(490, LEDGE_TOP);
   expect(await chargerStates()).toContain("windup");
 
   expect(consoleErrors).toEqual([]);

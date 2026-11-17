@@ -1,6 +1,9 @@
 /** Test enemies that exercise every movement and sensing primitive (player moved to x 300). */
 
-export const FLOOR = 660;
+export const FLOOR = 672;
+/** Top of the starter arena's ledge (x 384-608) and of its breakable block (x 736-928). */
+export const LEDGE_TOP = 544;
+export const BLOCK_TOP = 416;
 const wait = { type: "wait" };
 type Step = [Record<string, unknown>, string];
 
@@ -44,15 +47,15 @@ const cast: [ReturnType<typeof enemy>, [number, number][]][] = [
     [[1450, 300]],
   ],
   [enemy("coin", "flip", { flip: [wait, [[{ type: "chance", p: 0.5 }, "heads"], [{ type: "after", seconds: 0 }, "tails"]]], heads: [wait], tails: [wait] }), Array.from({ length: 12 }, () => [1500, FLOOR] as [number, number])],
-  [sensor("high", { type: "playerBelow" }), [[830, 420]]],
+  [sensor("high", { type: "playerBelow" }), [[830, BLOCK_TOP]]],
   [sensor("level", { type: "playerAbove" }), [[1100, FLOOR]]],
   [sensor("even", { type: "playerLevel" }), [[1100, FLOOR]]],
-  [sensor("uneven", { type: "playerLevel" }), [[830, 420]]],
+  [sensor("uneven", { type: "playerLevel" }), [[830, BLOCK_TOP]]],
   [sensor("facer", { type: "playerBehind" }), [[600, FLOOR]]],
   [sensor("front", { type: "playerInFront" }), [[600, FLOOR]]],
   [sensor("seer", { type: "canSeePlayer" }), [[1100, FLOOR]]],
-  [sensor("blind", { type: "canSeePlayer" }), [[830, 420]]],
-  [enemy("edge", "walk", { walk: [{ type: "patrol", speed: 100, distance: 1000 }, [[{ type: "atLedge" }, "stop"]]], stop: [wait] }), [[490, 530]]],
+  [sensor("blind", { type: "canSeePlayer" }), [[830, BLOCK_TOP]]],
+  [enemy("edge", "walk", { walk: [{ type: "patrol", speed: 100, distance: 1000 }, [[{ type: "atLedge" }, "stop"]]], stop: [wait] }), [[490, LEDGE_TOP]]],
   [enemy("dropper", "fall", { fall: [wait, [[{ type: "onGround" }, "down"]]], down: [wait, [[{ type: "airborne" }, "fall"]]] }), [[1350, 300]]],
 ];
 
