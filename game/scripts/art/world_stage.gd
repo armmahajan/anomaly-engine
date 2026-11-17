@@ -23,6 +23,9 @@ var _drag_start := Vector2.ZERO
 var _panning := false
 var _pan_from := Vector2.ZERO
 var _moved := false
+## A piece was just dropped: the next stage message rebuilds even if the scene is unchanged
+## (the studio may have snapped it back to where it was).
+var _dropped := false
 
 
 func _ready() -> void:
@@ -39,7 +42,8 @@ func apply(stage: Dictionary, textures: Dictionary) -> void:
 		return
 	var key := JSON.stringify(scene)
 	var first := _view == null
-	if key != _scene_key:
+	if key != _scene_key or _dropped:
+		_dropped = false
 		_scene_key = key
 		_scene = scene
 		var x := _camera.position.x if not first else 0.0
@@ -102,7 +106,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			if _drag_sprite != null and _moved:
 				var p: Vector2 = _view.room_position(_drag_sprite)
-				send.call({"type": "worldMove", "placementId": str(_drag_sprite.get_meta("placement")), "x": snappedf(p.x, 1.0), "y": snappedf(p.y, 1.0)})
+				_dropped = true
+				send.call({"type": "worldMove", "placementId": str(_drag_sprite.get_meta("placement")), "x": snappedf(p.x, 1.0), "y": snappedf(p.y, 1.0), "free": mb.alt_pressed})
 			elif _panning and _moved:
 				send.call({"type": "worldCamera", "x": _camera.position.x})
 			_drag_sprite = null

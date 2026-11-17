@@ -192,7 +192,14 @@ export class BrowserRenderer implements Renderer {
   }
 
   /** Render a world scene from several camera positions (one frame per camera, stacked vertically). */
-  async renderWorld(request: { scene: unknown; images: Record<string, string>; cameras: number[]; width: number; height: number }): Promise<RenderedImage> {
+  async renderWorld(request: {
+    scene: unknown;
+    images: Record<string, string>;
+    cameras: number[];
+    width: number;
+    height: number;
+    labels?: boolean;
+  }): Promise<RenderedImage> {
     return this.withPage(async (page) => {
       const requestId = `world_${this.nextId++}`;
       const reply = new Promise<Extract<RuntimeToStudio, { type: "rendered" }>>((resolve, reject) => {

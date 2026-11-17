@@ -285,7 +285,7 @@ const artTools: ToolSpec[] = [
   },
   {
     name: "composeWorldRoom",
-    description: "Queue another room from a biome's kit (~$0.003).",
+    description: "Queue another room from a biome's kit (~$0.006, reviewed from a render).",
     schema: ComposeWorldRoomInput,
     run: (draft, args) => {
       const p = ComposeWorldRoomInput.safeParse(args);

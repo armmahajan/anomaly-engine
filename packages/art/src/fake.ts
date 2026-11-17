@@ -55,6 +55,13 @@ export class FakeRenderer {
     return solidPng(request.width, request.height);
   }
 
+  readonly worldRenders: { cameras: number[]; labels?: boolean }[] = [];
+
+  async renderWorld(request: { cameras: number[]; width: number; height: number; labels?: boolean }) {
+    this.worldRenders.push({ cameras: request.cameras, labels: request.labels });
+    return { png: solidPng(request.width, request.height * request.cameras.length, [40, 60, 80]), warnings: [] };
+  }
+
   async tileableX(image: Buffer) {
     return image;
   }
@@ -130,6 +137,9 @@ export class FakeVisionModel implements VisionModel {
         rays: [{ x: 1200, width: 240, angle: 15, alpha: 0.3 }],
         dust: { color: "#ffe2b0", amount: 80 },
       };
+    }
+    else if (prompt.includes("Score 1-10 how good it looks as a finished game room")) {
+      reply = { score: 6, issues: ["the lantern hangs off its ledge"], fixes: [{ id: "pl_3", x: 650 }], add: [] };
     }
     else reply = { error: "fake model got an unexpected prompt" };
     return { text: "```json\n" + JSON.stringify(reply) + "\n```", usage, model: this.id };

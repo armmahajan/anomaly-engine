@@ -194,7 +194,7 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
                     void session.startArtJob({ stage: "worldCompose", biomeId: biome.id, feedback: roomNote.trim() || undefined, newLayout, dressArena: !dressing })
                   }
                 >
-                  Compose room (~$0.003)
+                  Compose room (~$0.006)
                 </button>
                 <label className="art-auto" title="Also design new platforms (a suggestion you can accept)">
                   <input type="checkbox" checked={newLayout} onChange={(e) => setNewLayout(e.target.checked)} /> Suggest layout

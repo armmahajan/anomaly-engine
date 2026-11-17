@@ -30,7 +30,7 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   await panel.getByRole("button", { name: /Paint kit \+ first room/ }).click();
   await expect(page.getByTestId("piece-p0_lantern")).toBeVisible({ timeout: 60_000 });
   await expect(panel.getByRole("button", { name: /fungal cathedral/i }).first()).toBeVisible();
-  await expect.poll(async () => (await runtimeState(page)).stage).toBe("world");
+  await expect.poll(async () => (await runtimeState(page)).stage, { timeout: 90_000 }).toBe("world"); // after the room is composed and reviewed (two headless renders)
   const first = (await biome(page))!;
   expect(first.rooms).toHaveLength(1);
   expect((await project(page)).sandbox.dressing).toEqual({ biome: first.id, room: first.rooms[0]!.id });
@@ -48,8 +48,14 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   // Selecting and dragging in the runtime become ordinary edits.
   await fromRuntime(page, { type: "worldPick", placementId: "pl_1" });
   await expect(page.getByTestId("world-selection")).toBeVisible();
-  await fromRuntime(page, { type: "worldMove", placementId: "pl_1", x: 777, y: 600 });
-  await expect.poll(async () => (await biome(page))!.rooms[0]!.composition.placements.find((p) => p.id === "pl_1")?.x).toBe(777);
+  // A dropped piece comes to rest on a surface (pl_1 is a distant pillar: the floor line); Alt keeps the drop point.
+  const floor = (await project(page)).sandbox.platforms.slice().sort((a, b) => b.width - a.width)[0]!.y;
+  const pillar = async () => (await biome(page))!.rooms[0]!.composition.placements.find((p) => p.id === "pl_1");
+  await fromRuntime(page, { type: "worldMove", placementId: "pl_1", x: 777, y: 100 });
+  await expect.poll(async () => (await pillar())?.x).toBe(777);
+  expect((await pillar())?.y).toBe(floor);
+  await fromRuntime(page, { type: "worldMove", placementId: "pl_1", x: 777, y: 100, free: true });
+  await expect.poll(async () => (await pillar())?.y).toBe(100);
   await page.getByLabel("piece layer").selectOption("back");
   await expect.poll(async () => (await biome(page))!.rooms[0]!.composition.placements.find((p) => p.id === "pl_1")?.layer).toBe("back");
 

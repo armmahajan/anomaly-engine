@@ -73,7 +73,9 @@ describe("world stages", () => {
     const h = harness();
     h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
     const room = await worldComposeStage(h.ctx, { biomeId: h.biome().id, dressArena: true });
-    expect(h.vision.requests.at(-1)!.content.some((c) => c.type === "text" && c.text.includes("FIXED"))).toBe(true);
+    const asked = (c: { type: string; text?: string }, words: string) => c.type === "text" && Boolean(c.text?.includes(words));
+    const compose = h.vision.requests.find((r) => r.content.some((c) => asked(c, "Compose one room")))!;
+    expect(compose.content.some((c) => asked(c, "FIXED"))).toBe(true);
     h.commit(room.operations);
     expect(h.project().sandbox.dressing).toEqual({ biome: h.biome().id, room: room.roomId });
     const added = h.biome().rooms[0]!;
@@ -89,6 +91,45 @@ describe("world stages", () => {
     const scene = worldSceneFor(h.project(), h.biome().id, "second_hall", true);
     expect(scene?.platforms).toEqual(h.biome().rooms[1]!.layout);
     expect(worldSceneFor(h.project(), h.biome().id, "second_hall")?.platforms).toEqual(h.project().sandbox.platforms);
+  });
+
+  it("looks at the composed room and applies the reviewer's fixes, snapped onto surfaces", async () => {
+    const h = harness();
+    h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
+    const room = await worldComposeStage(h.ctx, { biomeId: h.biome().id });
+    expect(room.summary).toContain("reviewed 6/10, 1 fix");
+    const renderer = h.ctx.renderer as FakeRenderer;
+    // One labelled render for the review, one clean render of the result.
+    expect(renderer.worldRenders.map((r) => r.labels)).toEqual([true, false]);
+    const review = h.vision.requests.at(-1)!;
+    expect(review.content[0]!.type).toBe("image");
+    expect(review.content.some((c) => c.type === "text" && c.text.includes("pl_3: Lantern (light), play"))).toBe(true);
+    h.commit(room.operations);
+    const placements = h.biome().rooms[0]!.composition.placements;
+    const lantern = placements.find((p) => p.id === "pl_3")!;
+    expect(lantern.x).toBe(650); // the reviewer's move
+    const floor = h.project().sandbox.platforms.filter((p) => p.x <= 650 && 650 <= p.x + p.width).map((p) => p.y);
+    expect(floor).toContain(lantern.y); // resting on a surface there
+    expect(placements.find((p) => p.layer === "front")!.y).toBeLessThanOrEqual(0); // the hanging curtain starts at the top
+  });
+
+  it("keeps a room as composed when the review is skipped or scores it well", async () => {
+    const h = harness();
+    h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
+    const skipped = await worldComposeStage({ ...h.ctx, roomRounds: 0 }, { biomeId: h.biome().id });
+    expect(skipped.summary).not.toContain("reviewed");
+    const good = new FakeVisionModel();
+    const ctx = { ...h.ctx, vision: good };
+    const realComplete = good.complete.bind(good);
+    good.complete = async (request) => {
+      const text = request.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+      if (text.includes("finished game room")) return { text: JSON.stringify({ score: 9, issues: [], fixes: [{ id: "pl_1", remove: true }] }), usage: { cost: 0.001, promptTokens: 1, completionTokens: 1 }, model: good.id };
+      return realComplete(request);
+    };
+    const kept = await worldComposeStage(ctx, { biomeId: h.biome().id });
+    expect(kept.summary).toContain("reviewed 9/10)");
+    h.commit(kept.operations);
+    expect(h.biome().rooms.at(-1)!.composition.placements.some((p) => p.id === "pl_1")).toBe(true);
   });
 
   it("repaints one sheet and keeps piece ids, so rooms still work", async () => {

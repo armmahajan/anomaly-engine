@@ -300,7 +300,8 @@ bones. The art direction (style words, palette, outline) is project-wide.
 painted backdrop made seamless, a 3x3 sheet of large structures and one of props
 (transparent, sliced and labelled automatically) and a ground texture (about
 $0.016 at **draft** quality; **final** spends more on the backdrop and pieces,
-about $0.035-0.05). A **room** is cheap data composed from the kit (about $0.003):
+about $0.035-0.05). A **room** is cheap data composed from the kit (about $0.006,
+including its review):
 placements on five parallax layers (far, mid, back, play, front), palette, fog,
 lights, light shafts and dust. The runtime adds the depth for free
 (`game/scripts/art/world_view.gd`): distant layers washed into the fog, 2D lights
@@ -308,12 +309,19 @@ with halos, fog between layers, dust, foreground silhouettes that fade when the
 player is behind them.
 
 - **Workbench:** the live room full size (drag to pan, wheel to zoom; click a
-  piece to select it, drag it to move it: saved as an undoable edit), a layer bar
+  piece to select it, drag it to move it: saved as an undoable edit; a dropped
+  piece comes to rest on the surface under it, hold Alt to place it freely), a layer bar
   (show/hide layers, fog, lights, an **Exploded** view that tilts the layers
   apart), and the kit shelf (click a piece to place it in the view). The sidebar
   paints kits, repaints one part (or the whole kit at the other quality; the
   biome's rooms are recomposed to fit new pieces), composes rooms, edits the
   room's atmosphere and the selected piece.
+- **Look and fix:** a composed room's pieces are snapped onto surfaces
+  (`packages/core/src/art/worldSnap.ts`), then the room is rendered with each
+  piece's id written on it and the vision model scores it and names small edits
+  (move, rescale, re-layer, remove, add), which are snapped again. Both renders
+  are in the job log. A fix that scores worse is undone with more rounds
+  (`roomRounds`, default 1).
 - **The arena:** a room *dresses* the arena (`sandbox.dressing`): Play happens
   inside it, with the arena's own platforms textured. Rooms never change
   collision; **Suggest layout** stores new platforms on the room, which you can

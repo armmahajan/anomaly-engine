@@ -144,7 +144,8 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
   /** World stage: the creator clicked a piece (null = empty space). */
   z.object({ type: z.literal("worldPick"), placementId: z.string().nullable() }),
   /** World stage: the creator dragged a piece to a new room position. */
-  z.object({ type: z.literal("worldMove"), placementId: z.string(), x: z.number(), y: z.number() }),
+  // `free`: Alt was held, so the studio keeps the drop point instead of snapping it onto a surface.
+  z.object({ type: z.literal("worldMove"), placementId: z.string(), x: z.number(), y: z.number(), free: z.boolean().optional() }),
   /** World stage: where the camera is looking (room x), after the creator pans. */
   z.object({ type: z.literal("worldCamera"), x: z.number() }),
   z.object({

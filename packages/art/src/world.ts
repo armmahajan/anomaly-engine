@@ -6,7 +6,11 @@ import {
   PieceKind,
   PlatformRect,
   RoomComposition,
+  snapPlacements,
   uniqueId,
+  withPlacementIds,
+  WorldLayer,
+  type SnapRoom,
   type ArtDirection,
   type BiomeAsset,
   type BiomeKit,
@@ -272,19 +276,31 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
     },
     "composing the room",
   )) as z.infer<typeof RoomComposition> & { platforms?: z.infer<typeof PlatformRect>[] };
-  const { platforms, ...composition } = composed;
+  const { platforms, ...raw } = composed;
   const pieceIds = new Set(kit.pieces.map((p) => p.id));
-  const placements = composition.placements.filter((p) => pieceIds.has(p.piece));
-  if (placements.length < composition.placements.length) {
-    ctx.log({ text: `dropped ${composition.placements.length - placements.length} placement(s) of unknown pieces` });
+  const known = raw.placements.filter((p) => pieceIds.has(p.piece));
+  if (known.length < raw.placements.length) {
+    ctx.log({ text: `dropped ${raw.placements.length - known.length} placement(s) of unknown pieces` });
   }
+  // Rest every piece on something, then look at the room and fix what's wrong.
+  const room: SnapRoom = {
+    width: Math.max(960, width),
+    height: Math.max(360, height),
+    platforms: (platforms ?? project.sandbox.platforms).filter((r) => r.width >= 8 && r.height >= 8),
+  };
+  const snapped = snapPlacements(withPlacementIds(known), kit.pieces, room);
+  if (snapped.moved > 0) ctx.log({ text: `snapped ${snapped.moved} piece(s) onto surfaces` });
+  const reviewed = await reviewRoom(ctx, { theme: biome.brief, kit, composition: { ...raw, placements: snapped.placements }, room, feedback: input.feedback });
+  const composition = reviewed.composition;
+  const placements = composition.placements;
+  const verdict = reviewed.score === null ? "" : ` (reviewed ${reviewed.score}/10${reviewed.fixes ? `, ${reviewed.fixes} fix${reviewed.fixes === 1 ? "" : "es"}` : ""})`;
   const existing = input.roomId ? biome.rooms.find((r) => r.id === input.roomId) : undefined;
   if (input.roomId && !existing) throw new StageError(`${biome.name} has no room "${input.roomId}"`);
   if (existing) {
     return {
       operations: [{ name: "setRoomComposition", input: { assetId: biome.id, roomId: existing.id, composition: { ...composition, placements } } }],
       roomId: existing.id,
-      summary: `recomposed ${existing.name} for the new pieces`,
+      summary: `recomposed ${existing.name} for the new pieces${verdict}`,
     };
   }
   const name = input.name?.trim() || `${biome.name} ${biome.rooms.length + 1}`;
@@ -301,8 +317,176 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
       },
     ],
     roomId,
-    summary: `composed ${name}${platforms ? " with a suggested layout" : ""}`,
+    summary: `composed ${name}${platforms ? " with a suggested layout" : ""}${verdict}`,
   };
+}
+
+// --- look and fix ------------------------------------------------------------------
+
+/** Render width/height of one camera frame for reviews. */
+const REVIEW_FRAME = { width: 960, height: 540 };
+/** Don't start a review with less than this left in the job's budget. */
+const REVIEW_RESERVE = 0.01;
+
+const NewPlacement = z.object({
+  piece: Id,
+  layer: WorldLayer,
+  x: z.number(),
+  y: z.number(),
+  scale: z.number().min(0.1).max(6).default(1),
+  flip: z.boolean().default(false),
+});
+
+const RoomReview = z.object({
+  score: z.number().min(0).max(10),
+  issues: z.array(z.string()).max(20).default([]),
+  fixes: z
+    .array(
+      z.object({
+        id: z.string(),
+        remove: z.boolean().optional(),
+        x: z.number().optional(),
+        y: z.number().optional(),
+        scale: z.number().min(0.1).max(6).optional(),
+        layer: WorldLayer.optional(),
+        flip: z.boolean().optional(),
+      }),
+    )
+    .max(60)
+    .default([]),
+  add: z.array(NewPlacement).max(6).default([]),
+});
+type RoomReview = z.infer<typeof RoomReview>;
+
+type Composition = z.infer<typeof RoomComposition>;
+
+interface ReviewInput {
+  theme: string;
+  kit: BiomeKit;
+  composition: Composition;
+  room: SnapRoom;
+  feedback?: string;
+}
+
+/** Camera x positions that together show the whole room (at most 3 frames). */
+function reviewCameras(room: SnapRoom): number[] {
+  const view = (REVIEW_FRAME.width * room.height) / REVIEW_FRAME.height;
+  if (room.width <= view * 1.1) return [room.width / 2];
+  const n = Math.min(3, Math.ceil(room.width / view));
+  return Array.from({ length: n }, (_, i) => Math.round(view / 2 + ((room.width - view) * i) / (n - 1)));
+}
+
+async function renderRoom(ctx: ArtContext, input: ReviewInput, composition: Composition, labels: boolean): Promise<Buffer> {
+  const { kit, room } = input;
+  const used = new Set(composition.placements.map((p) => p.piece));
+  const refs = [kit.backdrop, kit.ground, ...kit.pieces.filter((p) => used.has(p.id)).map((p) => p.file)];
+  const images = Object.fromEntries(await Promise.all([...new Set(refs)].map(async (ref) => [ref, (await ctx.files.get(ref)).toString("base64")] as const)));
+  const scene = { name: "review", width: room.width, height: room.height, backdrop: kit.backdrop, ground: kit.ground, pieces: kit.pieces, platforms: room.platforms, ...composition };
+  const shot = await ctx.renderer.renderWorld({ scene, images, cameras: reviewCameras(room), ...REVIEW_FRAME, labels });
+  return shot.png;
+}
+
+/** Apply a review's edits; returns the new placements and how many edits took. */
+function applyReview(composition: Composition, review: RoomReview, kit: BiomeKit): { composition: Composition; changes: number } {
+  const fixes = new Map(review.fixes.map((f) => [f.id, f]));
+  let changes = 0;
+  const kept = composition.placements.flatMap((p) => {
+    const fix = p.id ? fixes.get(p.id) : undefined;
+    if (!fix) return [p];
+    changes++;
+    if (fix.remove) return [];
+    const { id: _id, remove: _remove, ...edits } = fix;
+    return [{ ...p, ...Object.fromEntries(Object.entries(edits).filter(([, v]) => v !== undefined)) }];
+  });
+  const pieceIds = new Set(kit.pieces.map((p) => p.id));
+  const added = review.add.filter((a) => pieceIds.has(a.piece));
+  changes += added.length;
+  const placements = withPlacementIds([...kept, ...added.map((a) => ({ id: undefined as string | undefined, ...a }))]);
+  return { composition: { ...composition, placements }, changes };
+}
+
+/**
+ * Look and fix: render the room with each placement's id written on it, have the
+ * vision model score it and name small edits (move, rescale, re-layer, remove, add),
+ * snap again, repeat for `ctx.roomRounds` rounds (default 1). A fix that scores worse
+ * than what it replaced is undone.
+ */
+async function reviewRoom(ctx: ArtContext, input: ReviewInput): Promise<{ composition: Composition; score: number | null; fixes: number }> {
+  const rounds = ctx.roomRounds ?? 1;
+  let current = input.composition;
+  let best: { composition: Composition; score: number } | null = null;
+  let revised = false;
+  let fixes = 0;
+  for (let round = 0; round < rounds; round++) {
+    const shot = await renderRoom(ctx, input, current, true);
+    ctx.log({ text: round === 0 ? "room render (ids for the review)" : `room render after fixes ${round}`, file: await ctx.files.put(shot, "png") });
+    if (ctx.remaining() < REVIEW_RESERVE) {
+      ctx.log({ text: "budget nearly used; skipping the room review" });
+      break;
+    }
+    const prompt = reviewPrompt(input, current, reviewCameras(input.room).length);
+    const review = await ask(
+      ctx,
+      RoomReview,
+      {
+        system: "You are a level art director reviewing a rendered 2D platformer room. You fix concrete problems with small, precise edits and leave what works alone.",
+        content: [
+          { type: "image", image: shot },
+          { type: "text", text: prompt },
+        ],
+        maxTokens: 6000,
+      },
+      rounds > 1 ? `reviewing the room (${round + 1})` : "reviewing the room",
+    );
+    ctx.log({ text: `room score ${review.score}/10${review.issues.length ? `: ${review.issues.join("; ")}` : ""}` });
+    if (best && revised && review.score <= best.score) {
+      ctx.log({ text: "the fixes didn't help; keeping the earlier version" });
+      current = best.composition;
+      revised = false;
+      break;
+    }
+    best = { composition: current, score: review.score };
+    revised = false;
+    if (review.score >= 8) break;
+    const applied = applyReview(current, review, input.kit);
+    if (applied.changes === 0) break;
+    const snapped = snapPlacements(applied.composition.placements, input.kit.pieces, input.room);
+    current = { ...applied.composition, placements: snapped.placements };
+    revised = true;
+    fixes += applied.changes;
+    ctx.log({ text: `applied ${applied.changes} fix${applied.changes === 1 ? "" : "es"}${snapped.moved ? ` (${snapped.moved} re-snapped)` : ""}` });
+  }
+  if (revised) ctx.log({ text: "room after fixes", file: await ctx.files.put(await renderRoom(ctx, input, current, false), "png") });
+  return { composition: current, score: best?.score ?? null, fixes: current === input.composition ? 0 : fixes };
+}
+
+function reviewPrompt(input: ReviewInput, composition: Composition, frames: number): string {
+  const { room, kit } = input;
+  const pieces = new Map(kit.pieces.map((p) => [p.id, p]));
+  const unsupported = snapPlacements(composition.placements, kit.pieces, room).unsupported;
+  const rows = composition.placements.map((p) => {
+    const piece = pieces.get(p.piece);
+    return `- ${p.id}: ${piece?.name ?? p.piece} (${piece?.kind ?? "?"}), ${p.layer}, x ${Math.round(p.x)}, y ${Math.round(p.y)}, scale ${p.scale}${p.flip ? ", flipped" : ""}`;
+  });
+  return [
+    `The image is a composed room of a 2D side-scrolling platformer (biome: ${input.theme}) rendered in the game: ${frames === 1 ? "one camera view" : `${frames} camera views from left to right, stacked top to bottom`}. Each placed piece has its id written over it in yellow (labels are only for this review).`,
+    `Room: ${room.width}x${room.height}px (x right, y DOWN). Walkable platforms: ${room.platforms.map((r) => `[x ${r.x}, y ${r.y}, w ${r.width}, h ${r.height}]`).join(", ")}.`,
+    "Layers back to front: mid (distant, fogged, scrolls slower), back (just behind play, scrolls a bit slower), play (the walkable layer), front (near-black silhouettes that scroll faster). Because of parallax, mid/back/front pieces line up with the platforms only when the camera is near them.",
+    "Each placement's y is its bottom (its top for hanging pieces).",
+    `Placements:\n${rows.join("\n")}`,
+    unsupported.length ? `These play pieces stand over nothing (no platform under their x): ${unsupported.join(", ")}.` : "",
+    "Look for, most important first:",
+    "1. pieces floating in the air, or clipping awkwardly into platforms (standing pieces rest on a surface; hanging ones hang from the top or a ledge's underside);",
+    "2. pieces cluttering the walkable path or hiding platform edges; front silhouettes covering the middle of a view;",
+    "3. scale mistakes (a small prop as big as a pillar, a pillar tiny beside a lantern) and pieces cut off in ugly ways;",
+    "4. crowding and even rows (depth needs clusters and gaps), or dull empty stretches.",
+    "Score 1-10 how good it looks as a finished game room. If it's below 8, fix the worst problems with small edits by id: move (x, y), rescale, change layer, flip, or remove; or add up to 6 placements from the kit. Don't rewrite what works. After your edits, standing play pieces drop onto the surface under their x and hanging ones rise to the ceiling, so x alone moves a piece onto a ledge.",
+    `Kit pieces: ${kit.pieces.map((p) => `${p.id} (${p.name}, ${p.kind}, ${p.size}px)`).join(", ")}.`,
+    input.feedback?.trim() ? `Creator's direction for this room: ${input.feedback.trim()}` : "",
+    'Reply with JSON only: {"score", "issues": ["..."], "fixes": [{"id", "x"?, "y"?, "scale"?, "layer"?, "flip"?, "remove"?}], "add": [{"piece","layer","x","y","scale","flip"}]}',
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function composePrompt(

@@ -3,6 +3,7 @@ import {
   CONDITION_TYPES,
   MAX_SEED,
   PROTOCOL_VERSION,
+  snapPlacement,
   type AgentId,
   type ArtJobRequest,
   type Stage,
@@ -215,7 +216,7 @@ export class Session {
         this.set({ worldCameraX: message.x });
         return;
       case "worldMove":
-        void this.moveWorldPiece(message.placementId, message.x, message.y);
+        void this.moveWorldPiece(message.placementId, message.x, message.y, message.free ?? false);
         return;
     }
   }
@@ -382,14 +383,26 @@ export class Session {
     this.bridge.send({ type: "stage", stage: this.stage });
   }
 
-  /** A piece dragged in the runtime: save it as an ordinary edit (undoable), or put it back if editing is locked. */
-  private async moveWorldPiece(placementId: string, x: number, y: number): Promise<void> {
-    if (!this.worldTarget) return;
+  /**
+   * A piece dragged in the runtime: snap it onto the surface under it (unless Alt was held) and
+   * save it as an ordinary edit (undoable), or put it back if editing is locked.
+   */
+  private async moveWorldPiece(placementId: string, x: number, y: number, free: boolean): Promise<void> {
+    if (!this.worldTarget || this.stage.mode !== "world") return;
+    const scene = this.stage.scene;
+    const placement = scene.placements.find((p) => p.id === placementId);
+    if (!placement) return;
+    const dropped = { ...placement, x, y };
+    const target = free ? dropped : snapPlacement(dropped, scene.pieces.find((p) => p.id === placement.piece), scene).placement;
+    if (target.x === placement.x && target.y === placement.y) {
+      this.bridge.send({ type: "stage", stage: this.stage }); // snapped back to where it was
+      return;
+    }
     const result = await this.applyOperation("updatePlacement", {
       assetId: this.worldTarget.biomeId,
       roomId: this.worldTarget.roomId,
       placementId,
-      changes: { x, y },
+      changes: { x: target.x, y: target.y },
     });
     if (!result.ok) {
       this.reportProblem(result.error.message);

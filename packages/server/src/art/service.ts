@@ -47,6 +47,7 @@ export interface ArtServiceOptions {
   unavailableReason?: string;
   rigRounds?: number;
   animRounds?: number;
+  roomRounds?: number;
 }
 
 type Result = { ok: true; jobId: string } | { ok: false; error: OperationError };
@@ -239,6 +240,7 @@ export class ArtService {
       signal: running.controller.signal,
       rigRounds: this.options.rigRounds,
       animRounds: this.options.animRounds,
+      roomRounds: this.options.roomRounds,
       log: (a) => {
         running.activity.push({ at: new Date().toISOString(), ...a });
         this.emit();

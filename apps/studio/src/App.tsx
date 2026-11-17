@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { newEnemyCharacter, progressionReport, uniqueId, type ChangeResult } from "@anomaly/core";
+import { newEnemyCharacter, progressionReport, snapPlacement, uniqueId, worldSceneFor, type ChangeResult } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { Inspector } from "./Inspector.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
@@ -138,17 +138,13 @@ export function App({ session }: { session: Session }) {
   const placePiece = async (pieceId: string) => {
     const { biome, room } = currentWorld(project, worldUi);
     if (!biome || !room) return;
-    const x = Math.round(state.worldCameraX ?? project.sandbox.width / 2);
-    const under = project.sandbox.platforms
-      .filter((p) => p.x <= x && x <= p.x + p.width && p.width > 40)
-      .sort((a, b) => b.width - a.width)[0];
-    const piece = biome.kit?.pieces.find((p) => p.id === pieceId);
-    const y = piece?.kind === "hanging" ? 0 : (under?.y ?? project.sandbox.height - 60);
-    const result = await session.applyOperation("addPlacement", {
-      assetId: biome.id,
-      roomId: room.id,
-      placement: { piece: pieceId, layer: "play", x, y },
-    });
+    const scene = worldSceneFor(project, biome.id, room.id, worldUi.previewLayout && room.layout !== null);
+    if (!scene) return;
+    const x = Math.round(state.worldCameraX ?? scene.width / 2);
+    const piece = scene.pieces.find((p) => p.id === pieceId);
+    // Dropped from the middle of the view's height: standing pieces fall onto the surface below, hanging ones rise.
+    const placement = snapPlacement({ piece: pieceId, layer: "play" as const, x, y: scene.height / 2, scale: 1, flip: false }, piece, scene).placement;
+    const result = await session.applyOperation("addPlacement", { assetId: biome.id, roomId: room.id, placement });
     if (!result.ok) session.reportProblem(result.error.message);
   };
 

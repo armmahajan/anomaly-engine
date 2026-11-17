@@ -120,6 +120,7 @@ func _render_world(request: Dictionary) -> Dictionary:
 	viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	add_child(viewport)
 	var world = WorldView.new()
+	world.labels = bool(request.get("labels", false))
 	viewport.add_child(world)
 	var camera := Camera2D.new()
 	viewport.add_child(camera)

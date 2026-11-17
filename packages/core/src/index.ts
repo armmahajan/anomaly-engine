@@ -26,4 +26,5 @@ export * from "./art/lint.ts";
 export * from "./art/example.ts";
 export * from "./art/world.ts";
 export * from "./art/worldOperations.ts";
+export * from "./art/worldSnap.ts";
 export * from "./art/fileRef.ts";

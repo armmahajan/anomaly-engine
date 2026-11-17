@@ -74,6 +74,8 @@ void fragment() {
 var focus := Vector2.ZERO
 ## Draw the vignette (off when dressing the arena, so the HUD stays clean).
 var vignette := true
+## Write each placement's id on it (renders for the AI reviewer, which names pieces to fix).
+var labels := false
 var warnings: Array[String] = []
 
 var _scene: Dictionary = {}
@@ -423,10 +425,30 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 			mat.set_shader_parameter("amount", tint)
 			sprite.material = mat
 	_layers[layer].add_child(sprite)
+	if labels:
+		_add_label(sprite, str(placement.get("id", "")), hanging, layer)
 	# Pieces that glow get a light, unless the scene placed one nearby.
 	if (str(piece.kind) == "light" or piece.has("glow")) and layer != "front":
 		var center := sprite.position + Vector2(0, (tex.get_height() * s * 0.5) if hanging else -tex.get_height() * s * 0.6)
 		_add_light_at(_layers[layer], center, Color(str(piece.get("glow", palette.get("light", "#ffcc80")))), 0.9, maxf(140.0, piece.size * s * 2.6))
+
+
+## The placement id over the middle of its piece (kept inside the frame for edge silhouettes).
+func _add_label(sprite: Sprite2D, text: String, hanging: bool, layer: String) -> void:
+	if text == "":
+		return
+	var shown := sprite.texture.get_height() * absf(sprite.scale.y)
+	var y := sprite.position.y + (shown / 2.0 if hanging else -shown / 2.0)
+	var height := float(_scene.get("height", 720))
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.35))
+	label.add_theme_color_override("font_outline_color", Color.BLACK)
+	label.add_theme_constant_override("outline_size", 6)
+	label.position = Vector2(sprite.position.x - 22.0, clampf(y - 12.0, 8.0, height - 36.0))
+	label.z_index = 100
+	_layers[layer].add_child(label)
 
 
 func _add_light(light: Dictionary) -> void:

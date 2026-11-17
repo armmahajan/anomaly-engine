@@ -145,7 +145,7 @@ export function WorldBench({ project, session, ui, setUi, selected, locked, onPl
             ? `${biome.name} has no kit yet: paint it from the sidebar.`
             : biome
               ? `Compose a room for ${biome.name} from the sidebar.`
-              : "Describe a place in the sidebar and paint its kit: a backdrop, two sheets of pieces and a ground texture for about $0.016. Rooms built from it cost about $0.003 each."}
+              : "Describe a place in the sidebar and paint its kit: a backdrop, two sheets of pieces and a ground texture for about $0.016. Rooms built from it cost about $0.006 each."}
         </div>
       )}
 

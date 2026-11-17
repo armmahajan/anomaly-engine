@@ -49,6 +49,16 @@ export interface ArtRenderer {
   tileableX(image: Buffer, blend?: number): Promise<Buffer>;
   /** World kits: cut a sheet into cells trimmed to their visible pixels (empty cells dropped). */
   sliceGrid(image: Buffer, cols: number, rows: number, maxSize?: number): Promise<{ png: Buffer; width: number; height: number; cell: number }[]>;
+  /** World rooms: render a scene from several camera x positions (frames stacked vertically), optionally with placement ids written on. */
+  renderWorld(request: {
+    scene: unknown;
+    /** FileRef -> base64 image. */
+    images: Record<string, string>;
+    cameras: number[];
+    width: number;
+    height: number;
+    labels?: boolean;
+  }): Promise<{ png: Buffer; warnings: string[] }>;
   /** Stack images (stretched to width x height) over a background, optionally with a labelled pixel grid. PNG. */
   compose(request: {
     width: number;
@@ -85,6 +95,8 @@ export interface ArtContext {
   rigRounds?: number;
   /** Critique rounds for animations (default 1). */
   animRounds?: number;
+  /** Look-and-fix rounds for composed rooms (default 1; 0 skips the review). */
+  roomRounds?: number;
 }
 
 export interface StageResult {
