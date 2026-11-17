@@ -99,7 +99,7 @@ const writeDescriptions: Record<BuildOperation, string> = {
     "Targeted edit of one behavior state (action params, transitions by index) and/or the behavior's interrupts by index. Prefer this over setBehavior for tweaks.",
   setBehavior:
     "Replace an enemy's whole behavior state machine. Use for new or restructured behaviors (adding/removing states or transitions).",
-  setArtDirection: "Change the project-wide art direction (style words, palette, outline color/width, line boil).",
+  setArtDirection: "Change the project-wide art direction (style words, palette, outline color/width, line boil, rig mode vector|cutout).",
   updateAsset: "Rename an art asset or change its brief (the description concept art is generated from).",
   deleteAsset: "Delete an art asset; characters drawn with it go back to colored boxes.",
   assignAppearance: "Draw a character with a character art asset (or null for a colored box). Variants can share one asset.",

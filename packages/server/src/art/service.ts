@@ -397,7 +397,7 @@ export class ArtService {
         break;
       case "auto": {
         // Auto takes the AI's picks; feedback and sheet/cell choices apply to the first stage only.
-        const plain = { characterId: request.characterId ?? "" };
+        const plain = { characterId: request.characterId ?? "", rigMode: request.rigMode };
         stages.push(
           conceptStep,
           { stage: "choose", run: () => chooseConcept(ctx, plain) },
