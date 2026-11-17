@@ -64,8 +64,18 @@ export function seedPlan(project: ProjectSpec, options: { maxRoomsPerRegion?: nu
   if (p.ending) add(byRegion.get(p.ending)?.at(-1), { kind: "ending" });
 
   for (const ability of p.abilities) {
-    const list = ability.obtainedIn ? byRegion.get(ability.obtainedIn.regionId) : undefined;
+    let list = ability.obtainedIn ? byRegion.get(ability.obtainedIn.regionId) : undefined;
     if (!list?.length) continue;
+    // Behind other abilities inside its region: its own room, reached through a link that requires them.
+    const inner = ability.obtainedIn!.requires;
+    if (inner.length > 0) {
+      const id = `${ability.id}_cache`;
+      const from = mid(list)!;
+      const cache = pinned.find((r) => r.id === id) ?? RoomPlan.parse({ id, name: `${ability.name} cache`, regionId: from.regionId, seed: hash(id) });
+      rooms.push(cache);
+      links.push({ ...link(`${from.id}_to_${id}`, from.id, id), requires: [...inner] });
+      list = [cache];
+    }
     const region = p.regions.find((r) => r.id === ability.obtainedIn!.regionId)!;
     const guardian = ability.obtainedIn!.source === "boss" ? (region.boss ?? region.enemies[0]) : undefined;
     if (guardian && enemies.has(guardian)) {

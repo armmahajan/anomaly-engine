@@ -4,7 +4,7 @@ import { progressionReport } from "../progression/report.ts";
 import { checkGame, type CheckResult } from "../world/logic/check.ts";
 import { abilityChecks, gateChecks } from "../world/logic/gates.ts";
 import type { ArchitectStage } from "./plan.ts";
-import { gateLeaks } from "./planCheck.ts";
+import { gateLeaks, planIssues } from "./planCheck.ts";
 import type { StageIssue, StageOutcome } from "./stages.ts";
 
 /** Which stage fixes a lint warning (by code); anything else goes back to population. */
@@ -42,6 +42,10 @@ export function verifyStage(project: ProjectSpec): StageOutcome & { verdict: Ver
     const m = /^world\.rooms\.(\d+)/.exec(path);
     return m ? project.world.rooms[Number(m[1])]?.id : undefined;
   };
+  // Problems in the plan itself come first: the built game can't be right while the plan isn't.
+  for (const i of planIssues(project).issues) {
+    if (["gate-bypass-route", "gate-bypass-link", "unguarded-grant", "ungranted", "missing-join"].includes(i.code)) issues.push(i);
+  }
   const lint = lintProject(project);
   for (const w of lint) {
     if (ADVISORY.has(w.code)) continue;

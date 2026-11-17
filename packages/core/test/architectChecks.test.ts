@@ -80,3 +80,36 @@ describe("pacing", () => {
     expect(fits.summary).toContain("target 1–60");
   });
 });
+
+describe("in-region requirements and designed shortcuts", () => {
+  it("seeds a grant the progression puts behind other abilities in its own room behind a gated link; the check flags it when unguarded", () => {
+    const base = fixtureReferenceProject();
+    // The guardian's double jump now also needs the hatch key inside the spire.
+    const project = ProjectSpec.parse({
+      ...base,
+      progression: { ...base.progression, abilities: base.progression.abilities.map((a) => (a.id === "double_jump" ? { ...a, obtainedIn: { ...a.obtainedIn!, requires: ["hatch_key"] } } : a)) },
+    });
+    const plan = seedPlan(project);
+    const cache = plan.rooms.find((r) => r.id === "double_jump_cache")!;
+    expect(cache.contents).toContainEqual(expect.objectContaining({ kind: "enemy", grants: ["double_jump"], lockRoom: true }));
+    expect(plan.links.find((l) => l.b.room === cache.id)!.requires).toEqual(["hatch_key"]);
+    const seeded = ProjectSpec.parse({ ...project, architect: plan });
+    expect(codes(seeded)).toEqual([]);
+    // Reaching the spire already needs the key, so the cache is guarded by the region gate too; open both to see the check fire.
+    const open = ProjectSpec.parse({ ...seeded, architect: { ...plan, links: plan.links.map((l) => (l.b.room === cache.id || l.id === "down_the_hatch" ? { ...l, requires: [] } : l)) } });
+    expect(planIssues(open).issues).toContainEqual(expect.objectContaining({ code: "unguarded-grant", roomId: cache.id }));
+  });
+
+  it("a gated connection the progression also reaches another way is a shortcut: gate checks don't demand it hold", async () => {
+    const { gateChecks, designedReach } = await import("../src/index.ts");
+    const base = fixtureReferenceProject();
+    // An ungated second way up to the summit makes the double-jump connection a shortcut.
+    const project = ProjectSpec.parse({
+      ...base,
+      progression: { ...base.progression, connections: [...base.progression.connections, { id: "long_way", from: "spire", to: "summit", requires: [], oneWay: false, status: "draft" }] },
+    });
+    expect(designedReach(project, new Set(["double_jump"])).has("summit")).toBe(true);
+    expect(gateChecks(project).find((g) => g.connection === "up_to_summit")).toMatchObject({ shortcut: true, holdsWithout: true });
+    expect(gateChecks(base).find((g) => g.connection === "up_to_summit")!.shortcut).toBeUndefined();
+  });
+});

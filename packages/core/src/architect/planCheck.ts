@@ -1,6 +1,7 @@
 import type { ProjectSpec } from "../schema.ts";
 import { roomLinks, type RoomContent } from "./plan.ts";
 import type { StageIssue } from "./stages.ts";
+import { designedReach } from "../world/logic/gates.ts";
 
 /**
  * Static checks of the plan before anything is built: what the plan stage (the
@@ -82,6 +83,11 @@ export function planIssues(project: ProjectSpec): { issues: StageIssue[]; toCast
     issue("gate-bypass-route", `${leak.to} can be reached without ${leak.requires.join(" + ")} (connection "${leak.connection}") through link${leak.links.length > 1 ? "s" : ""} ${leak.links.join(", ")}: a link back to an earlier region must be oneWay from the later room (a) down to the earlier room (b), or gated in that direction`, leak.roomId);
   }
 
+  // Grants the progression puts behind abilities inside their region (obtainedIn.requires) must be behind them in the plan too.
+  for (const g of unguardedGrants(project)) {
+    issue("unguarded-grant", `"${g.ability}" is given in room "${g.roomId}", which can be reached without ${g.requires.join(" + ")}; the progression says getting it needs them: put it in a room reached only through a link that requires them`, g.roomId);
+  }
+
   const characters = new Set(project.characters.map((c) => c.id));
   const toCast = [...new Set(plan.rooms.flatMap((r) => r.contents.flatMap((c) => (c.kind === "enemy" && !characters.has(c.characterId) ? [c.characterId] : []))))];
   for (const room of plan.rooms) {
@@ -122,19 +128,7 @@ export function gateLeaks(project: ProjectSpec): { connection: string; to: strin
       }
     }
     // The progression itself may offer another way in (either/or connections): not a leak then.
-    const designed = new Set(p.start ? [p.start] : []);
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const o of p.connections) {
-        if (o.requires.some((r) => lacking.has(r))) continue;
-        for (const [x, y] of o.oneWay ? [[o.from, o.to]] : [[o.from, o.to], [o.to, o.from]]) {
-          if (designed.has(x!) && !designed.has(y!)) {
-            designed.add(y!);
-            grew = true;
-          }
-        }
-      }
-    }
+    const designed = designedReach(project, lacking);
     const inside = [...via.keys()].find((id) => region.get(id) === c.to);
     if (inside && region.get(start.id) !== c.to && !designed.has(c.to)) {
       const used = via.get(inside);
@@ -143,4 +137,35 @@ export function gateLeaks(project: ProjectSpec): { connection: string; to: strin
     }
   }
   return leaks;
+}
+
+/** Plan rooms reachable from the start room without `lacking` (links as geometry builds them: gated a -> b, one-way a -> b). */
+export function planReach(project: ProjectSpec, lacking: ReadonlySet<string>): Set<string> {
+  const plan = project.architect;
+  const start = plan.rooms.find((r) => r.contents.some((c) => c.kind === "start"));
+  const seen = new Set<string>(start ? [start.id] : []);
+  const queue = [...seen];
+  for (let i = 0; i < queue.length; i++) {
+    const here = queue[i]!;
+    for (const l of plan.links) {
+      const next = l.a.room === here && !l.requires.some((r) => lacking.has(r)) ? l.b.room : l.b.room === here && !l.oneWay ? l.a.room : null;
+      if (next && !seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return seen;
+}
+
+/** Abilities whose progression source needs other abilities (obtainedIn.requires) but whose plan room can be reached without them. */
+export function unguardedGrants(project: ProjectSpec): { ability: string; roomId: string; requires: string[] }[] {
+  const out: { ability: string; roomId: string; requires: string[] }[] = [];
+  for (const a of project.progression.abilities) {
+    const requires = a.obtainedIn?.requires ?? [];
+    if (requires.length === 0) continue;
+    const room = project.architect.rooms.find((r) => r.contents.some((c) => (c.kind === "pickup" && c.grants === a.id) || (c.kind === "enemy" && c.grants.includes(a.id))));
+    if (room && planReach(project, new Set(requires)).has(room.id)) out.push({ ability: a.id, roomId: room.id, requires });
+  }
+  return out;
 }

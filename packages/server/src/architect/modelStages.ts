@@ -25,7 +25,7 @@ export function modelStageRunners(runner: TurnRunner): Pick<StageRunners, "plan"
         project: after.project,
         issues,
         // A game without a progression (hand-built) has nothing to plan: an empty plan doesn't stop the run.
-        blocking: after.project.progression.regions.length > 0 && issues.some((i) => ["no-rooms", "start", "ending", "unlinked", "missing-join", "ungranted", "gate-bypass-route", "gate-bypass-link"].includes(i.code)),
+        blocking: after.project.progression.regions.length > 0 && issues.some((i) => ["no-rooms", "start", "ending", "unlinked", "missing-join", "ungranted", "gate-bypass-route", "gate-bypass-link", "unguarded-grant"].includes(i.code)),
         summary: `planned ${after.project.architect.rooms.length} rooms, ${after.project.architect.links.length} links${issues.length ? `; ${issues.length} plan issue(s)` : ""}${after.reply ? ` — ${after.reply.slice(0, 300)}` : ""}`,
       };
     },
