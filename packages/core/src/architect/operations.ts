@@ -48,12 +48,14 @@ export const SetArchitectGuidanceInput = z.strictObject({
   guidance: z.string().max(4000).optional().describe("The creator's notes for the whole game."),
   region: z.strictObject({ regionId: Id, notes: z.string().max(2000) }).optional().describe("Notes for one region (empty notes remove them)."),
   targetMinutes: z.tuple([z.number().min(1), z.number().min(1)]).optional().describe("Play time to aim for, [min, max] minutes."),
+  targetRooms: z.tuple([z.number().int().min(1), z.number().int().min(1)]).optional().describe("How many rooms, [min, max]."),
 });
 export function setArchitectGuidance(project: ProjectSpec, raw: unknown): OperationResult {
   return op(SetArchitectGuidanceInput, (p, input) => {
     const plan = { ...p.architect };
     if (input.guidance !== undefined) plan.guidance = input.guidance;
-    if (input.targetMinutes) plan.target = { minutes: input.targetMinutes };
+    if (input.targetMinutes) plan.target = { ...plan.target, minutes: input.targetMinutes };
+    if (input.targetRooms) plan.target = { ...plan.target, rooms: input.targetRooms };
     if (input.region) {
       const rest = plan.regionNotes.filter((n) => n.regionId !== input.region!.regionId);
       plan.regionNotes = input.region.notes.trim() ? [...rest, input.region] : rest;

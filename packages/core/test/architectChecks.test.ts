@@ -75,7 +75,7 @@ describe("pacing", () => {
     const short = pacingStage(fixtureSliceProject());
     expect(short.issues).toEqual([expect.objectContaining({ stage: "plan", code: "too-short" })]);
     const relaxed = fixtureSliceProject();
-    const fits = pacingStage({ ...relaxed, architect: { ...relaxed.architect, target: { minutes: [1, 60] } } });
+    const fits = pacingStage({ ...relaxed, architect: { ...relaxed.architect, target: { minutes: [1, 60], rooms: [20, 30] } } });
     expect(fits.issues).toEqual([]);
     expect(fits.summary).toContain("target 1–60");
   });

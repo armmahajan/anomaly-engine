@@ -99,7 +99,10 @@ export const ArchitectPlan = z.strictObject({
   guidance: z.string().max(4000).default("").describe("The creator's notes for the whole game."),
   regionNotes: z.array(z.strictObject({ regionId: Id, notes: z.string().max(2000) })).max(64).default([]),
   target: z
-    .strictObject({ minutes: z.tuple([z.number().min(1), z.number().min(1)]).default([15, 25]) })
+    .strictObject({
+      minutes: z.tuple([z.number().min(1), z.number().min(1)]).default([15, 25]),
+      rooms: z.tuple([z.number().int().min(1), z.number().int().min(1)]).default([20, 30]).describe("How many rooms the game should have, [min, max]."),
+    })
     .prefault({})
     .describe("Play time the pacing stage aims for."),
   rooms: z.array(RoomPlan).max(200).default([]),

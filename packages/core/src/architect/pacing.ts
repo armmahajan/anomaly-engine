@@ -36,7 +36,10 @@ export interface PacingEstimate {
   fights: number;
 }
 
-export function estimatePlayTime(project: ProjectSpec, check: CheckResult = checkGame(project)): PacingEstimate {
+/** The checker's budget for the route the estimate walks (as verify's: a cut-short search has no route). */
+const PACING_MAX_STATES = 600_000;
+
+export function estimatePlayTime(project: ProjectSpec, check: CheckResult = checkGame(project, { maxStates: PACING_MAX_STATES })): PacingEstimate {
   const player = project.characters.find((c) => c.kind === "player");
   const runSpeed = player?.kind === "player" ? player.stats.runSpeed : 320;
   const damage = player?.kind === "player" ? Math.max(1, player.stats.attackDamage) : 1;
@@ -77,8 +80,18 @@ export function pacingStage(project: ProjectSpec, check?: CheckResult): StageOut
   const estimate = estimatePlayTime(project, check);
   const [lo, hi] = project.architect.target.minutes;
   const issues: StageIssue[] = [];
-  if (estimate.minutes < lo) issues.push({ stage: "plan", code: "too-short", message: `about ${estimate.minutes} min, under the ${lo}–${hi} min target: add rooms or fights` });
-  if (estimate.minutes > hi) issues.push({ stage: "plan", code: "too-long", message: `about ${estimate.minutes} min, over the ${lo}–${hi} min target: trim rooms or fights` });
+  const rooms = project.architect.rooms.length;
+  const [few, many] = project.architect.target.rooms;
+  const room = (more: boolean) =>
+    more
+      ? rooms >= many
+        ? `the plan already has ${rooms} rooms (target ${few}–${many}): make rooms larger or add ordinary enemies (not guardians) instead of rooms`
+        : `add up to ${many - rooms} room(s) or more ordinary enemies, not guardians (stay within ${many} rooms)`
+      : rooms <= few
+        ? `the plan has ${rooms} rooms (target ${few}–${many}): make rooms smaller or fights shorter instead of cutting rooms`
+        : `cut up to ${rooms - few} room(s) or some fights (keep at least ${few} rooms)`;
+  if (estimate.minutes < lo) issues.push({ stage: "plan", code: "too-short", message: `about ${estimate.minutes} min, under the ${lo}–${hi} min target: ${room(true)}` });
+  if (estimate.minutes > hi) issues.push({ stage: "plan", code: "too-long", message: `about ${estimate.minutes} min, over the ${lo}–${hi} min target: ${room(false)}` });
   const summary = `about ${estimate.minutes} min (${estimate.roomVisits} room visits, ${estimate.fights} fights; target ${lo}–${hi})`;
   return { project, issues, summary, estimate };
 }

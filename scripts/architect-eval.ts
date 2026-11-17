@@ -90,7 +90,7 @@ async function evaluate(n: number): Promise<Record<string, unknown>> {
     abilitiesNeeded: verdict.abilitiesNeeded,
     lintClean: verdict.lint.length === 0,
     regions: project.progression.regions.length >= 4 && project.progression.regions.length <= 5,
-    rooms: project.architect.rooms.length >= 20 && project.architect.rooms.length <= 30,
+    rooms: project.architect.rooms.length >= project.architect.target.rooms[0] && project.architect.rooms.length <= project.architect.target.rooms[1],
     guardians: guardians >= 2 && guardians <= 3,
     playTime: estimate.minutes >= lo && estimate.minutes <= hi,
     artBudget: !withArt || artCost <= 1,
