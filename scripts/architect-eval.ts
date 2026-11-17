@@ -1,7 +1,8 @@
 /**
  * The Architect's eval: pitch -> director (wiki, progression) -> Build game (every Architect stage, the
  * real models, no guidance, no hand-fixing) -> verdict. The bar is 9 of 10 pitches passing.
- *   node scripts/architect-eval.ts <out-dir> [--only 0,3] [--art]
+ *   node scripts/architect-eval.ts <out-dir> [--only 0,3] [--art] [--from <stage>]
+ * --from <stage>: rebuild an earlier run's saved design (no new director turns) from that stage, e.g. after a fix.
  * Each pitch runs in <out>/<n>/ (the project folder is <out>/<n>/data); <out>/summary.json collects the verdicts.
  * Pass: beatable, no dead states, every gate holds, every critical-path movement ability needed, lint clean,
  * 4-5 regions, 20-30 rooms, 2-3 guardians, estimated play time inside the target, art under $1.00 (with --art).
@@ -9,7 +10,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDefaultProject, estimatePlayTime, verifyStage, type ProjectSpec } from "@anomaly/core";
+import { createDefaultProject, estimatePlayTime, verifyStage, type ArchitectStage, type ProjectSpec } from "@anomaly/core";
 import { AGENTS, runClaudeCodeTurn, type ChatMessage, type TurnRunner } from "@anomaly/agent";
 import { ArtService } from "../packages/server/src/art/service.ts";
 import { artOptionsFromEnv } from "../packages/server/src/art/config.ts";
@@ -29,7 +30,8 @@ export const PITCHES = [
 ];
 
 const args = process.argv.slice(2);
-const out = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--only");
+const out = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--only" && args[i - 1] !== "--from");
+const from = args.includes("--from") ? (args[args.indexOf("--from") + 1] as ArchitectStage) : undefined;
 if (!out) throw new Error("usage: node scripts/architect-eval.ts <out-dir> [--only 0,3] [--art]");
 const only = args.includes("--only") ? args[args.indexOf("--only") + 1]!.split(",").map(Number) : PITCHES.map((_, i) => i);
 const withArt = args.includes("--art");
@@ -65,13 +67,13 @@ async function evaluate(n: number): Promise<Record<string, unknown>> {
     history.push(...result.messages);
     console.log(`[${n}] director ${result.outcome}`);
   };
-  await director(`Pitch: ${PITCHES[n]}\nDraft the wiki: an overview, a page for each place and each character of the cast. Decide open questions yourself.`);
-  await director(
+  if (!from) await director(`Pitch: ${PITCHES[n]}\nDraft the wiki: an overview, a page for each place and each character of the cast. Decide open questions yourself.`);
+  if (!from) await director(
     "Now draft the progression: 4 or 5 regions with a start and an ending, 4 to 7 rooms each (20 to 30 in total), 2 or 3 bosses that each guard an ability, at least two movement abilities that gate connections and one key. Give every region its enemies. Then read the progression report and fix every issue. Decide open questions yourself.",
   );
 
   const architect = new ArchitectService(store, defaultStageRunners({ art, overrides: modelStageRunners(runner) }), { repairPacing: true });
-  const started = await architect.start({});
+  const started = await architect.start(from ? { from } : {});
   if (!started.ok) throw new Error(started.error.message);
   await architect.idle();
   const state = architect.getState();
