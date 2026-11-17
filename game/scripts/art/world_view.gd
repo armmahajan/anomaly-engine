@@ -13,6 +13,7 @@ const FOG_TINT := {"far": 0.0, "mid": 0.5, "back": 0.35, "play": 0.0, "front": 0
 const FOG_MAX := {"mid": 0.42, "back": 0.32, "play": 0.22}
 ## Far and mid layers live on their own canvas, untouched by the scene's darkness (they are distant and hazy).
 const DISTANT := ["far", "mid"]
+const Terrain := preload("res://scripts/terrain.gd")
 
 const FOG_SHADER := """
 shader_type canvas_item;
@@ -94,6 +95,7 @@ var _scene_lights: Array = []
 var _explode := {}  # layer -> vertical offset while exploded
 var _alpha_cache := {}  # texture rid -> Image
 var _highlight: Line2D = null
+var _terrain: Node2D = null
 
 
 ## base64 images (PNG/JPEG/WebP) -> textures, keyed the same way.
@@ -358,17 +360,40 @@ func _build_backdrop(height: float, width: float, view_size: Vector2) -> void:
 	sprite.centered = false
 	sprite.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	sprite.region_enabled = true
-	var s := (height * 1.04) / tex.get_height()
+	var s := height / tex.get_height()  # exactly the room's height: nothing shows above or below it
 	var cover := view_size.x * 2.0 + width * SCROLL["far"] + 400.0
 	sprite.region_rect = Rect2(0, 0, cover / s, tex.get_height())
 	sprite.scale = Vector2(s, s)
-	sprite.position = Vector2(-view_size.x, -height * 0.02)
+	sprite.position = Vector2(-view_size.x, 0.0)
 	_layers["far"].add_child(sprite)
 
 
+## The scene's tiles as one terrain in the ground texture (breakables cracked, hazards spiked).
+## Scenes without tiles fall back to drawing each platform rectangle.
 func _build_ground(palette: Dictionary) -> void:
 	var tex := _texture(_scene.get("ground"))
 	var rim := Color(str(palette.get("fog", "#33465a"))).lightened(0.35)
+	var tiles = _scene.get("terrain")
+	if typeof(tiles) == TYPE_DICTIONARY and typeof(tiles.get("grid")) == TYPE_DICTIONARY:
+		_terrain = Terrain.new()
+		_terrain.name = "Terrain"
+		_layers["play"].add_child(_terrain)
+		var lit := _emissive(rim, "play")
+		_terrain.build(tiles.grid.get("rows", []), int(tiles.get("ledgeThickness", 20)), {
+			"texture": tex,
+			"color": Color(0.62, 0.62, 0.66),  # solid ground sits in shadow; the lit rim carries it
+			"shade": 0.55,
+			"rim": Color(lit, 0.75),
+			"edge": Color(lit, 0.22),
+			"under": 0.5,
+			"breakable": Color(0.95, 0.78, 0.55),
+			"glaze": Color(_emissive(Color(1.0, 0.85, 0.6), "play"), 0.2),
+			"crack": Color(0.05, 0.03, 0.02, 0.95),
+			"hazard": Color(0.8, 0.32, 0.28),
+			"spike": _emissive(Color("#d8c8b4"), "play"),
+			"oneway": Color(0.85, 0.85, 0.9),
+		})
+		return
 	for rect in _scene.get("platforms", []):
 		var r := Rect2(rect.x, rect.y, rect.width, rect.height)
 		if tex != null:
@@ -403,11 +428,12 @@ func _build_ground(palette: Dictionary) -> void:
 		edge.position = r.position
 		edge.size = Vector2(r.size.x, 4)
 		_layers["play"].add_child(edge)
-		var lip := ColorRect.new()
-		lip.color = Color(0, 0, 0, 0.35)
-		lip.position = r.position + Vector2(0, r.size.y)
-		lip.size = Vector2(r.size.x, 6)
-		_layers["play"].add_child(lip)
+
+
+## A smashed area (world px) leaves the terrain.
+func clear_terrain(rect: Rect2) -> void:
+	if _terrain != null:
+		_terrain.clear_rect(rect)
 
 
 func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
@@ -546,8 +572,8 @@ func _add_fog(parent: Node2D, layer: String, fog: Color, density: float, width: 
 	mat.set_shader_parameter("density", density)
 	mat.set_shader_parameter("speed", 0.015 + 0.02 * SCROLL[layer])
 	rect.material = mat
-	rect.position = Vector2(-view_size.x, -40)
-	rect.size = Vector2(view_size.x * 2.0 + width, height + 80)
+	rect.position = Vector2(-view_size.x, 0)
+	rect.size = Vector2(view_size.x * 2.0 + width, height)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(rect)
 	# Fog is drawn first in its layer, i.e. between this layer and the one behind it.
@@ -567,10 +593,10 @@ func _add_ray(ray: Dictionary, color: Color, height: float) -> void:
 	var w := float(ray.get("width", 200))
 	rect.size = Vector2(w, height * 1.1)
 	rect.pivot_offset = Vector2(w / 2.0, 0)
-	rect.position = Vector2(_local_x("mid", float(ray.x)) - w / 2.0, -20)
+	rect.position = Vector2(_local_x("mid", float(ray.x)) - w / 2.0 + CLIP_REACH, 0)
 	rect.rotation = deg_to_rad(float(ray.get("angle", 15)))
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_layers["mid"].add_child(rect)
+	_room_clip("mid", height).add_child(rect)
 	_glows.append(rect)
 
 
@@ -584,7 +610,7 @@ func _add_dust(dust: Dictionary, width: float, height: float) -> void:
 	p.preprocess = 9.0
 	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
 	p.emission_rect_extents = Vector2(width / 2.0, height / 2.0)
-	p.position = Vector2(width / 2.0, height / 2.0)
+	p.position = Vector2(width / 2.0 + CLIP_REACH, height / 2.0)
 	p.direction = Vector2(0.3, -1)
 	p.spread = 60.0
 	p.gravity = Vector2(0, -4)
@@ -603,8 +629,26 @@ func _add_dust(dust: Dictionary, width: float, height: float) -> void:
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	mat.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
 	p.material = mat
-	_layers["play"].add_child(p)
+	_room_clip("play", height).add_child(p)
 	_fogs.append(p)
+
+
+## How far (px) a room clip reaches left and right of the room's origin.
+const CLIP_REACH := 40000.0
+
+## A container in a layer that clips what it holds to the room's height (light shafts lean and
+## dust drifts; neither should show above or below the room). Children are offset by CLIP_REACH.
+func _room_clip(layer: String, height: float) -> Control:
+	var clip: Control = _layers[layer].get_node_or_null("RoomClip")
+	if clip == null:
+		clip = Control.new()
+		clip.name = "RoomClip"
+		clip.clip_contents = true
+		clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		clip.position = Vector2(-CLIP_REACH, 0)
+		clip.size = Vector2(CLIP_REACH * 2.0, height)
+		_layers[layer].add_child(clip)
+	return clip
 
 
 ## Colors that should read as light, not lit surfaces: undo the scene's darkness tint (main canvas only).

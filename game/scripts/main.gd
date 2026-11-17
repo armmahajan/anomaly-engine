@@ -212,7 +212,7 @@ func _build_world() -> void:
 		_dressing_view.vignette = false
 		_world.add_child(_dressing_view)
 		_dressing_view.build(dressing, _textures, Vector2(sandbox.width, sandbox.height) * 1.5)
-	var solids: Array = Level.build(_world, sandbox.solids, platform_color, _dressing_view != null)
+	var solids: Array = Level.build(_world, sandbox.solids, platform_color, _dressing_view != null, sandbox.get("grid"), int(_project.get("world", {}).get("ledgeThickness", 20)))
 
 	var characters := {}
 	for c in _project.characters:
@@ -243,7 +243,9 @@ func _build_world() -> void:
 
 
 func _on_smashed(rect: Rect2) -> void:
+	Level.clear(_world, rect)
 	if _dressing_view != null and is_instance_valid(_dressing_view):
+		_dressing_view.clear_terrain(rect)
 		_dressing_view.remove_resting_on(rect)
 
 
