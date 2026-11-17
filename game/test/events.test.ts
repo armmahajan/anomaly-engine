@@ -20,7 +20,13 @@ function logic(project: ProjectSpec, world: Record<string, unknown>, room: Recor
       ...project.world,
       items: [{ id: "key", name: "Key" }, { id: "coin", name: "Coin" }],
       ...world,
-      rooms: [{ ...arenaRoom, ...room, spawns: arenaRoom!.spawns.map((sp) => ({ ...sp, handlers: spawnHandlers[sp.id] ?? [] })) }],
+      rooms: [
+        {
+          ...arenaRoom,
+          ...room,
+          spawns: arenaRoom!.spawns.map((sp) => ({ ...sp, handlers: spawnHandlers[sp.id] ?? [], when: sp.id === "dummy_1" ? { type: "flag", flag: "dummy_beaten", is: false } : null })),
+        },
+      ],
     },
   });
 }
@@ -65,6 +71,18 @@ const scenarios = {
     frames: s(2),
     samples: [s(0.9), s(2)],
   },
+  // A spawn with a condition stays gone once it fails (a beaten enemy, after respawning the room).
+  staysBeaten: {
+    project: logic(
+      arena([{ id: "dummy", at: [230, ARENA_FLOOR], stats: { health: 1 }, ...idle }]),
+      { handlers: [{ on: { type: "timer", timer: "again" }, do: [{ type: "respawn", at: "entry" }] }] },
+      {},
+      { dummy_1: [{ on: { type: "enemyKilled" }, do: [{ type: "setFlag", flag: "dummy_beaten" }, { type: "startTimer", timer: "again", seconds: 0.2 }] }] },
+    ),
+    frames: s(1.5),
+    samples: [s(0.5), s(1.5)],
+    input: [press("attack", s(0.6))],
+  },
   // Abilities granted mid-run work at once.
   grant: {
     project: logic(arena([]), { handlers: [{ on: { type: "roomSettled" }, do: [{ type: "grantAbility", ability: "double_jump" }] }] }),
@@ -107,6 +125,13 @@ describe("the game-logic engine", () => {
     expect(entity(after, "dummy_1").health).toBe(0);
     expect(after!.items).toEqual({ key: 1 });
     expect(after!.flags).toEqual(["cleared"]);
+  });
+
+  it("leaves out spawns whose condition fails when a room is built", () => {
+    const [before, after] = results.staysBeaten;
+    expect(before!.entities.map((e) => e.spawnId)).toContain("dummy_1");
+    expect(after!.flags).toEqual(["dummy_beaten"]);
+    expect(after!.entities.map((e) => e.spawnId)).toEqual(["player"]); // the room was rebuilt without it
   });
 
   it("runs timers, and the onDeath rule respawns at the checkpoint", () => {

@@ -42,6 +42,8 @@ export const RoomSpawn = z.strictObject({
   characterId: Id,
   x: z.number().describe("Feet x, px from the room's left."),
   y: z.number().describe("Feet y, px from the room's top."),
+  /** Spawn only while this holds (e.g. until a flag says it was beaten); null = always. */
+  when: GameCondition.nullable().default(null),
   /** Show a titled health bar while this enemy is alive in the current room (any enemy can). */
   healthBar: z.strictObject({ title: z.string().min(1).max(60) }).nullable().default(null),
   /** Handlers scoped to this spawn (its enemyKilled is its own death). */
@@ -184,6 +186,7 @@ export function worldIssues(world: World, enemyIds: Set<string>): { path: (strin
       spawnIds.add(spawn.id);
       if (!enemyIds.has(spawn.characterId)) issues.push({ path: at("spawns", j, "characterId"), message: `unknown enemy "${spawn.characterId}" (the player enters through doors and the world's start)` });
       refs.handlers(spawn.handlers, at("spawns", j, "handlers"), room, false);
+      if (spawn.when) refs.conditions([spawn.when], at("spawns", j, "when"));
     });
     const propIds = new Set<string>();
     room.props.forEach((prop, j) => {

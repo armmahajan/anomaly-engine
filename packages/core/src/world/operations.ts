@@ -7,6 +7,7 @@ import type { ProjectSpec } from "../schema.ts";
 import { checkInside, commit, fail, findRoom, known, parse, withRoom, withWorld, type Fail } from "./opHelpers.ts";
 import { Dressing } from "../art/world.ts";
 import { DoorSide, GameRules, OPPOSITE, RoomSpawn, World, type Door, type WorldRoom } from "./world.ts";
+import { GameCondition } from "../events/events.ts";
 import { borderedGrid, gridCols, gridRows, TILE, TILE_CHAR, TILE_KINDS, TileGrid, type TileKind } from "./tiles.ts";
 
 /**
@@ -362,6 +363,25 @@ export function moveRoomSpawn(project: ProjectSpec, input: unknown): OperationRe
   return withRoom(project, found.index, { ...found.room, spawns });
 }
 
+export const SetSpawnConditionInput = z.strictObject({
+  roomId: Id,
+  spawnId: Id,
+  when: GameCondition.nullable().describe("The enemy spawns only while this holds (e.g. not flag beaten); null = always."),
+});
+
+/** Make a spawn conditional (e.g. an enemy that stays beaten). */
+export function setSpawnCondition(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(SetSpawnConditionInput, input, "setSpawnCondition");
+  if (!p.ok) return p;
+  const found = findRoom(project, p.data.roomId);
+  if (!found.ok) return found;
+  const s = findSpawn(found.room, p.data.spawnId);
+  if (!s.ok) return s;
+  const spawns = found.room.spawns.slice();
+  spawns[s.index] = { ...s.spawn, when: p.data.when };
+  return withRoom(project, found.index, { ...found.room, spawns });
+}
+
 export const RoomSpawnRef = z.strictObject({ roomId: Id, spawnId: Id });
 
 export function removeRoomSpawn(project: ProjectSpec, input: unknown): OperationResult {
@@ -456,6 +476,7 @@ export const worldRoomOperations = {
   addRoomSpawn,
   moveRoomSpawn,
   removeRoomSpawn,
+  setSpawnCondition,
   setWorldStart,
   setPlaytest,
   setGameRules,

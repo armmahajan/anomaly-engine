@@ -240,6 +240,8 @@ export function describeCall({ name, input }: OperationCall): string {
       return `moved ${i.spawnId}`;
     case "removeRoomSpawn":
       return `removed ${i.spawnId}`;
+    case "setSpawnCondition":
+      return `made ${i.spawnId} conditional`;
     case "setPlaytest":
       return "changed the playtest";
     case "createWikiPage":

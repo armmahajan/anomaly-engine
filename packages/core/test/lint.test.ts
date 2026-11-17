@@ -10,9 +10,9 @@ describe("lintProject", () => {
 
   it("flags spawns outside their room or embedded in platforms", () => {
     const project = createDefaultProject();
-    project.world.rooms[0]!.spawns.push({ id: "lost", characterId: "crawler", x: 5000, y: 660, healthBar: null, handlers: [] });
-    project.world.rooms[0]!.spawns.push({ id: "stuck", characterId: "crawler", x: 800, y: 690, healthBar: null, handlers: [] }); // inside the floor
-    project.world.rooms[0]!.spawns.push({ id: "on_ledge", characterId: "crawler", x: 450, y: 530, healthBar: null, handlers: [] }); // resting on a platform: fine
+    project.world.rooms[0]!.spawns.push({ id: "lost", characterId: "crawler", x: 5000, y: 660, when: null, healthBar: null, handlers: [] });
+    project.world.rooms[0]!.spawns.push({ id: "stuck", characterId: "crawler", x: 800, y: 690, when: null, healthBar: null, handlers: [] }); // inside the floor
+    project.world.rooms[0]!.spawns.push({ id: "on_ledge", characterId: "crawler", x: 450, y: 530, when: null, healthBar: null, handlers: [] }); // resting on a platform: fine
     const warnings = lintProject(project);
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
       ["spawn_out_of_bounds", "world.rooms.0.spawns.2"],

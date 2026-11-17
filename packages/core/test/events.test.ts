@@ -94,6 +94,17 @@ describe("handlers", () => {
   });
 });
 
+describe("conditional spawns", () => {
+  it("spawn only while their condition holds, naming real things", () => {
+    let p = ok(op(stocked(), "setSpawnCondition", { roomId: "arena", spawnId: "charger_1", when: { type: "flag", flag: "charger_beaten", is: false } }));
+    expect(p.world.rooms[0]!.spawns.find((s) => s.id === "charger_1")!.when).toEqual({ type: "flag", flag: "charger_beaten", is: false });
+    expect(lintProject(p).map((w) => w.message).join()).toContain('flag "charger_beaten" is checked but nothing sets it');
+    expect(op(p, "setSpawnCondition", { roomId: "arena", spawnId: "charger_1", when: { type: "item", item: "gem" } }).ok).toBe(false);
+    p = ok(op(p, "setSpawnCondition", { roomId: "arena", spawnId: "charger_1", when: null }));
+    expect(p.world.rooms[0]!.spawns.find((s) => s.id === "charger_1")!.when).toBeNull();
+  });
+});
+
 describe("game rules are presets", () => {
   it("compile to handlers sent before the world's own", () => {
     const p = withWorld(createDefaultProject(), { handlers: [{ on: { type: "gameStarted" }, when: [], do: [{ type: "saveRun" }] }] });

@@ -610,6 +610,9 @@ func _populate_room(parent: Node2D, room: Dictionary, bounds: Dictionary, player
 		var character: Dictionary = characters.get(spawn.characterId, {})
 		if character.get("kind") != "enemy":
 			continue
+		# Conditional spawns (e.g. stay beaten) follow the run; edit views show every spawn.
+		if player != null and _run.active and spawn.get("when") != null and not _run.events.holds(spawn.when):
+			continue
 		var body: CharacterBody2D = EnemyScript.new()
 		body.setup(character, bounds, Vector2(spawn.x, spawn.y), _project.get("art", {}))
 		body.spawn_id = spawn.id

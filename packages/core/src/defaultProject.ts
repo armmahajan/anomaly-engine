@@ -98,8 +98,8 @@ export function createDefaultProject(): ProjectSpec {
           at: { x: 0, y: 0 },
           doors: [],
           spawns: [
-            { id: "crawler_1", characterId: "crawler", x: 1150, y: ARENA_FLOOR, healthBar: null, handlers: [] },
-            { id: "charger_1", characterId: "charger", x: 640, y: ARENA_FLOOR, healthBar: null, handlers: [] },
+            { id: "crawler_1", characterId: "crawler", x: 1150, y: ARENA_FLOOR, when: null, healthBar: null, handlers: [] },
+            { id: "charger_1", characterId: "charger", x: 640, y: ARENA_FLOOR, when: null, healthBar: null, handlers: [] },
           ],
           dressing: null,
           props: [],

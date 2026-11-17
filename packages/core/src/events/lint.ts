@@ -28,6 +28,9 @@ function allConditions(project: ProjectSpec): { path: string; condition: GameCon
     handlers.forEach((h, i) => flattenConditions(h.when).forEach((condition) => out.push({ path: `${path}.${i}.when`, condition })));
   }
   project.world.rooms.forEach((room, r) =>
+    room.spawns.forEach((spawn, i) => spawn.when && flattenConditions([spawn.when]).forEach((condition) => out.push({ path: `world.rooms.${r}.spawns.${i}.when`, condition }))),
+  );
+  project.world.rooms.forEach((room, r) =>
     room.props.forEach((prop, i) =>
       (["solid", "visible"] as const).forEach((key) => {
         const value = prop[key];

@@ -332,6 +332,8 @@ event happens and every condition holds, the effects run in order.
   (at entry, start or checkpoint), returnToSafeGround, setCheckpoint, saveRun,
   startTimer; showModal, endGame, revealMap (modal.gd); shake, flash, hitStop,
   slowMotion (fx.gd).
+- **Conditional spawns:** a spawn's `when` (setSpawnCondition) keeps an enemy out of
+  the room while it fails, e.g. `not flag x_beaten` for an enemy that stays beaten.
 - **Where handlers live:** the world (any event), a room (its own events), a prop
   (its own touch / interact / hit / destroyed, plus room events) or an enemy spawn
   (its own death). Handlers may only name items, modals, rooms and spawns that exist.
