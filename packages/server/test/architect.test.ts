@@ -181,9 +181,11 @@ describe("a room geometry can't build", () => {
     // Sides set (as layout or the model would) on its links.
     for (const l of touching) await op("updateRoomLink", { linkId: l.id, changes: { aSide: "top", bSide: "bottom" } });
     const layouts: (string[] | undefined)[] = [];
+    const populations: (string[] | undefined)[] = [];
     let geometries = 0;
     const architect = service({
       layout: async ({ project, rooms }) => (layouts.push(rooms), { project, issues: [], summary: "laid out" }),
+      population: async ({ project, rooms }) => (populations.push(rooms), { project, issues: [], summary: "populated" }),
       geometry: async ({ project }) =>
         ++geometries === 1
           ? { project, issues: [{ stage: "geometry", code: "room-unbuilt", message: "couldn't build it", roomId: room.id }], summary: "built all but one" }
@@ -194,6 +196,8 @@ describe("a room geometry can't build", () => {
     expect(architect.getState().last).toMatchObject({ outcome: "finished" });
     const rebuilt = new Set([room.id, ...touching.flatMap((l) => [l.a.room, l.b.room])]);
     expect(layouts).toEqual([undefined, [...rebuilt]]);
+    // Population never ran before geometry blocked: after the repair it runs for every room, not just the rebuilt ones.
+    expect(populations).toEqual([undefined]);
     const after = project();
     expect(after.architect.rooms[1]!.seed).not.toBe(room.seed);
     for (const l of after.architect.links.filter((x) => touching.some((t) => t.id === x.id))) expect([l.a.side, l.b.side]).toEqual([undefined, undefined]);

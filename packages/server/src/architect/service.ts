@@ -183,6 +183,9 @@ export class ArchitectService {
     let only = rooms;
     let feedback: string[] | undefined;
     let repairs = 0;
+    // Stages this run has completed for every room it covers: a repair may narrow only those to the
+    // rooms it rebuilds (a stage that never ran yet must still run for all of them).
+    const complete = new Set<ArchitectStage>();
     const end = stages.at(-1)!;
     try {
       for (let i = 0; i < queue.length; i++) {
@@ -193,9 +196,10 @@ export class ArchitectService {
         this.note(stage, "started");
         this.emit();
         const before = this.store.getState().project;
+        const scope = only && complete.has(stage) ? only : rooms;
         const outcome = await this.runners[stage]({
           project: before,
-          ...(only ? { rooms: only } : {}),
+          ...(scope ? { rooms: scope } : {}),
           ...(stage === "plan" && feedback ? { feedback } : {}),
           signal,
           log: (text) => this.note(stage, text),
@@ -213,6 +217,7 @@ export class ArchitectService {
         });
         if (!committed.ok) throw new Error(committed.error.message);
         this.note(stage, outcome.summary);
+        if (scope === rooms) complete.add(stage);
         if (canRepair) {
           repairs++;
           queue = ARCHITECT_STAGES.slice(ARCHITECT_STAGES.indexOf(repair!.from), ARCHITECT_STAGES.indexOf(end) + 1);
