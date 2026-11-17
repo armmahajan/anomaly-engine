@@ -31,7 +31,8 @@ import { randomRequest, TestRng } from "./architectGeometryPlans.ts";
  * checker directly, independently of proveRoom.
  */
 
-export const PLANS = 500;
+/** All 500 at merge points (ARCHITECT_PROPERTY_PLANS=500); the first 100 on everyday runs (same plans, same order). */
+export const PLANS = Number((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.ARCHITECT_PROPERTY_PLANS ?? 100);
 export const SHARDS = 4;
 const SAMPLE = 5;
 const ALL = Object.keys(MOVEMENT_ABILITIES) as MovementAbility[];
