@@ -26,11 +26,11 @@ export const CREATURE_BACKGROUND: [number, number, number] = [218, 216, 208];
 const inside = (s: Shape, x: number, y: number) =>
   s.kind === "rect" ? x >= s.x0 && x < s.x1 && y >= s.y0 && y < s.y1 : ((x - s.cx) / s.rx) ** 2 + ((y - s.cy) / s.ry) ** 2 <= 1;
 
-/** The creature at `width` x `height` (anti-aliased edges), within `cell` (fractions) of the image if given. */
+/** The creature at `width` x `height` (anti-aliased edges), within `cell` (fractions) of the image if given; `mirror` faces it left. */
 export function drawCreature(
   width: number,
   height: number,
-  options: { cell?: { x: number; y: number; w: number; h: number }; tint?: number; background?: [number, number, number] } = {},
+  options: { cell?: { x: number; y: number; w: number; h: number }; tint?: number; mirror?: boolean; background?: [number, number, number] } = {},
 ): Pixels {
   const data = new Uint8Array(width * height * 4);
   const cell = options.cell ?? { x: 0, y: 0, w: 1, h: 1 };
@@ -41,7 +41,8 @@ export function drawCreature(
       const sum = [0, 0, 0];
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
-          const x = ((px + (sx + 0.5) / SS) / width - cell.x) / cell.w;
+          const u = ((px + (sx + 0.5) / SS) / width - cell.x) / cell.w;
+          const x = options.mirror ? 1 - u : u;
           const y = ((py + (sy + 0.5) / SS) / height - cell.y) / cell.h;
           let color = bg;
           for (const s of SHAPES) if (inside(s, x, y)) color = s.color;
@@ -76,4 +77,17 @@ export function creaturePlan(width: number, height: number): CutoutPlan {
       { id: "leg_near", bone: "leg_near", z: 2, region: box(0.51, 0.67, 0.61, 0.87) },
     ],
   };
+}
+
+/** A 2x2 concept sheet of the creature (each cell a little redder), facing left like image models often draw. */
+export function drawCreatureSheet(size: number, tint = 0): Pixels {
+  const sheet = drawCreature(size, size);
+  const half = size / 2;
+  for (let cell = 0; cell < 4; cell++) {
+    const x0 = (cell % 2) * half;
+    const y0 = Math.floor(cell / 2) * half;
+    const one = drawCreature(size, size, { cell: { x: x0 / size, y: y0 / size, w: 0.5, h: 0.5 }, mirror: true, tint: (tint + cell * 12) % 60 });
+    for (let y = y0; y < y0 + half; y++) sheet.data.set(one.data.subarray((y * size + x0) * 4, (y * size + x0 + half) * 4), (y * size + x0) * 4);
+  }
+  return sheet;
 }

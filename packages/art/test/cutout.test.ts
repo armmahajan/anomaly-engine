@@ -110,7 +110,7 @@ describe("cutout", () => {
     expect(plan.parts[labels[(Math.round(0.38 * SIZE) - cut.offset[1]) * W + Math.round(0.74 * SIZE) - cut.offset[0]]!]!.id).toBe("head");
     // Each leg reaches a few px past its hip into the body (the joint disk), so turning it opens no gap.
     const hip = plan.bones.find((b) => b.id === "leg_near")!.pivot;
-    for (const [dx, dy] of [[-6, -4], [6, -4], [0, -6]]) expect(pointInPolygon(hip[0] + dx, hip[1] + dy, polygon("leg_near").points)).toBe(true);
+    for (const [dx, dy] of [[-6, -4], [6, -4], [0, -6]] as const) expect(pointInPolygon(hip[0] + dx, hip[1] + dy, polygon("leg_near").points)).toBe(true);
   });
 });
 
@@ -226,14 +226,16 @@ describe("rig stage modes", () => {
     expect(h.asset().preview?.score).toBe(6); // not the 9: that attempt no longer looked like the design
     expect(h.asset().preview?.match?.silhouette).toBeGreaterThan(0.95);
     const frame = h.asset().preview!.frame!;
-    expect(leg.pivot[1]).toBeCloseTo((moved.bones.find((b) => b.id === "leg_near")!.pivot[1] - frame.anchor[1]) * frame.scale, 0);
+    expect(leg.pivot[1]).toBeCloseTo((moved.bones.find((b) => b.id === "leg_near")!.pivot[1]! - frame.anchor[1]) * frame.scale, 0);
   });
 });
 
 /** Renders scripted pictures in turn (a rig-agnostic stand-in for the runtime). */
 class ScriptedRenderer extends FakeRenderer {
-  constructor(private readonly pictures: Pixels[]) {
+  private readonly pictures: Pixels[];
+  constructor(pictures: Pixels[]) {
     super();
+    this.pictures = pictures;
   }
   override async renderRig(request: { cellWidth: number; cellHeight: number; columns: number; frames: unknown[]; fit?: boolean }) {
     if (request.fit === false) {
