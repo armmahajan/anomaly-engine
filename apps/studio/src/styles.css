@@ -1848,3 +1848,10 @@ body.resizing iframe {
 /* Game art (Make the art) */
 .game-art-steps { margin: 4px 0 8px; padding-left: 18px; font-size: 12px; }
 .game-art-progress { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+
+/* World, prop and screen art */
+.art-job { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.art-job-error { font-size: 11px; color: #f7768e; }
+.prop-thumb { width: 16px; height: 16px; object-fit: contain; vertical-align: middle; margin-right: 4px; }
+.item-icon { width: 22px; height: 22px; object-fit: contain; }
+.tag.stale { background: #4a3b20; color: #e0af68; }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { WORLD_LAYERS, type ArtState, type ProjectSpec, type WorldLayer } from "@anomaly/core";
+import { dressingOutOfDate, WORLD_LAYERS, type ArtState, type ProjectSpec, type WorldLayer } from "@anomaly/core";
 import { JobLog, money, Zoom } from "./ArtPanel.tsx";
 import type { Session } from "./session.ts";
 import { biomesOf, currentWorld, type WorldUi } from "./WorldBench.tsx";
@@ -162,13 +162,20 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
           <ul className="room-list">
             {biome.rooms.map((r) => {
               const isDressed = dressing?.biome === biome.id && dressing.room === r.id;
+              const stale = project.world.rooms.filter((w) => w.dressing?.biome === biome.id && w.dressing.room === r.id && dressingOutOfDate(w));
               return (
                 <li key={r.id} className={r.id === room?.id ? "selected" : ""}>
                   <button type="button" onClick={() => setUi({ ...ui, biomeId: biome.id, roomId: r.id, previewLayout: false })}>
                     {r.name}
                     {r.layout && <span className="tag">layout</span>}
                     {isDressed && <span className="tag">playtest</span>}
+                    {stale.length > 0 && <span className="tag stale" title={`The tiles of ${stale.map((w) => w.name).join(", ")} changed since it was composed`}>tiles changed</span>}
                   </button>
+                  {stale.length > 0 && (
+                    <button type="button" className="icon-button" title="Recompose it around the room's tiles as they are now (~$0.004)" aria-label={`recompose ${r.name}`} disabled={disabled} onClick={() => void session.startArtJob({ stage: "worldCompose", biomeId: biome.id, roomId: r.id })}>
+                      ↻
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="icon-button"

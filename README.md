@@ -405,6 +405,13 @@ click to select, drag to move, drag the corner handle to resize (one edit each);
 the sidebar edits the selected prop (name, rect, color or art, solid, visible,
 health, bounce, prompt, handlers). Items are in the **Game** tab.
 
+Art: **🎨 Draw props** (Rooms) picks a kit piece of the room's biome for each prop
+without art, or paints the missing ones into the kit (`propArt`, see Worlds); a piece is
+drawn fitted to the prop's rectangle (stretched at most 1.5x one way, else kept in shape,
+standing at its bottom centre). **🎨 Draw icons** (Game tab) draws every item's icon from
+one sheet (`itemArt`); in play the HUD shows the items held under the health pips (icon,
+or a swatch of the item's color, and the count).
+
 ## Modals and the map
 
 A **modal** (`world.modals`) is a screen over the game: a title, text, an optional
@@ -429,7 +436,10 @@ and `setMap` (`packages/core/src/modals/`).
 - **Lint:** a modal nothing shows (info), a modal every button of which shows it
   again (it can never close), the map on with fewer than 2 rooms.
 - **Studio:** the Game tab's **Modals** (edit, live **Preview** in the runtime,
-  buttons' effects with the shared `EffectList`) and **Map** switch. Tests:
+  buttons' effects with the shared `EffectList`) and **Map** switch. **🎨 Illustrate**
+  paints a modal's image from its title and text in the art direction (`modalArt`, one
+  low-quality image, about $0.01); an image that reaches the runtime after its modal
+  opened is shown as it arrives. Tests:
   `game/test/modals.test.ts` (headless, through `game/tests/modal_probe.gd`) and
   `e2e/modals.spec.ts`.
 
@@ -541,6 +551,31 @@ player is behind them.
   cracked look; smashing one also clears the pieces and lights standing on it). Rooms never change
   collision; **Suggest layout** stores new platforms on the room, which you can
   preview and accept (`applyRoomLayout`, one undo step).
+- **Every room around its own tiles:** composing with `dressRoom` composes for that
+  world room's grid and doors (and names the biome room after it); recomposing a biome
+  room (`roomId`) composes it around the world room it dresses *now* and records the
+  tiles again (`dressing.tiles`, `roomFingerprint`), so lint and the game-art plan stop
+  calling it out of date. A biome room dressing several world rooms isn't reshaped for
+  one of them: the one whose tiles changed gets a room of its own. **↻** next to a room
+  whose world room's tiles changed recomposes it.
+- **Doors and passages stay readable** (`clearPassages` in `worldSnap.ts`, after
+  snapping and again after the review): nothing in the play or front layer, and no big
+  back-layer piece, may cover a door's opening or the 4 tiles in front of it (parallax
+  layers are checked where they are seen with the camera at the door); offenders are
+  pushed away along x and snapped again, or dropped. A hanging play piece must leave 3
+  tiles above the surface under it (it is shortened, or dropped). The job log says what
+  moved; the compose and review prompts name the door openings.
+- **Region biomes:** the game-art plan (`gameArtPlan`) paints one biome per room group
+  (progression region, else the whole world) with `worldKit` from the region's name, wiki
+  summary and the art direction; it needs no world room, and the group's rooms are then
+  composed with it one by one (`worldCompose` with `dressRoom`).
+- **Props** (`propArt`, about $0.002, plus about $0.005 when pieces are painted): one
+  text call gets each prop without art as data (name, size, color, solid/visible,
+  handlers in one line each, items they name) and the kit's pieces, and picks a piece
+  for each, or describes one to paint. Those are painted on one small transparent sheet
+  (2x2 or 3x3, cut like the kit's), added to the kit as `prop_*` pieces (kept when the
+  kit's sheets are repainted) and set as the props' `art`. A cell that comes back empty
+  is painted again on its own. Item icons (`itemArt`) are cut from a sheet the same way.
 - **Chat:** the build assistant can queue `generateCharacterArt`,
   `generateWorld` and `composeWorldRoom`; they start after its turn, each saved
   as its own AI change, and its reply lists them as "queued: ...". It can also
@@ -561,7 +596,8 @@ player is behind them.
   AI change (one undo step). The job log is `<project>/art-jobs.jsonl`.
 - **API:** `POST /api/art/jobs {stage, characterId? | biomeId?, brief?, feedback?, ...}`
   (character stages `concepts`, `choose`, `rig`, `animate`, `auto`; world
-  stages `worldKit`, `worldCompose`, `worldRepaint`), `GET /api/art`,
+  stages `worldKit`, `worldCompose`, `worldRepaint`; game stages `propArt {worldRoomId}`,
+  `modalArt {modalId}`, `itemArt`), `GET /api/art`,
   `POST /api/art/cancel`, `GET /api/files/<ref>`.
 - **Rendering** for critics and kit slicing runs the web export in headless
   Chromium (`packages/server/src/art/renderer.ts`); `node scripts/render-rig.ts out.png`

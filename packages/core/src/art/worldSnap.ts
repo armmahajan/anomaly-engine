@@ -199,3 +199,170 @@ export function snapPlacements<P extends Placeable & { piece: string; id?: strin
   out.forEach((p, i) => isSpan(p) && snapAt(i));
   return { placements: out, moved, unsupported };
 }
+
+// --- doors and passages ----------------------------------------------------------------
+
+/**
+ * Readable paths: after snapping, nothing near the play plane may cover a door
+ * opening or its approach, and no hanging piece may reach down into the space
+ * the player moves through. "Near the play plane" is the play and front layers
+ * and big pieces (structures, spans) in the back layer; mid pieces are distant
+ * and fogged. Parallax layers are checked where they are seen while the camera
+ * is at the door (mirrors game/scripts/art/world_view.gd).
+ */
+
+/** How fast each layer scrolls with the camera (world_view.gd SCROLL). */
+export const LAYER_SCROLL: Record<WorldLayer, number> = { far: 0.12, mid: 0.38, back: 0.72, play: 1, front: 1.35 };
+/** Half the play view's width (px): the camera stops this far inside a room's sides. */
+export const VIEW_HALF_WIDTH = 480;
+/** Front silhouettes are never taller than this share of the room (world_view.gd). */
+const FRONT_MAX = 0.42;
+const TILE_PX = 32;
+/** How far (px) past the wall a door's approach reaches into the room. */
+export const DOOR_APPROACH = 4 * TILE_PX;
+/** Room (px) a hanging play piece must leave above the surface under it. */
+export const PASSAGE_CLEARANCE = 3 * TILE_PX;
+/** A piece that would have to move further than this to clear a door is dropped instead. */
+const MAX_PUSH = 640;
+const GAP = 8;
+
+export interface DoorOpening {
+  side: "left" | "right" | "top" | "bottom";
+  /** Tiles from the top (left/right) or the left (top/bottom). */
+  offset: number;
+  size: number;
+}
+
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A door's opening plus its approach, and where the camera is while the player is there. */
+export function doorZone(door: DoorOpening, room: Pick<SnapRoom, "width" | "height">): { rect: Rect; camera: number } {
+  const from = door.offset * TILE_PX;
+  const length = door.size * TILE_PX;
+  const depth = TILE_PX + DOOR_APPROACH;
+  const rect: Rect =
+    door.side === "left"
+      ? { x: 0, y: from, width: depth, height: length }
+      : door.side === "right"
+        ? { x: room.width - depth, y: from, width: depth, height: length }
+        : door.side === "top"
+          ? { x: from, y: 0, width: length, height: depth }
+          : { x: from, y: room.height - depth, width: length, height: depth };
+  const camera = Math.min(Math.max(rect.x + rect.width / 2, VIEW_HALF_WIDTH), Math.max(VIEW_HALF_WIDTH, room.width - VIEW_HALF_WIDTH));
+  return { rect, camera };
+}
+
+type Checked = Placeable & { piece: string; id?: string };
+
+/** Pieces that can hide a path: play and front, and big back-layer pieces. */
+function blocks(p: Checked, piece: PieceShape): boolean {
+  return p.layer === "play" || p.layer === "front" || (p.layer === "back" && (piece.kind === "structure" || piece.kind === "span"));
+}
+
+/** Where a placed piece is drawn (room px) while the camera is centred at room x `camera`. */
+export function seenRect(p: Checked, piece: PieceShape, room: Pick<SnapRoom, "height">, camera: number): Rect {
+  let { width, height } = extent(piece, p.scale);
+  let y = p.y;
+  if (p.layer === "front") {
+    const capped = Math.min(height, room.height * FRONT_MAX);
+    width *= capped / height;
+    height = capped;
+    if (piece.kind === "hanging") y = Math.min(y, 0);
+    else if (piece.kind === "span") y = Math.min(y, height);
+    else y = Math.max(y, room.height + 40);
+  }
+  const f = LAYER_SCROLL[p.layer];
+  const x = p.x * f + camera * (1 - f);
+  return { x: x - width / 2, y: piece.kind === "hanging" ? y : y - height, width, height };
+}
+
+const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** Placements covering a door's opening or approach, as [placement id (else piece id), door index]. */
+export function doorBlockers(placements: Checked[], pieces: (PieceShape & { id: string })[], room: SnapRoom, doors: DoorOpening[]): [string, number][] {
+  const byId = new Map(pieces.map((p) => [p.id, p]));
+  const zones = doors.map((d) => doorZone(d, room));
+  return placements.flatMap((p) => {
+    const piece = byId.get(p.piece);
+    if (!piece || !blocks(p, piece)) return [];
+    return zones.flatMap((z, i) => (overlaps(seenRect(p, piece, room, z.camera), z.rect) ? [[p.id ?? p.piece, i] as [string, number]] : []));
+  });
+}
+
+/** How far (px) a hanging play piece reaches into the clearance above the surface under it (<= 0: clear). */
+export function passageIntrusion(p: Checked, piece: PieceShape, room: SnapRoom): number {
+  if (p.layer !== "play" || piece.kind !== "hanging") return 0;
+  const { width, height } = extent(piece, p.scale);
+  const below = room.platforms.filter((r) => r.x < p.x + width / 2 && p.x - width / 2 < r.x + r.width && r.y > p.y);
+  const surface = below.length ? Math.min(...below.map((r) => r.y)) : room.height;
+  return p.y + height - (surface - PASSAGE_CLEARANCE);
+}
+
+/**
+ * Keep doors and passages clear: a piece covering a door is pushed away from it
+ * along x and snapped again, or dropped if that doesn't clear it (or would move it
+ * far); a hanging play piece reaching into the space above a surface is shortened,
+ * or dropped if it would get too small. Reports what changed, by placement id.
+ */
+export function clearPassages<P extends Checked>(
+  placements: P[],
+  pieces: (PieceShape & { id: string })[],
+  room: SnapRoom,
+  doors: DoorOpening[],
+): { placements: P[]; moved: string[]; scaled: string[]; dropped: string[] } {
+  const byId = new Map(pieces.map((p) => [p.id, p]));
+  const zones = doors.map((d) => doorZone(d, room));
+  const inDoor = (p: P, piece: PieceShape) => blocks(p, piece) && zones.some((z) => overlaps(seenRect(p, piece, room, z.camera), z.rect));
+  const name = (p: P) => p.id ?? p.piece;
+  const pushed = placements.map((p) => {
+    const piece = byId.get(p.piece);
+    if (!piece || !inDoor(p, piece)) return p;
+    let next = p;
+    // Two passes: a push away from one door can land in another.
+    for (let pass = 0; pass < 2; pass++) {
+      for (const z of zones) {
+        const seen = seenRect(next, piece, room, z.camera);
+        if (!blocks(next, piece) || !overlaps(seen, z.rect)) continue;
+        const right = z.rect.x + z.rect.width + GAP - seen.x;
+        const left = z.rect.x - GAP - (seen.x + seen.width);
+        // Side doors push inward; top and bottom ones to the nearer side.
+        const toRight = z.rect.x <= 0 || (z.rect.x + z.rect.width < room.width && right <= -left);
+        next = { ...next, x: Math.round(next.x + (toRight ? right : left) / LAYER_SCROLL[next.layer]) };
+      }
+    }
+    return next;
+  });
+  const snapped = snapPlacements(pushed, pieces, room).placements;
+  const moved: string[] = [];
+  const scaled: string[] = [];
+  const dropped: string[] = [];
+  const out = snapped.flatMap((p, i) => {
+    const piece = byId.get(p.piece);
+    if (!piece) return [p];
+    const before = placements[i]!;
+    if (pushed[i] !== before) {
+      if (inDoor(p, piece) || Math.abs(p.x - before.x) > MAX_PUSH || (p.layer === "play" && (p.x < 0 || p.x > room.width))) {
+        dropped.push(name(p));
+        return [];
+      }
+      moved.push(name(p));
+    }
+    const over = passageIntrusion(p, piece, room);
+    if (over <= 0) return [p];
+    const scale = p.scale ?? 1;
+    const height = extent(piece, scale).height;
+    const shorter = Math.floor((scale * (height - over)) / height * 100) / 100;
+    if (shorter < Math.max(0.1, scale * 0.35)) {
+      dropped.push(name(p));
+      return [];
+    }
+    scaled.push(name(p));
+    return [{ ...p, scale: shorter }];
+  });
+  return { placements: out, moved, scaled, dropped };
+}

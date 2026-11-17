@@ -2,6 +2,8 @@ import type { ChangeResult, GameCondition, Prop, ProjectSpec, PropSwitch, WorldR
 import type { Session } from "./session.ts";
 import type { RoomsUi } from "./RoomsView.tsx";
 import { ConditionField, HandlerEditor, newCondition } from "./HandlerEditor.tsx";
+import { ArtJobButton } from "./ArtJobButton.tsx";
+import { fileUrl } from "./api.ts";
 
 /** Rooms sidebar: the selected room's props: list, look, solid / visible conditions, health, bounce, prompt, handlers. */
 export function PropsSection({ project, session, room, ui, setUi, locked }: { project: ProjectSpec; session: Session; room: WorldRoom; ui: RoomsUi; setUi: (ui: RoomsUi) => void; locked: boolean }) {
@@ -15,11 +17,23 @@ export function PropsSection({ project, session, room, ui, setUi, locked }: { pr
     <>
       <h3>Props</h3>
       <p className="hint">Rectangles that can be seen, stood on, touched, used (Up) and struck. Draw one with ▭ Prop on the room.</p>
+      {room.props.length > 0 && (
+        <div className="art-actions">
+          <ArtJobButton
+            session={session}
+            request={{ stage: "propArt", worldRoomId: room.id }}
+            label={`🎨 Draw props (${room.props.filter((p) => !p.art).length})`}
+            cost="$0.004 (more if pieces are painted)"
+            locked={locked}
+            nothing={room.props.every((p) => p.art) ? "Every prop here has art" : undefined}
+          />
+        </div>
+      )}
       <ul className="character-list prop-list">
         {room.props.map((p) => (
           <li key={p.id}>
             <button type="button" data-testid={`prop-${p.id}`} className={p.id === prop?.id ? "selected" : ""} onClick={() => setUi({ ...ui, propId: p.id === prop?.id ? null : p.id })}>
-              <span className="swatch" style={{ background: p.color }} />
+              {p.art ? <PieceThumb project={project} art={p.art} /> : <span className="swatch" style={{ background: p.color }} />}
               {p.name ?? p.id}
               <span className="kind">
                 {p.width}×{p.height}
@@ -42,6 +56,13 @@ export function PropsSection({ project, session, room, ui, setUi, locked }: { pr
       )}
     </>
   );
+}
+
+/** A prop's kit piece, small. */
+function PieceThumb({ project, art }: { project: ProjectSpec; art: NonNullable<Prop["art"]> }) {
+  const biome = project.art.assets.find((a) => a.id === art.biome);
+  const piece = biome?.kind === "biome" ? biome.kit?.pieces.find((p) => p.id === art.piece) : undefined;
+  return piece ? <img className="prop-thumb" src={fileUrl(piece.file)} alt="" data-testid="prop-art" /> : <span className="swatch" />;
 }
 
 interface EditorProps {

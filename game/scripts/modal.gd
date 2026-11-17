@@ -211,6 +211,17 @@ func _physics_process(_delta: float) -> void:
 			_after_close()
 
 
+func _process(_delta: float) -> void:
+	# Its image arrived after it opened (the studio sends images once it has them): show it now.
+	if _open.is_empty() or _panel == null or _open.modal.get("image") == null or _panel.find_child("Image", true, false) != null:
+		return
+	if main._textures.get(str(_open.modal.image)) is Texture2D:
+		var selected := _selected
+		_buttons = []
+		_build(_open.modal)
+		_select(selected)
+
+
 func _navigate() -> void:
 	if _open.is_empty() or Engine.get_physics_frames() == _opened_frame:
 		return  # the press that opened it is not for it

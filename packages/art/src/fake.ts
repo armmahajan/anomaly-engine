@@ -142,7 +142,23 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("Score 1-10 how good it looks as a finished game room")) {
       reply = { score: 6, issues: ["the lantern hangs off its ledge"], fixes: [{ id: "pl_3", x: 650 }], add: [] };
     }
-    else reply = { error: "fake model got an unexpected prompt" };
+    else reply = fakeGameReply(prompt) ?? { error: "fake model got an unexpected prompt" };
     return { text: "```json\n" + JSON.stringify(reply) + "\n```", usage, model: this.id };
   }
+}
+
+// --- game art stages (props) -------------------------------------------------------
+
+/** Scripted answers for the game-art stages' prompts, or undefined. Props: the first gets a piece painted, the rest the kit's first piece. */
+export function fakeGameReply(prompt: string): unknown {
+  if (!prompt.includes("Choose a sprite for each object")) return undefined;
+  const data = (label: string) => JSON.parse(prompt.split(`${label} (JSON): `)[1]!.split("\n")[0]!) as { id: string; name?: string | null }[];
+  const pieces = data("Kit pieces");
+  return {
+    props: data("Props").map((p, i) =>
+      i === 0 || pieces.length === 0
+        ? { id: p.id, piece: null, paint: { name: `${p.name ?? p.id} block`, description: "a carved stone block", kind: "decor" } }
+        : { id: p.id, piece: pieces[0]!.id },
+    ),
+  };
 }
