@@ -55,6 +55,8 @@ export interface CheckResult {
   route: LogicStep[] | null;
   /** Distinct dead states (one counterexample each, shortest first). */
   deadStates: DeadState[];
+  /** Rooms some reachable state stands in (for gate checks: is a region reachable at all). */
+  reachableRooms: string[];
   stats: { states: number; ms: number; truncated: boolean };
 }
 
@@ -63,6 +65,8 @@ export interface CheckOptions {
   abilities?: MovementAbility[];
   /** Stop after this many states (the result says `truncated`). */
   maxStates?: number;
+  /** Abilities the player never gets (grantAbility of them does nothing): for gate checks. */
+  withoutAbilities?: MovementAbility[];
 }
 
 export function checkGame(_project: ProjectSpec, _options: CheckOptions = {}): CheckResult {
