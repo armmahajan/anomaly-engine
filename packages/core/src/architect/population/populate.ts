@@ -315,7 +315,7 @@ function populateRoom(ctx: Context, plan: RoomPlan, room: WorldRoom): Built {
             x: spot.x,
             y: spot.y,
             when: track ? flag(beaten, false) : null,
-            healthBar: c.healthBar ? { title: character.name.slice(0, 60) } : null,
+            healthBar: c.healthBar ? { title: (project.wiki.pages.find((p) => p.characterId === character.id)?.title ?? character.name).slice(0, 60) } : null,
             handlers: own,
           });
         });

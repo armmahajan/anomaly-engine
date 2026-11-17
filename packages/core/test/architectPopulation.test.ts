@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { checkGame, gateChecks, linkDoorId, lintProject, messageModalId, populationStage, ProjectSpec, screensStage, validateProject, type ProjectSpec as Project } from "../src/index.ts";
+import {
+  borderedGrid,
+  checkGame,
+  fillTiles,
+  fixtureReferenceProject,
+  gateChecks,
+  linkDoorId,
+  lintProject,
+  messageModalId,
+  populationStage,
+  ProjectSpec,
+  roomLinks,
+  screensStage,
+  seedPlan,
+  validateProject,
+  type ProjectSpec as Project,
+} from "../src/index.ts";
 import { build, FLOOR, handBuiltProject } from "./architectPopulationWorld.ts";
 
 // Population and screens on a small hand-built world (architectPopulationWorld.ts); the checker proves the result.
@@ -202,5 +218,41 @@ describe("the stages' contract", () => {
     const noDoor = { ...project, world: { ...project.world, rooms: project.world.rooms.filter((r) => r.id !== "peak_1") } };
     const out = populationStage(noDoor);
     expect(out.issues).toEqual([expect.objectContaining({ stage: "geometry", code: "missing-room", roomId: "peak_1" })]);
+  });
+});
+
+describe("the seeded plan of the reference game", () => {
+  // seedPlan from the progression alone, on plain rooms in a chain (each link a right door to a left door),
+  // standing in for the geometry stage: the guardian's room locks, the hatch key gates its link.
+  const reference = fixtureReferenceProject();
+  const plan = seedPlan(reference);
+  const rooms = plan.rooms.map((r, i) => {
+    const doors = roomLinks(plan, r.id).map(({ link, here }) => {
+      const there = here === "a" ? "b" : "a";
+      return { id: linkDoorId(link.id, here), side: here === "a" ? ("right" as const) : ("left" as const), offset: 10, size: 3, to: { room: link[there].room, door: linkDoorId(link.id, there) } };
+    });
+    let grid = borderedGrid(30, 14);
+    for (const d of doors) grid = fillTiles(grid, { col: d.side === "left" ? 0 : 29, row: 10, cols: 1, rows: 3 }, "empty");
+    return { id: r.id, name: r.name, regionId: r.regionId, grid, at: { x: 30 * i, y: 0 }, doors, spawns: [], props: [], handlers: [] };
+  });
+  // Its title and ending stay; the screens of its old rooms go with them.
+  const modals = reference.world.modals.filter((m) => m.id === "title" || m.id === "ending");
+  const project = ProjectSpec.parse({ ...reference, architect: plan, world: { ...reference.world, rooms, modals, start: null, playtest: null } });
+  const game = build(project);
+
+  it("is beatable with no dead states, through the guardian, and lint-free", () => {
+    const result = checkGame(game);
+    expect([result.beatable, result.deadStates]).toEqual([true, []]);
+    expect(result.route!.map((s) => s.action).filter((a) => a.startsWith("defeat") || a.startsWith("touch"))).toEqual([
+      "touch Hatch key",
+      "defeat The Iron Guardian",
+      "touch The end: The Summit: the game ends",
+    ]);
+    expect(lintProject(game)).toEqual([]);
+  });
+
+  it("keeps the reference's own screens and adds the messages", () => {
+    expect(game.world.modals.map((m) => m.id)).toEqual(["title", "ending", "got_hatch_key", "got_double_jump"]);
+    expect(game.world.handlers.filter((h) => h.on.type === "gameStarted")).toHaveLength(1);
   });
 });
