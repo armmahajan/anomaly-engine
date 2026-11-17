@@ -132,7 +132,7 @@ export async function propArtStage(ctx: ArtContext, input: PropArtInput): Promis
   const room = project.world.rooms.find((r) => r.id === input.worldRoomId);
   if (!room) throw new StageError(`no world room "${input.worldRoomId}"`);
   const props = room.props.filter((p) => !p.art);
-  if (props.length === 0) return { operations: [], summary: `every prop in ${room.name} is drawn already` };
+  if (props.length === 0) throw new StageError(`every prop in ${room.name} has art already`);
   const biome = biomeForRoom(project, room);
   const kit = biome.kit!;
   const picks = await ask(
@@ -247,7 +247,7 @@ export function modalPrompt(project: ProjectSpec, modal: { title: string; body: 
 export async function itemArtStage(ctx: ArtContext): Promise<StageResult> {
   const project = ctx.project();
   const items = project.world.items.filter((i) => !i.icon);
-  if (items.length === 0) return { operations: [], summary: "every item has an icon already" };
+  if (items.length === 0) throw new StageError("every item has an icon already");
   const operations: OperationCall[] = [];
   for (let start = 0; start < items.length; start += PER_SHEET) {
     const batch = items.slice(start, start + PER_SHEET);

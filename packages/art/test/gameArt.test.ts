@@ -232,7 +232,7 @@ describe("props, screens and items", () => {
     expect(asked).toContain(`${painted!.width}x${painted!.height}px`);
     expect(asked).toMatch(/interact.*: .*(showModal|setFlag)/);
     // Done: nothing left to draw, and the plan agrees.
-    expect((await propArtStage(h.ctx, { worldRoomId: "hall" })).operations).toEqual([]);
+    await expect(propArtStage(h.ctx, { worldRoomId: "hall" })).rejects.toThrow(/has art already/);
     expect(gameArtPlan(h.project()).find((s) => s.id === "props:hall")).toBeUndefined();
     // Painted pieces survive a repaint of the kit's props sheet.
     const { worldRepaintStage } = await import("../src/index.ts");
@@ -272,7 +272,7 @@ describe("props, screens and items", () => {
     for (const icon of icons) expect(icon && h.files.has(icon)).toBe(true);
     expect(new Set(icons).size).toBe(3);
     expect(gameArtPlan(h.project()).some((s) => s.kind === "items")).toBe(false);
-    expect((await itemArtStage(h.ctx)).operations).toEqual([]);
+    await expect(itemArtStage(h.ctx)).rejects.toThrow(/has an icon already/);
   });
 
   it("paints a thing again on its own when its cell of the sheet comes back empty", async () => {
