@@ -1045,12 +1045,22 @@ function blocked(m: WorldModel, s: State, stuckRooms: string[], wanted?: string)
   const room = m.room(s.room);
   const run = m.toRun(s);
   const solids = m.solidProps(s, run);
+  const here = isSurface(s.node) ? m.graph(s.room, s.abilities, solids).surface(s.node) : undefined;
   const measure = (g: RoomGraph) => {
     let node = s.node;
+    // Surface keys are per graph: in a graph with other solids, stand on the surface at the same place.
+    if (here) {
+      const i = g.surfaces.findIndex((f) => Math.abs(f.y - here.y) < 0.5 && f.x0 < here.x1 && f.x1 > here.x0);
+      if (i < 0) return { exits: new Set<string>(), length: 0 };
+      node = `s${i}`;
+    }
     if (!isSurface(node)) m.moves(g, node);
     const reached = reachableFrom(g, node);
     const exits = new Set([...reached].filter((k) => k.startsWith("out:")));
-    const length = [...reached].reduce((sum, k) => sum + (isSurface(k) ? g.surface(k)!.x1 - g.surface(k)!.x0 : 0), 0);
+    const length = [...reached].reduce((sum, k) => {
+      const f = isSurface(k) ? g.surface(k) : undefined;
+      return sum + (f ? f.x1 - f.x0 : 0);
+    }, 0);
     return { exits, length };
   };
   const now = measure(m.graph(s.room, s.abilities, solids));

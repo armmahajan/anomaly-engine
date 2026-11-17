@@ -14,7 +14,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkGame, createDefaultProject, gateChecks, lintProject, progressionReport, type ProjectSpec } from "@anomaly/core";
+import { abilityChecks, checkGame, createDefaultProject, gateChecks, lintProject, progressionReport, type ProjectSpec } from "@anomaly/core";
 import { AGENTS, runClaudeCodeTurn, type AgentEvent, type ChatMessage } from "@anomaly/agent";
 import { ArtService } from "../packages/server/src/art/service.ts";
 import { artOptionsFromEnv } from "../packages/server/src/art/config.ts";
@@ -121,6 +121,7 @@ try {
   const check = checkGame(final);
   verdict.check = { hasEnding: check.hasEnding, beatable: check.beatable, deadStates: check.deadStates.map((d) => ({ why: d.why, steps: d.path.length, fromSave: d.fromSave })), stats: check.stats };
   verdict.gates = gateChecks(final, check);
+  verdict.abilities = abilityChecks(final, report.criticalPath);
 } catch (e) {
   verdict.check = { error: e instanceof Error ? e.message : String(e) };
 }

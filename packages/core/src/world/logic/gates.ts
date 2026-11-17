@@ -32,3 +32,24 @@ export function gateChecks(project: ProjectSpec, base: CheckResult = checkGame(p
     return [{ connection: c.id, from: c.from, to: c.to, needs, holdsWithout: !far.some((r) => without.includes(r)), reachableWith: far.some((r) => base.reachableRooms.includes(r)) }];
   });
 }
+
+/**
+ * Is each movement ability on the progression's critical path really needed?
+ * Wherever the design puts the requirement (a connection, or reaching another
+ * ability's source), the game must not be beatable without it.
+ */
+export interface AbilityCheck {
+  ability: string;
+  mechanic: MovementAbility;
+  /** The game can't be finished without it. */
+  needed: boolean;
+}
+
+export function abilityChecks(project: ProjectSpec, criticalPath: readonly string[]): AbilityCheck[] {
+  return criticalPath.flatMap((id) => {
+    const mechanic = project.progression.abilities.find((a) => a.id === id)?.mechanic;
+    if (!mechanic || !(mechanic in MOVEMENT_ABILITIES)) return [];
+    const m = mechanic as MovementAbility;
+    return [{ ability: id, mechanic: m, needed: !checkGame(project, { withoutAbilities: [m] }).beatable }];
+  });
+}
