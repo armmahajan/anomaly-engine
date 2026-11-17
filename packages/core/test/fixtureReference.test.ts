@@ -19,3 +19,16 @@ describe("the golden reference game", () => {
     expect(gameArtPlan(project).find((s) => s.id === "biome:spire")!.request.brief).toContain("The Spire: A drowned cistern");
   });
 });
+
+describe("the golden reference game's gates", () => {
+  it("are proven by the checker: the summit needs double jump, and the game is beatable with no dead states", async () => {
+    const { checkGame, gateChecks } = await import("../src/index.ts");
+    const project = fixtureReferenceProject();
+    const result = checkGame(project);
+    expect(result.beatable).toBe(true);
+    expect(result.deadStates).toEqual([]);
+    expect(gateChecks(project, result)).toEqual([
+      { connection: "up_to_summit", from: "spire", to: "summit", needs: ["double_jump"], holdsWithout: true, reachableWith: true },
+    ]);
+  });
+});

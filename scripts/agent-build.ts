@@ -14,7 +14,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkGame, createDefaultProject, lintProject, MOVEMENT_ABILITIES, progressionReport, type MovementAbility, type ProjectSpec } from "@anomaly/core";
+import { checkGame, createDefaultProject, gateChecks, lintProject, progressionReport, type ProjectSpec } from "@anomaly/core";
 import { AGENTS, runClaudeCodeTurn, type AgentEvent, type ChatMessage } from "@anomaly/agent";
 import { ArtService } from "../packages/server/src/art/service.ts";
 import { artOptionsFromEnv } from "../packages/server/src/art/config.ts";
@@ -117,17 +117,7 @@ verdict.progression = { finishable: report.finishable, criticalPath: report.crit
 try {
   const check = checkGame(final);
   verdict.check = { hasEnding: check.hasEnding, beatable: check.beatable, deadStates: check.deadStates.map((d) => ({ why: d.why, steps: d.path.length, fromSave: d.fromSave })), stats: check.stats };
-  const movement = new Set(Object.keys(MOVEMENT_ABILITIES));
-  verdict.gates = final.progression.connections.flatMap((c) => {
-    const needs = c.requires
-      .map((id) => final.progression.abilities.find((a) => a.id === id)?.mechanic)
-      .filter((m): m is MovementAbility => !!m && movement.has(m));
-    if (needs.length === 0) return [];
-    const far = final.world.rooms.filter((r) => r.regionId === c.to).map((r) => r.id);
-    const without = checkGame(final, { withoutAbilities: needs }).reachableRooms;
-    const reached = new Set(check.reachableRooms);
-    return [{ connection: c.id, needs, holdsWithout: !far.some((r) => without.includes(r)), reachableWith: far.some((r) => reached.has(r)) }];
-  });
+  verdict.gates = gateChecks(final, check);
 } catch (e) {
   verdict.check = { error: e instanceof Error ? e.message : String(e) };
 }
