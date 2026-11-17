@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultProject, lintProject, newEnemyCharacter, type ProjectSpec } from "../src/index.ts";
+import { createDefaultProject, fixtureProject, fixtureReferenceProject, fixtureSliceProject, lintProject, newEnemyCharacter, type ProjectSpec } from "../src/index.ts";
 
 const codes = (p: ProjectSpec) => lintProject(p).map((w) => w.code);
 
@@ -54,5 +54,35 @@ describe("lintProject", () => {
       ["unreachable_state", "characters.2.behavior.states.recover"],
       ["movement_mismatch", "characters.2.behavior.states.float"],
     ]);
+  });
+});
+
+describe("unstandable platforms", () => {
+  // Silver Boughs (agent-built run 4): a ledge one tile under the ceiling, too low for the player.
+  const rows = [
+    "##############################",
+    "#............................#",
+    "#................=====.......#",
+    "........=====.................",
+    "..............................",
+    "..............................",
+    "##############################",
+  ];
+  const withRoom = (grid: string[]): ProjectSpec => {
+    const project = fixtureReferenceProject();
+    return { ...project, world: { ...project.world, rooms: [{ ...project.world.rooms[0]!, grid: { rows: grid } }, ...project.world.rooms.slice(1)] } };
+  };
+  const warnings = (p: ProjectSpec) => lintProject(p).filter((w) => w.code === "unstandable_platform");
+
+  it("flags a platform too close to the ceiling for the player to stand on, and says why", () => {
+    const found = warnings(withRoom(rows));
+    expect(found).toHaveLength(1);
+    expect(found[0]!.message).toContain("row 2, columns 17–21");
+    expect(found[0]!.message).toContain("only 32 px between it and the ceiling");
+  });
+
+  it("passes once the platform has room, and in the hand-built games (a pocket under a breakable floor counts)", () => {
+    expect(warnings(withRoom(rows.map((r, i) => (i === 2 ? "#............................#" : i === 3 ? "........=====....=====........" : r))))).toEqual([]);
+    for (const p of [fixtureReferenceProject(), fixtureSliceProject(), fixtureProject(), createDefaultProject()]) expect(warnings(p)).toEqual([]);
   });
 });
