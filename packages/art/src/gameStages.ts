@@ -28,6 +28,31 @@ async function paintSheet(ctx: ArtContext, prompt: string, quality: string, labe
   return img.image;
 }
 
+type Slice = { png: Buffer; width: number; height: number };
+
+/**
+ * Paint things on one transparent sheet (`what`: one description each) and cut it
+ * into them, by cell. A cell that comes back empty (the model drew fewer things,
+ * or two ran together) is painted again on its own.
+ */
+async function paintCells(ctx: ArtContext, what: string[], sheet: (cells: string, side: number) => string, quality: string, label: string, maxSize: number): Promise<Map<number, Slice>> {
+  const side = sheetSide(what.length);
+  const cells = what.map((w, i) => `${cellName(i, side)} cell: ${w}`).join("; ") + (what.length < side * side ? ". Leave the other cells empty." : ".");
+  const image = await paintSheet(ctx, sheet(cells, side), quality, label);
+  const out = new Map<number, Slice>((await ctx.renderer.sliceGrid(image, side, side, maxSize)).filter((c) => c.cell < what.length).map((c) => [c.cell, c]));
+  for (const [i, w] of what.entries()) {
+    if (out.has(i)) continue;
+    ctx.log({ text: `the cell for "${w.slice(0, 60)}" came back empty; painting it on its own` });
+    const single = await paintSheet(ctx, sheet(`${w}.`, 1), quality, `${label}: again, one`);
+    const [only] = await ctx.renderer.sliceGrid(single, 1, 1, maxSize);
+    if (only) out.set(i, only);
+  }
+  return out;
+}
+
+/** "a 3x3 grid of separate <things>" or "one <thing>" for a sheet prompt. */
+const grid = (side: number, things: string, thing: string) => (side === 1 ? `one ${thing}` : `a ${side}x${side} grid of separate ${things}`);
+
 // --- props --------------------------------------------------------------------------
 
 export interface PropArtInput {
@@ -134,14 +159,18 @@ export async function propArtStage(ctx: ArtContext, input: PropArtInput): Promis
   const painting = toPaint.slice(0, Math.min(PER_SHEET, space));
   if (toPaint.length > painting.length) ctx.log({ text: `${toPaint.length - painting.length} prop(s) keep their color (the kit is full or one sheet is enough for now)` });
   if (painting.length > 0) {
-    const side = sheetSide(painting.length);
-    const sheet = await paintSheet(ctx, propSheetPrompt(biome.brief, project, painting, side), kit.quality === "final" ? "medium" : "low", `painting ${painting.length} piece(s) for props`);
-    const cells = await ctx.renderer.sliceGrid(sheet, side, side, 384);
+    const what = painting.map(({ prop, description }) => {
+      const shape = prop.width > prop.height * 1.3 ? "wider than tall" : prop.height > prop.width * 1.3 ? "taller than wide" : "about as wide as tall";
+      return `${description} (${shape}, its color around ${prop.color})`;
+    });
+    const sheet = (cells: string, side: number) =>
+      `Sprite sheet: ${grid(side, "objects", "object")} for a 2D side-view platformer set in ${biome.brief}. ${cells} Each object isolated and centred${side > 1 ? " in its cell" : ""}, filling most of it, with empty space around it, side view, on a fully transparent background. ${style(project.art.direction)}`;
+    const cells = await paintCells(ctx, what, sheet, kit.quality === "final" ? "medium" : "low", `painting ${painting.length} piece(s) for props`, 384);
     const added: WorldPiece[] = [];
     for (const [i, want] of painting.entries()) {
-      const cell = cells.find((c) => c.cell === i);
+      const cell = cells.get(i);
       if (!cell) {
-        ctx.log({ text: `the sheet's cell for ${want.prop.id} came back empty; it keeps its color` });
+        ctx.log({ text: `nothing came back for ${want.prop.id}; it keeps its color` });
         continue;
       }
       const id = uniqueId(`prop_${slug(want.name, "piece")}`.slice(0, 50), [...kit.pieces, ...added].map((p) => p.id));
@@ -176,14 +205,6 @@ function propPickPrompt(biome: BiomeAsset, pieces: WorldPiece[], props: ReturnTy
     "For each prop give the id of the kit piece that best shows what it is, with a similar shape (aspect = width/height) to its rectangle. If no piece fits well, set piece to null and describe one to paint: a short name, a one-sentence description of the object (what it looks like, not what it does), its kind (structure, decor, light, hanging) and glow '#rrggbb' if it gives off light. Props that do different things should look different.",
     'Reply with JSON only: {"props": [{"id", "piece": "<piece id>" | null, "paint"?: {"name", "description", "kind", "glow"?}}]}',
   ].join("\n");
-}
-
-function propSheetPrompt(theme: string, project: ProjectSpec, painting: { prop: Prop; description: string }[], side: number): string {
-  const cells = painting.map(({ prop, description }, i) => {
-    const shape = prop.width > prop.height * 1.3 ? "wider than tall" : prop.height > prop.width * 1.3 ? "taller than wide" : "about as wide as tall";
-    return `${cellName(i, side)} cell: ${description} (${shape}, its color around ${prop.color})`;
-  });
-  return `Sprite sheet: a ${side}x${side} grid of separate objects for a 2D side-view platformer set in ${theme}. ${cells.join("; ")}.${painting.length < side * side ? " Leave the other cells empty." : ""} Each object isolated and centred in its cell, filling most of it, with empty space around it, side view, on a fully transparent background. ${style(project.art.direction)}`;
 }
 
 // --- modals --------------------------------------------------------------------------
@@ -230,15 +251,14 @@ export async function itemArtStage(ctx: ArtContext): Promise<StageResult> {
   const operations: OperationCall[] = [];
   for (let start = 0; start < items.length; start += PER_SHEET) {
     const batch = items.slice(start, start + PER_SHEET);
-    const side = sheetSide(batch.length);
-    const cells = batch.map((item, i) => `${cellName(i, side)} cell: ${item.name}${item.description ? ` (${item.description.slice(0, 160)})` : ""}, mostly ${item.color}`);
-    const prompt = `Sprite sheet: a ${side}x${side} grid of separate item icons for a 2D platformer game. ${cells.join("; ")}.${batch.length < side * side ? " Leave the other cells empty." : ""} Each one a single object, centred in its cell with empty space around it, a bold readable silhouette at small size, three-quarter view, on a fully transparent background. ${style(project.art.direction)}`;
-    const sheet = await paintSheet(ctx, prompt, "low", `icons for ${batch.map((i) => i.name).join(", ")}`);
-    const sliced = await ctx.renderer.sliceGrid(sheet, side, side, 128);
+    const what = batch.map((item) => `${item.name}${item.description ? ` (${item.description.slice(0, 160)})` : ""}, mostly ${item.color}`);
+    const sheet = (cells: string, side: number) =>
+      `Sprite sheet: ${grid(side, "item icons", "item icon")} for a 2D platformer game. ${cells} Each one a single object, centred${side > 1 ? " in its cell" : ""} with empty space around it, a bold readable silhouette at small size, three-quarter view, on a fully transparent background. ${style(project.art.direction)}`;
+    const sliced = await paintCells(ctx, what, sheet, "low", `icons for ${batch.map((i) => i.name).join(", ")}`, 128);
     for (const [i, item] of batch.entries()) {
-      const cell = sliced.find((c) => c.cell === i);
+      const cell = sliced.get(i);
       if (!cell) {
-        ctx.log({ text: `the icon cell for ${item.name} came back empty` });
+        ctx.log({ text: `nothing came back for ${item.name}` });
         continue;
       }
       operations.push({ name: "updateItem", input: { itemId: item.id, changes: { icon: await ctx.files.put(cell.png, "png") } } });

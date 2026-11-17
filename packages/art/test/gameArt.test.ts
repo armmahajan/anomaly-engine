@@ -274,4 +274,18 @@ describe("props, screens and items", () => {
     expect(gameArtPlan(h.project()).some((s) => s.kind === "items")).toBe(false);
     expect((await itemArtStage(h.ctx)).operations).toEqual([]);
   });
+
+  it("paints a thing again on its own when its cell of the sheet comes back empty", async () => {
+    const h = harness();
+    h.edit("createItem", { name: "Ember" });
+    // Only the first cell has anything in it.
+    const renderer = h.ctx.renderer as FakeRenderer;
+    const slice = renderer.sliceGrid.bind(renderer);
+    renderer.sliceGrid = async (image, cols, rows) => (await slice(image, cols, rows)).slice(0, 1);
+    h.commit((await itemArtStage(h.ctx)).operations);
+    expect(h.image.requests.map((r) => r.prompt.slice(0, 40))).toEqual(["Sprite sheet: a 2x2 grid of separate ite", "Sprite sheet: one item icon for a 2D pla"]);
+    expect(h.image.requests[1]!.prompt).toContain("Ember");
+    expect(h.project().world.items.every((i) => i.icon)).toBe(true);
+    expect(h.log).toContain('the cell for "Ember, mostly #e8c547" came back empty; painting it on its own');
+  });
 });
