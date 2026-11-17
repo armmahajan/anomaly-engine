@@ -17,8 +17,9 @@ const LAYER_ORDER := ["far", "mid", "back", "play", "front"]
 const SCROLL := {"far": 0.12, "mid": 0.38, "back": 0.72, "play": 1.0, "front": 1.35}
 ## How much each layer is tinted toward the fog color.
 const FOG_TINT := {"far": 0.0, "mid": 0.5, "back": 0.35, "play": 0.0, "front": 0.0}
-## Softness (image px) of placed pieces by layer: distant ones blur, the front is out of focus.
-const DEPTH_BLUR := {"far": 2.0, "mid": 1.2, "back": 0.0, "play": 0.0, "front": 1.0}
+## Softness (image px) of placed pieces by layer: distant ones blur. (Front silhouettes stay unshaded: their
+## color and fade are their modulate, which a canvas shader doesn't see on its own.)
+const DEPTH_BLUR := {"far": 2.0, "mid": 1.2, "back": 0.0, "play": 0.0, "front": 0.0}
 ## A standing piece in the play layer sinks this share of its drawn height into its surface (px bounds).
 const CONTACT_SINK := 0.05
 const CONTACT_SINK_MIN := 4.0
@@ -107,7 +108,6 @@ shader_type canvas_item;
 uniform vec4 fog_color : source_color;
 uniform float amount = 0.5;
 uniform float blur = 0.0;
-uniform bool keep_tone = true;
 varying vec4 tint;
 %s
 void vertex() { tint = COLOR; }
@@ -117,7 +117,7 @@ void fragment() {
 		c = texture(TEXTURE, UV) * COLOR;
 	} else {
 		vec4 s = soft_sample(TEXTURE, UV, TEXTURE_PIXEL_SIZE, blur);
-		c = (keep_tone ? s * s : s) * tint;
+		c = s * s * tint;  // as texture x COLOR (which holds the texture once more): the same tone, softened
 	}
 	float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
 	vec3 muted = mix(c.rgb, vec3(luma), amount * 0.6);
@@ -734,7 +734,6 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 		mat.set_shader_parameter("fog_color", _emissive(fog.lightened(0.18), layer))
 		mat.set_shader_parameter("amount", tint)
 		mat.set_shader_parameter("blur", blur)
-		mat.set_shader_parameter("keep_tone", layer != "front")  # front silhouettes had no shader before
 		sprite.material = mat
 	_layers[layer].add_child(sprite)
 	if labels:
