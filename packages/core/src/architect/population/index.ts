@@ -15,8 +15,11 @@
  * message (modal) for every ability or key the player can get, and the map on.
  * Population creates the messages and the ending it shows itself (grants.ts); screens
  * adds the rest. Both only add missing screens.
+ *
+ * lintLegibility (lint.ts): silent_grant and skippable_guardian, part of lintProject.
  */
 export { populationStage, doorRect, allOf, anyOf } from "./populate.ts";
 export { screensStage } from "./screens.ts";
+export { lintLegibility, silentGrants, skippableGuardians } from "./lint.ts";
 export { roomSpots, type RoomSpots, type Spot, type PickOptions } from "./spots.ts";
 export { messageModalId, messageModal, grantEffect, safeId } from "./grants.ts";

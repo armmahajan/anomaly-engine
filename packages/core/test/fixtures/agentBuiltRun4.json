@@ -1,0 +1,1536 @@
+{
+ "schemaVersion": 7,
+ "id": "untitled",
+ "name": "Untitled Game",
+ "revision": 50,
+ "characters": [
+  {
+   "id": "player",
+   "name": "Wanderer",
+   "color": "#e8e3d3",
+   "size": {
+    "width": 28,
+    "height": 44
+   },
+   "kind": "player",
+   "stats": {
+    "runSpeed": 320,
+    "jumpVelocity": 760,
+    "health": 5,
+    "attackDamage": 1,
+    "attackReach": 56,
+    "attackCooldown": 0.35,
+    "pogoVelocity": 620,
+    "maxFallSpeed": 1100,
+    "coyoteTime": 0.1,
+    "jumpBuffer": 0.12
+   },
+   "abilities": {
+    "dash": {
+     "distance": 220,
+     "duration": 0.2,
+     "cooldown": 0.45
+    },
+    "doubleJump": {
+     "jumps": 1,
+     "velocity": 680
+    },
+    "wallJump": {
+     "slideSpeed": 150,
+     "velocity": 700,
+     "kickSpeed": 340,
+     "kickTime": 0.16
+    },
+    "glide": {
+     "fallSpeed": 110
+    },
+    "groundPound": {
+     "speed": 1400
+    }
+   }
+  },
+  {
+   "id": "crawler",
+   "name": "Crawler",
+   "color": "#c0504d",
+   "size": {
+    "width": 40,
+    "height": 28
+   },
+   "kind": "enemy",
+   "movement": "ground",
+   "stats": {
+    "knockback": 350,
+    "health": 2,
+    "contactDamage": 1
+   },
+   "behavior": {
+    "initial": "patrol",
+    "states": {
+     "patrol": {
+      "action": {
+       "type": "patrol",
+       "speed": 120,
+       "distance": 420,
+       "turnAtLedge": false,
+       "turnAtWall": true
+      },
+      "transitions": []
+     }
+    },
+    "interrupts": []
+   }
+  },
+  {
+   "id": "charger",
+   "name": "Charger",
+   "color": "#8e6cc2",
+   "size": {
+    "width": 44,
+    "height": 36
+   },
+   "kind": "enemy",
+   "movement": "ground",
+   "stats": {
+    "knockback": 650,
+    "health": 4,
+    "contactDamage": 1
+   },
+   "behavior": {
+    "initial": "patrol",
+    "states": {
+     "patrol": {
+      "action": {
+       "type": "patrol",
+       "speed": 60,
+       "distance": 200,
+       "turnAtLedge": false,
+       "turnAtWall": true
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "playerWithin",
+         "distance": 260
+        },
+        "and": [
+         {
+          "type": "playerLevel",
+          "margin": 60
+         }
+        ],
+        "to": "windup"
+       }
+      ]
+     },
+     "windup": {
+      "action": {
+       "type": "telegraph",
+       "color": "#ffd27a",
+       "shake": false
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "after",
+         "seconds": 0.6
+        },
+        "to": "charge"
+       }
+      ]
+     },
+     "charge": {
+      "action": {
+       "type": "charge",
+       "speed": 520,
+       "direction": "horizontal"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "hitWall"
+        },
+        "to": "recover"
+       },
+       {
+        "when": {
+         "type": "after",
+         "seconds": 0.9
+        },
+        "to": "recover"
+       }
+      ]
+     },
+     "recover": {
+      "action": {
+       "type": "wait"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "after",
+         "seconds": 0.8
+        },
+        "to": "patrol"
+       }
+      ]
+     }
+    },
+    "interrupts": []
+   }
+  },
+  {
+   "id": "cinder_queen",
+   "name": "Cinder Beetle Queen",
+   "color": "#d9622b",
+   "size": {
+    "width": 120,
+    "height": 88
+   },
+   "kind": "enemy",
+   "movement": "ground",
+   "stats": {
+    "knockback": 500,
+    "health": 24,
+    "contactDamage": 1,
+    "armor": 0.8
+   },
+   "behavior": {
+    "initial": "idle",
+    "states": {
+     "idle": {
+      "action": {
+       "type": "wait"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "playerWithin",
+         "distance": 700
+        },
+        "to": "stalk"
+       }
+      ]
+     },
+     "stalk": {
+      "action": {
+       "type": "chase",
+       "speed": 70,
+       "stopDistance": 60
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "healthBelow",
+         "fraction": 0.5
+        },
+        "to": "rage_stalk"
+       },
+       {
+        "when": {
+         "type": "playerWithin",
+         "distance": 150
+        },
+        "to": "claw"
+       },
+       {
+        "when": {
+         "type": "after",
+         "seconds": 2.5
+        },
+        "to": "choose"
+       }
+      ]
+     },
+     "choose": {
+      "action": {
+       "type": "wait"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "chance",
+         "p": 0.5
+        },
+        "to": "summon"
+       },
+       {
+        "when": {
+         "type": "after",
+         "seconds": 0
+        },
+        "to": "slam"
+       }
+      ]
+     },
+     "claw": {
+      "action": {
+       "type": "strike",
+       "windup": 0.6,
+       "active": 0.25,
+       "recovery": 0.7,
+       "damage": 1,
+       "width": 150,
+       "height": 80,
+       "offsetX": 80,
+       "lunge": 0,
+       "color": "#ffd27a"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "actionDone"
+        },
+        "to": "stalk"
+       }
+      ]
+     },
+     "slam": {
+      "action": {
+       "type": "slam",
+       "windup": 0.7,
+       "height": 80,
+       "damage": 1,
+       "waveSpeed": 420,
+       "waveReach": 450,
+       "waveHeight": 28,
+       "color": "#ff8a3a"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "actionDone"
+        },
+        "to": "recover"
+       }
+      ]
+     },
+     "summon": {
+      "action": {
+       "type": "summon",
+       "character": "crawler",
+       "count": 2,
+       "max": 3,
+       "windup": 0.8,
+       "color": "#ffb347"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "actionDone"
+        },
+        "to": "recover"
+       }
+      ]
+     },
+     "recover": {
+      "action": {
+       "type": "wait"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "after",
+         "seconds": 1.2
+        },
+        "to": "stalk"
+       }
+      ]
+     },
+     "rage_stalk": {
+      "action": {
+       "type": "chase",
+       "speed": 110,
+       "stopDistance": 60
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "playerWithin",
+         "distance": 150
+        },
+        "to": "rage_claw"
+       },
+       {
+        "when": {
+         "type": "after",
+         "seconds": 1.8
+        },
+        "to": "rage_choose"
+       }
+      ]
+     },
+     "rage_choose": {
+      "action": {
+       "type": "wait"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "chance",
+         "p": 0.4
+        },
+        "to": "rage_summon"
+       },
+       {
+        "when": {
+         "type": "chance",
+         "p": 0.5
+        },
+        "to": "rage_telegraph"
+       },
+       {
+        "when": {
+         "type": "after",
+         "seconds": 0
+        },
+        "to": "rage_slam"
+       }
+      ]
+     },
+     "rage_claw": {
+      "action": {
+       "type": "strike",
+       "windup": 0.45,
+       "active": 0.25,
+       "recovery": 0.5,
+       "damage": 1,
+       "width": 150,
+       "height": 80,
+       "offsetX": 80,
+       "lunge": 0,
+       "color": "#ff5a3a"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "actionDone"
+        },
+        "to": "rage_stalk"
+       }
+      ]
+     },
+     "rage_slam": {
+      "action": {
+       "type": "slam",
+       "windup": 0.55,
+       "height": 90,
+       "damage": 1,
+       "waveSpeed": 520,
+       "waveReach": 600,
+       "waveHeight": 28,
+       "color": "#ff5a3a"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "actionDone"
+        },
+        "to": "rage_recover"
+       }
+      ]
+     },
+     "rage_summon": {
+      "action": {
+       "type": "summon",
+       "character": "crawler",
+       "count": 2,
+       "max": 4,
+       "windup": 0.6,
+       "color": "#ffb347"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "actionDone"
+        },
+        "to": "rage_recover"
+       }
+      ]
+     },
+     "rage_telegraph": {
+      "action": {
+       "type": "telegraph",
+       "color": "#ff3a2a",
+       "shake": true
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "after",
+         "seconds": 0.7
+        },
+        "to": "rage_charge"
+       }
+      ]
+     },
+     "rage_charge": {
+      "action": {
+       "type": "charge",
+       "speed": 560,
+       "direction": "horizontal"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "hitWall"
+        },
+        "to": "rage_recover"
+       },
+       {
+        "when": {
+         "type": "after",
+         "seconds": 1.2
+        },
+        "to": "rage_recover"
+       }
+      ]
+     },
+     "rage_recover": {
+      "action": {
+       "type": "wait"
+      },
+      "transitions": [
+       {
+        "when": {
+         "type": "after",
+         "seconds": 0.8
+        },
+        "to": "rage_stalk"
+       }
+      ]
+     }
+    },
+    "interrupts": []
+   }
+  }
+ ],
+ "wiki": {
+  "pages": [
+   {
+    "id": "overview",
+    "kind": "overview",
+    "title": "Overview",
+    "summary": "A moth spirit climbs out of a burned forest toward the moon.",
+    "body": "A small moth spirit wakes in the ashes of a forest that has burned down. Something in the sky still shines: the moon. The game is a quiet, atmospheric metroidvania about climbing: from the [[ash_floor]], up through the [[hollow_trees]], to the [[moonlit_canopy]].\n\n## Tone\nHushed, melancholy, then slowly hopeful. Grey ash and ember-glow at the bottom; cold silver light at the top. Little dialogue; the world tells the story.\n\n## Themes\n- Grief and renewal after fire.\n- Light as both lure and guide: a moth is drawn to it, and it may be drawn to its ruin.\n- Ascent as recovery.\n\n## Structure\nThree regions, climbed bottom to top. The [[cinder_queen]] guards the hollow trees and holds the way up.\n\n## Cast\n- [[wanderer]]: the player, the moth spirit.\n- [[crawler]] and [[charger]]: the burned forest's ember-driven creatures.\n- [[cinder_queen]]: boss of the hollow trees.",
+    "fields": {},
+    "status": "draft"
+   },
+   {
+    "id": "wanderer",
+    "kind": "character",
+    "title": "Wanderer",
+    "summary": "The moth spirit the player controls, climbing toward the moon.",
+    "body": "The Wanderer is a moth spirit born from the ashes of the burned forest. It has no voice and no memory of what the forest was, only a pull toward the moon.\n\nIt is fragile but agile, and grows by gaining abilities on its climb through the [[ash_floor]], the [[hollow_trees]] and the [[moonlit_canopy]]. Its path is blocked by the forest's creatures, such as the [[crawler]] and [[charger]], and by the [[cinder_queen]].",
+    "fields": {
+     "role": "player character",
+     "appearance": "A small pale moth spirit, dusty wings, faintly glowing",
+     "motivation": "Drawn upward to the moon; it does not fully know why"
+    },
+    "characterId": "player",
+    "status": "draft"
+   },
+   {
+    "id": "crawler",
+    "kind": "character",
+    "title": "Crawler",
+    "summary": "A slow ember-backed bug that patrols the scorched ground.",
+    "body": "Crawlers are small charred beetle-kin, their shells cracked and glowing with embers. They creep along the ground and trunks in set patterns, and attack only by touch.\n\nThey are the first threat the [[wanderer]] meets, in the [[ash_floor]], and teach the player to read patrol routes. They serve the [[cinder_queen]] as her brood.",
+    "fields": {
+     "role": "enemy",
+     "behavior": "Patrols surfaces slowly; harms on contact",
+     "habitat": "Ash floor, hollow trees"
+    },
+    "characterId": "crawler",
+    "status": "draft"
+   },
+   {
+    "id": "charger",
+    "kind": "character",
+    "title": "Charger",
+    "summary": "A fast, aggressive ember-beast that rushes the player on sight.",
+    "body": "Chargers are larger, heavier cinder-beetles with hardened horns. They stand still until the [[wanderer]] enters their line of sight, then rush in a straight line and need a moment to recover.\n\nThey are the guard of the [[hollow_trees]] and the [[cinder_queen]]'s soldiers. Their charge can be dodged and used against them.",
+    "fields": {
+     "role": "enemy",
+     "behavior": "Spots the player, then charges in a straight line",
+     "habitat": "Hollow trees"
+    },
+    "characterId": "charger",
+    "status": "draft"
+   },
+   {
+    "id": "cinder_queen",
+    "kind": "character",
+    "title": "Cinder Beetle Queen",
+    "summary": "The ember-hearted queen who guards the hollow trees.",
+    "body": "A huge cinder beetle whose shell glows like a banked fire. She nests deep in the [[hollow_trees]], where the last embers of the burn still smoulder, and treats them as her young.\n\nHer brood, the [[crawler]] and [[charger]], defend her. She blocks the [[wanderer]]'s climb to the [[moonlit_canopy]]. She is not evil, only protective of the warmth; the moon's cold light is her enemy.\n\nOpen question: what the player gains by defeating her.",
+    "fields": {
+     "role": "boss",
+     "region": "Hollow trees",
+     "motivation": "Guard the last warm embers of the forest"
+    },
+    "status": "draft"
+   },
+   {
+    "id": "ash_floor",
+    "kind": "place",
+    "title": "Ash Floor",
+    "summary": "The burned forest floor where the Wanderer awakens.",
+    "body": "The Wanderer wakes among blackened stumps and ash drifts. Smoke hides the sky, but the moon shows faintly through it.\n\nHome to [[crawler]]s. The area teaches basic movement and the first look at the world. Huge roots and burned trunks rise toward the [[hollow_trees]].",
+    "fields": {
+     "mood": "Silent, grey, drifting ash with faint ember glow",
+     "appearance": "Charred stumps, ash drifts, dead roots, a distant moon through smoke",
+     "role": "Starting region"
+    },
+    "status": "draft"
+   },
+   {
+    "id": "hollow_trees",
+    "kind": "place",
+    "title": "Hollow Trees",
+    "summary": "Giant burned-out trunks, hollow inside, nested by the cinder beetles.",
+    "body": "The Wanderer climbs inside the huge trunks that survived the fire as shells. Tunnels and shafts glow with embers.\n\nChargers and Crawlers ([[charger]], [[crawler]]) patrol here. At the heart is the nest of the [[cinder_queen]], whose defeat opens the way to the [[moonlit_canopy]]. Connects down to the [[ash_floor]].",
+    "fields": {
+     "mood": "Claustrophobic, warm, orange-lit, dangerous",
+     "appearance": "Vertical shafts inside huge hollow trunks, glowing embers, resin and honeycombed beetle tunnels",
+     "role": "Middle region, boss: Cinder Beetle Queen"
+    },
+    "status": "draft"
+   },
+   {
+    "id": "moonlit_canopy",
+    "kind": "place",
+    "title": "Moonlit Canopy",
+    "summary": "The living treetops under the moon, where the climb ends.",
+    "body": "Above the smoke the canopy survived. Leaves are silver under a great moon, and the air is clear.\n\nReaching its top ends the [[wanderer]]'s journey. Whether the moon is a home, a grave or a rebirth is left open. It is reached by passing through the [[hollow_trees]].",
+    "fields": {
+     "mood": "Cold, open, serene, hopeful",
+     "appearance": "Silver-lit leaves, wind, open sky, huge moon",
+     "role": "Final region and ending"
+    },
+    "status": "draft"
+   }
+  ]
+ },
+ "progression": {
+  "start": "ash_floor",
+  "ending": "moonlit_canopy",
+  "abilities": [
+   {
+    "id": "ember_seed",
+    "name": "Ember Seed",
+    "mechanic": "key",
+    "obtainedIn": {
+     "regionId": "ash_floor",
+     "source": "pickup",
+     "requires": []
+    },
+    "status": "draft"
+   },
+   {
+    "id": "double_jump",
+    "name": "Cinder Wings",
+    "mechanic": "double_jump",
+    "obtainedIn": {
+     "regionId": "hollow_trees",
+     "source": "boss",
+     "requires": []
+    },
+    "status": "draft"
+   }
+  ],
+  "regions": [
+   {
+    "id": "ash_floor",
+    "name": "Ash Floor",
+    "rooms": 3,
+    "enemies": [
+     "crawler"
+    ],
+    "wikiPageId": "ash_floor",
+    "status": "draft"
+   },
+   {
+    "id": "moonlit_canopy",
+    "name": "Moonlit Canopy",
+    "rooms": 2,
+    "enemies": [],
+    "wikiPageId": "moonlit_canopy",
+    "status": "draft"
+   },
+   {
+    "id": "hollow_trees",
+    "name": "Hollow Trees",
+    "rooms": 3,
+    "enemies": [
+     "crawler",
+     "charger"
+    ],
+    "wikiPageId": "hollow_trees",
+    "status": "draft"
+   }
+  ],
+  "connections": [
+   {
+    "id": "ash_to_hollow",
+    "from": "ash_floor",
+    "to": "hollow_trees",
+    "oneWay": false,
+    "requires": [
+     "ember_seed"
+    ],
+    "status": "draft"
+   },
+   {
+    "id": "hollow_to_canopy",
+    "from": "hollow_trees",
+    "to": "moonlit_canopy",
+    "oneWay": false,
+    "requires": [
+     "double_jump"
+    ],
+    "status": "draft"
+   }
+  ],
+  "beats": []
+ },
+ "art": {
+  "direction": {
+   "style": "Hand-drawn 2D game art. Bold, readable silhouettes built from simple shapes; thick dark ink outlines; flat muted, desaturated colors with a single bright accent (glowing eyes, a lantern); pale masks against dark bodies. Melancholy, gloomy underground insect-kingdom mood. Minimal interior detail; charm comes from shape and proportion.",
+   "palette": [
+    "#e8e3d3",
+    "#2a2a33",
+    "#4a5470",
+    "#6b7f8c",
+    "#8a6f5a",
+    "#5f6b4e",
+    "#b8c4c8",
+    "#ffd27a"
+   ],
+   "ink": "#15151c",
+   "inkWidth": 1.6,
+   "boil": 0.35
+  },
+  "assets": []
+ },
+ "world": {
+  "gravity": 1800,
+  "backgroundColor": "#1b2030",
+  "platformColor": "#4a5470",
+  "ledgeThickness": 20,
+  "rules": {
+   "onDeath": "room",
+   "save": "room",
+   "hazardDamage": 1
+  },
+  "start": {
+   "room": "ash_1",
+   "x": 120,
+   "y": 416
+  },
+  "rooms": [
+   {
+    "id": "arena",
+    "name": "Arena",
+    "grid": {
+     "rows": [
+      "##################################################",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#......................%%%%%%....................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "#...........=======..............................#",
+      "#................................................#",
+      "#................................................#",
+      "#................................................#",
+      "##################################################",
+      "##################################################"
+     ]
+    },
+    "at": {
+     "x": 0,
+     "y": 0
+    },
+    "doors": [],
+    "spawns": [
+     {
+      "id": "crawler_1",
+      "characterId": "crawler",
+      "x": 1150,
+      "y": 672,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     },
+     {
+      "id": "charger_1",
+      "characterId": "charger",
+      "x": 640,
+      "y": 672,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     }
+    ],
+    "dressing": null,
+    "props": [],
+    "handlers": []
+   },
+   {
+    "id": "ash_1",
+    "name": "Ashen Clearing",
+    "grid": {
+     "rows": [
+      "##############################",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#...........=====.............",
+      "#.............................",
+      "#.............................",
+      "##############################"
+     ]
+    },
+    "at": {
+     "x": 0,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "east",
+      "side": "right",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "ash_2",
+       "door": "west"
+      }
+     }
+    ],
+    "spawns": [
+     {
+      "id": "crawler_1",
+      "characterId": "crawler",
+      "x": 640,
+      "y": 416,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     }
+    ],
+    "dressing": null,
+    "regionId": "ash_floor",
+    "props": [],
+    "handlers": []
+   },
+   {
+    "id": "ash_2",
+    "name": "Charred Roots",
+    "grid": {
+     "rows": [
+      "##############################",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#..............=====.........#",
+      "#............................#",
+      "#............................#",
+      ".......=====..................",
+      "..............................",
+      "..............................",
+      "##############################"
+     ]
+    },
+    "at": {
+     "x": 30,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "west",
+      "side": "left",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "ash_1",
+       "door": "east"
+      }
+     },
+     {
+      "id": "east",
+      "side": "right",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "ash_3",
+       "door": "west"
+      }
+     }
+    ],
+    "spawns": [
+     {
+      "id": "crawler_1",
+      "characterId": "crawler",
+      "x": 400,
+      "y": 416,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     },
+     {
+      "id": "crawler_2",
+      "characterId": "crawler",
+      "x": 760,
+      "y": 416,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     }
+    ],
+    "dressing": null,
+    "regionId": "ash_floor",
+    "props": [],
+    "handlers": []
+   },
+   {
+    "id": "ash_3",
+    "name": "Ember Hollow",
+    "grid": {
+     "rows": [
+      "##############################",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#...............=====........#",
+      "#............................#",
+      "#............................#",
+      ".........=====................",
+      "..............................",
+      "..............................",
+      "##############################"
+     ]
+    },
+    "at": {
+     "x": 60,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "west",
+      "side": "left",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "ash_2",
+       "door": "east"
+      }
+     },
+     {
+      "id": "east",
+      "side": "right",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "hollow_1",
+       "door": "west"
+      }
+     }
+    ],
+    "spawns": [
+     {
+      "id": "crawler_1",
+      "characterId": "crawler",
+      "x": 480,
+      "y": 416,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     }
+    ],
+    "dressing": null,
+    "regionId": "ash_floor",
+    "props": [
+     {
+      "id": "ember_seed_pickup",
+      "name": "Ember Seed",
+      "x": 560,
+      "y": 190,
+      "width": 28,
+      "height": 28,
+      "color": "#ff8a3a",
+      "art": null,
+      "solid": false,
+      "visible": {
+       "type": "not",
+       "of": {
+        "type": "item",
+        "item": "ember_seed",
+        "atLeast": 1
+       }
+      },
+      "health": null,
+      "bounce": false,
+      "prompt": null,
+      "handlers": [
+       {
+        "on": {
+         "type": "touch"
+        },
+        "when": [],
+        "do": [
+         {
+          "type": "giveItem",
+          "item": "ember_seed",
+          "count": 1
+         },
+         {
+          "type": "flash",
+          "color": "#ff8a3a",
+          "seconds": 0.4
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "id": "root_barrier",
+      "name": "Charred Root Wall",
+      "x": 896,
+      "y": 320,
+      "width": 64,
+      "height": 96,
+      "color": "#3a2a24",
+      "art": null,
+      "solid": {
+       "type": "not",
+       "of": {
+        "type": "item",
+        "item": "ember_seed",
+        "atLeast": 1
+       }
+      },
+      "visible": {
+       "type": "not",
+       "of": {
+        "type": "item",
+        "item": "ember_seed",
+        "atLeast": 1
+       }
+      },
+      "health": null,
+      "bounce": false,
+      "prompt": null,
+      "handlers": []
+     }
+    ],
+    "handlers": []
+   },
+   {
+    "id": "hollow_1",
+    "name": "Trunk Entrance",
+    "grid": {
+     "rows": [
+      "##############################",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#.............=====..........#",
+      "#............................#",
+      "#............................#",
+      "......=====..........=====....",
+      "..............................",
+      "..............................",
+      "##############################"
+     ]
+    },
+    "at": {
+     "x": 90,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "west",
+      "side": "left",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "ash_3",
+       "door": "east"
+      }
+     },
+     {
+      "id": "east",
+      "side": "right",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "hollow_2",
+       "door": "west"
+      }
+     }
+    ],
+    "spawns": [
+     {
+      "id": "crawler_1",
+      "characterId": "crawler",
+      "x": 500,
+      "y": 416,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     },
+     {
+      "id": "charger_1",
+      "characterId": "charger",
+      "x": 720,
+      "y": 416,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     }
+    ],
+    "dressing": null,
+    "regionId": "hollow_trees",
+    "props": [],
+    "handlers": []
+   },
+   {
+    "id": "hollow_2",
+    "name": "Ember Shaft",
+    "grid": {
+     "rows": [
+      "##############################",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#..........====..............#",
+      "#............................#",
+      "#............................#",
+      ".....====.........=====.......",
+      "..............................",
+      "..............................",
+      "##############################"
+     ]
+    },
+    "at": {
+     "x": 120,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "west",
+      "side": "left",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "hollow_1",
+       "door": "east"
+      }
+     },
+     {
+      "id": "east",
+      "side": "right",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "hollow_3",
+       "door": "west"
+      }
+     }
+    ],
+    "spawns": [
+     {
+      "id": "charger_1",
+      "characterId": "charger",
+      "x": 420,
+      "y": 416,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     },
+     {
+      "id": "crawler_1",
+      "characterId": "crawler",
+      "x": 720,
+      "y": 416,
+      "when": null,
+      "healthBar": null,
+      "handlers": []
+     }
+    ],
+    "dressing": null,
+    "regionId": "hollow_trees",
+    "props": [],
+    "handlers": []
+   },
+   {
+    "id": "hollow_3",
+    "name": "Queen's Nest",
+    "grid": {
+     "rows": [
+      "##############################",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "#..====................====..#",
+      "..............................",
+      "..............................",
+      "..............................",
+      "##############################"
+     ]
+    },
+    "at": {
+     "x": 150,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "west",
+      "side": "left",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "hollow_2",
+       "door": "east"
+      }
+     },
+     {
+      "id": "east",
+      "side": "right",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "hollow_gate",
+       "door": "entry"
+      }
+     }
+    ],
+    "spawns": [
+     {
+      "id": "queen",
+      "characterId": "cinder_queen",
+      "x": 640,
+      "y": 416,
+      "when": {
+       "type": "flag",
+       "flag": "queen_beaten",
+       "is": false
+      },
+      "healthBar": {
+       "title": "Cinder Beetle Queen"
+      },
+      "handlers": [
+       {
+        "on": {
+         "type": "enemyKilled"
+        },
+        "when": [],
+        "do": [
+         {
+          "type": "setFlag",
+          "flag": "queen_beaten",
+          "value": true
+         },
+         {
+          "type": "grantAbility",
+          "ability": "double_jump"
+         },
+         {
+          "type": "shake",
+          "strength": 8,
+          "seconds": 0.3
+         },
+         {
+          "type": "flash",
+          "color": "#ff8a3a",
+          "seconds": 0.5
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "dressing": null,
+    "regionId": "hollow_trees",
+    "props": [],
+    "handlers": []
+   },
+   {
+    "id": "hollow_gate",
+    "name": "Wing Gap",
+    "grid": {
+     "rows": [
+      "############",
+      "^..........#",
+      "^..........#",
+      "^...........",
+      "^...........",
+      "^...........",
+      "^.....^#####",
+      "^.....^#####",
+      "^.....^#####",
+      "^.....^#####",
+      "......^#####",
+      "......^#####",
+      "......^#####",
+      "############"
+     ]
+    },
+    "at": {
+     "x": 180,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "entry",
+      "side": "left",
+      "offset": 10,
+      "size": 3,
+      "to": {
+       "room": "hollow_3",
+       "door": "east"
+      }
+     },
+     {
+      "id": "exit",
+      "side": "right",
+      "offset": 3,
+      "size": 3,
+      "to": {
+       "room": "canopy_1",
+       "door": "west"
+      }
+     }
+    ],
+    "spawns": [],
+    "dressing": null,
+    "regionId": "hollow_trees",
+    "props": [],
+    "handlers": []
+   },
+   {
+    "id": "canopy_1",
+    "name": "Silver Boughs",
+    "grid": {
+     "rows": [
+      "##############################",
+      "#............................#",
+      "#............................#",
+      "........=====....=====........",
+      "..............................",
+      "..............................",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################"
+     ]
+    },
+    "at": {
+     "x": 192,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "west",
+      "side": "left",
+      "offset": 3,
+      "size": 3,
+      "to": {
+       "room": "hollow_gate",
+       "door": "exit"
+      }
+     },
+     {
+      "id": "east",
+      "side": "right",
+      "offset": 3,
+      "size": 3,
+      "to": {
+       "room": "canopy_2",
+       "door": "west"
+      }
+     }
+    ],
+    "spawns": [],
+    "dressing": null,
+    "regionId": "moonlit_canopy",
+    "props": [],
+    "handlers": []
+   },
+   {
+    "id": "canopy_2",
+    "name": "Moon Crown",
+    "grid": {
+     "rows": [
+      "##############################",
+      "#............................#",
+      "#............................#",
+      "..........=====..............#",
+      ".............................#",
+      ".............................#",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################",
+      "##############################"
+     ]
+    },
+    "at": {
+     "x": 222,
+     "y": 30
+    },
+    "doors": [
+     {
+      "id": "west",
+      "side": "left",
+      "offset": 3,
+      "size": 3,
+      "to": {
+       "room": "canopy_1",
+       "door": "east"
+      }
+     }
+    ],
+    "spawns": [],
+    "dressing": null,
+    "regionId": "moonlit_canopy",
+    "props": [
+     {
+      "id": "moon_light",
+      "name": "Moonlight",
+      "x": 800,
+      "y": 96,
+      "width": 64,
+      "height": 96,
+      "color": "#cfd8ff",
+      "art": null,
+      "solid": false,
+      "visible": true,
+      "health": null,
+      "bounce": false,
+      "prompt": null,
+      "handlers": [
+       {
+        "on": {
+         "type": "touch"
+        },
+        "when": [],
+        "do": [
+         {
+          "type": "flash",
+          "color": "#cfd8ff",
+          "seconds": 0.6
+         },
+         {
+          "type": "endGame",
+          "modal": "ending"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "handlers": []
+   }
+  ],
+  "playtest": {
+   "room": "ash_1",
+   "x": 120,
+   "y": 416,
+   "abilities": []
+  },
+  "handlers": [
+   {
+    "on": {
+     "type": "gameStarted"
+    },
+    "when": [],
+    "do": [
+     {
+      "type": "showModal",
+      "modal": "title"
+     }
+    ]
+   }
+  ],
+  "items": [
+   {
+    "id": "ember_seed",
+    "name": "Ember Seed",
+    "description": "A glowing seed that still holds fire. Opens the way to the Hollow Trees.",
+    "color": "#ff8a3a"
+   }
+  ],
+  "modals": [
+   {
+    "id": "ending",
+    "title": "The Moon",
+    "body": "The Wanderer stands in the moonlight, above the ash and the hollow, and the long climb is done.",
+    "image": null,
+    "buttons": [
+     {
+      "label": "Begin again",
+      "do": []
+     }
+    ]
+   },
+   {
+    "id": "title",
+    "title": "Ember and Moon",
+    "body": "Climb from the ashes, through the hollow trees, to the moonlit canopy.",
+    "image": null,
+    "buttons": [
+     {
+      "label": "Begin",
+      "do": []
+     }
+    ]
+   }
+  ],
+  "map": {
+   "enabled": false
+  }
+ }
+}
