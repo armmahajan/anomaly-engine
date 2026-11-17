@@ -485,22 +485,53 @@ its picks all the way):
 1. **Concepts**: a brief becomes a 2x2 concept sheet (cheap raster sketches,
    inspiration only). The AI marks its pick; click a design to choose it, or
    ask for **Variations** of the chosen one. Left-facing designs are mirrored.
-2. **Rig**: a vision model traces the design as a *rig*: flat shapes
-   (blobs, ellipses, tapered strokes) on bones, pure data
-   (`packages/core/src/art/rig.ts`). It works in the concept's own pixels over
-   a grid; the pipeline renders the rig in the real runtime, lays it over the
-   concept, and lets the critic score and fix it (3 rounds, best kept). The
-   workbench's **Onion** slider draws the design behind the live rig, aligned
-   with the frame the rig was traced in; **Bones** shows the skeleton.
-3. **Animation**: clips per slot (idle, walk, run, windup, attack, hurt,
-   jump, fall, fly) as keyframe tracks plus motion primitives (sway, bob,
-   shift, pulse, squash, shake) (`clip.ts`), reviewed once from filmstrips.
-   Pick a clip to play it on the stage; scrub the timeline, change the speed.
-   Enemies pick a clip from their behavior's action.
+2. **Rig**: the design becomes a *rig*, pure data on bones
+   (`packages/core/src/art/rig.ts`), in one of two modes (pick **Vector** or
+   **Cutout** in the sidebar; default: the art direction's `rigMode`, else vector):
+   - **Vector**: a vision model traces the design as flat shapes (blobs,
+     ellipses, tapered strokes), in the concept's own pixels over a grid.
+   - **Cutout**: the design itself, cut into pieces (`packages/art/src/cutout.ts`).
+     Code removes the flat background (estimated from the border, flooded in
+     from the edges) and stores the character as a transparent PNG, the rig's
+     `source`. The model only plans the skeleton and a *rough* region per part;
+     code gives every opaque pixel to a part (inside its region, else the nearest
+     one through the character's own pixels; stray bits join the part they touch)
+     and traces each part's `image` polygon around its pixels (≤128 points). Each
+     polygon reaches a few px past its pixels and, where it meets another bone's
+     part, covers a disk about its pivot, so turning limbs open no gaps at joints.
+     The rest pose is the design, pixel for pixel.
+
+   Either way the pipeline renders each attempt in the real runtime and measures
+   its **match** to the design (`match.ts`: silhouette overlap and color where both
+   are drawn, 0-1); the critic scores and revises (3 rounds: vector shapes; or
+   cutout pivots, regions and draw order, judged from the split and the bones
+   bent ±25°). The attempt that looks most like the design is kept (the critic's
+   score breaks ties) and its match is shown in the workbench. The **Onion**
+   slider draws the design behind the live rig, aligned with the rig's frame;
+   **Bones** shows the skeleton.
+3. **Animation**: exactly the clips the character's characters need (core
+   `wantedClipSlots`: idle, walk, run, windup, attack, hurt, jump, fall, fly, and
+   for attacks a clip per phase: strike / shoot / leap / slam / cast, then
+   recover), as keyframe tracks plus motion primitives (sway, bob, shift, pulse,
+   squash, shake) (`clip.ts`), reviewed once from filmstrips. Pick a clip to play
+   it on the stage; scrub the timeline, change the speed. Enemies pick a clip
+   from their behavior's action and, for attacks, its phase: every attack
+   primitive reports `phase` windup / active / recovery (entity state `phase`),
+   so a strike plays windup → strike → recover (`ACTION_PHASE_SLOTS`, mirrored in
+   `character_art.gd`).
 
 One generic GDScript renderer (`game/scripts/art/rig_view.gd`) draws every
 rig: ink outlines, shading, glow, hand-drawn line boil, bending between
-bones. The art direction (style words, palette, outline) is project-wide.
+bones; cutout parts are the source image drawn through their polygon (no
+outline, fill or boil). The runtime gets the source like other images (the
+studio's `images` message; `renderRig` carries it in `images`). The art
+direction (style words, palette, outline) is project-wide.
+
+Tests: `packages/art/test/cutout.test.ts` (background removal, pixel assignment,
+both modes from one concept, the critique loops keep the best match),
+`packages/server/test/cutoutRender.test.ts` (in the runtime: the rest pose
+matches a drawn test creature, no gaps at joints turned ±30°),
+`game/test/art_phases.test.ts` (heavy enemies play windup → strike → recover).
 
 ## Worlds
 

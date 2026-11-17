@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ArtActivityEntry, ArtJobRequest, ArtState, Character, ProjectSpec } from "@anomaly/core";
+import type { ArtActivityEntry, ArtJobRequest, ArtState, Character, ProjectSpec, RigMode } from "@anomaly/core";
 import { fileUrl } from "./api.ts";
 import { characterAsset } from "./CharacterBench.tsx";
 import type { Session } from "./session.ts";
@@ -22,6 +22,11 @@ interface Props {
 
 export const money = (usd: number) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(3)}`);
 
+const RIG_MODE_CHOICES: { id: RigMode; label: string; title: string }[] = [
+  { id: "vector", label: "Vector", title: "Redrawn as flat shapes with outlines (the art direction's line and boil)" },
+  { id: "cutout", label: "Cutout", title: "The design itself, cut into pieces on bones: looks exactly like the concept" },
+];
+
 export function ArtPanel({ character, project, art, session, locked }: Props) {
   const asset = characterAsset(project, character);
   const running = art.running;
@@ -32,6 +37,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
   const [rigNote, setRigNote] = useState("");
   const [animNote, setAnimNote] = useState("");
   const [auto, setAuto] = useState(false);
+  const [rigMode, setRigMode] = useState<RigMode>(asset?.rig?.mode ?? project.art.direction.rigMode ?? "vector");
   const [zoom, setZoom] = useState<string | null>(null);
   const disabled = locked || running !== null || !art.available;
 
@@ -107,12 +113,19 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
             disabled={disabled}
             onChange={(e) => setRigNote(e.target.value)}
           />
+          <div className="art-rig-mode" role="radiogroup" aria-label="rig mode">
+            {RIG_MODE_CHOICES.map((m) => (
+              <label key={m.id} title={m.title}>
+                <input type="radio" name="rig-mode" value={m.id} checked={rigMode === m.id} disabled={disabled} onChange={() => setRigMode(m.id)} /> {m.label}
+              </label>
+            ))}
+          </div>
           <div className="art-actions">
-            <button type="button" disabled={disabled} onClick={() => start({ stage: "rig" })}>
+            <button type="button" disabled={disabled} onClick={() => start({ stage: "rig", rigMode })}>
               {asset.rig ? "Rebuild rig" : "Build rig"}
             </button>
             {asset.rig && (
-              <button type="button" disabled={disabled || !rigNote.trim()} onClick={() => start({ stage: "rig", feedback: rigNote.trim() })}>
+              <button type="button" disabled={disabled || !rigNote.trim()} onClick={() => start({ stage: "rig", rigMode, feedback: rigNote.trim() })}>
                 Revise
               </button>
             )}
