@@ -1,8 +1,9 @@
 extends SceneTree
 ## Headless simulator for primitive tests (see game/test/*.test.ts):
 ##   godot --headless --fixed-fps 60 --path game --script res://tests/simulate.gd -- in.json out.json
-## in.json:  {"scenarios": [{"project", "seed", "frames", "samples": [frame...], "input": [{"action", "from", "to"}]}]}
-## out.json: {"results": [{"error", "samples": [{"frame", "entities"}]}]}
+## in.json:  {"scenarios": [{"project", "seed", "world"?, "frames", "samples": [frame...], "input": [{"action", "from", "to"}]}]}
+##            (`world`: start in the game world, as the play message's `world`; else the arena)
+## out.json: {"results": [{"error", "samples": [{"frame", "deaths", "room", "entry", "visited", "entities"}]}]}
 
 
 func _initialize() -> void:
@@ -23,7 +24,10 @@ func _simulate(scenario: Dictionary) -> Dictionary:
 	var main: Node = load("res://main.tscn").instantiate()
 	root.add_child(main)
 	main.handle_message({"type": "load", "project": scenario.project})
-	main.handle_message({"type": "play", "seed": scenario.get("seed", 1)})
+	var play := {"type": "play", "seed": scenario.get("seed", 1)}
+	if scenario.has("world"):
+		play.world = scenario.world
+	main.handle_message(play)
 	var samples := []
 	var wanted: Array = scenario.get("samples", [])
 	for frame in range(int(scenario.frames) + 1):
@@ -33,7 +37,15 @@ func _simulate(scenario: Dictionary) -> Dictionary:
 			elif frame == int(press.to):
 				_send_action(press.action, false)
 		if float(frame) in wanted or frame in wanted:
-			samples.append({"frame": frame, "deaths": main._deaths, "entities": main._entity_states()})
+			var run: Node = main._run
+			samples.append({
+				"frame": frame,
+				"deaths": main._deaths,
+				"room": run.room_id if run.active else null,
+				"entry": [run.entry.x, run.entry.y] if run.active else null,
+				"visited": run.visited.duplicate(),
+				"entities": main._entity_states(),
+			})
 		await physics_frame
 	for action in ["move_left", "move_right", "jump", "attack", "aim_up", "aim_down", "dash"]:
 		Input.action_release(action)

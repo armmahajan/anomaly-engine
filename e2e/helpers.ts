@@ -11,7 +11,17 @@ export type Entity = {
   behaviorState: string | null;
   health: number;
 };
-export type Snapshot = { mode: string; revision: number; seed: number | null; deaths: number; stage: string; dressed: boolean; entities: Entity[] };
+export type Snapshot = {
+  mode: string;
+  revision: number;
+  seed: number | null;
+  deaths: number;
+  stage: string;
+  dressed: boolean;
+  entities: Entity[];
+  room: string | null;
+  visited: string[];
+};
 
 export const runtimeState = (page: Page) =>
   page.evaluate(() => window.studio!.getRuntimeState()) as Promise<Snapshot>;

@@ -24,13 +24,15 @@ import {
   ApplyRoomLayoutInput,
   Clip,
   ArtJobRequest,
+  RoomRef,
+  GameRules,
   type OperationCall,
   type OperationName,
   type ProjectSpec,
   type ProgressionOperationName,
   type WikiOperationName,
 } from "@anomaly/core";
-import { describeCharacter, summarizeProject } from "./summary.ts";
+import { describeCharacter, describeRoom, summarizeProject } from "./summary.ts";
 import type { ToolDefinition } from "./messages.ts";
 
 /**
@@ -107,7 +109,26 @@ const writeDescriptions: Record<BuildOperation, string> = {
   removePlacement: "Remove one placed piece from a world room, by placement id.",
   setDressing: "Dress the arena with a biome room (art only), or biomeId null for the plain arena.",
   applyRoomLayout: "Accept a room's suggested layout: the arena's platforms become it.",
+  createWorldRoom: "Create a game-world room: a grid of 32 px tiles, empty with a solid border. Rooms join through doors.",
+  updateWorldRoom: "Rename a game-world room, move it on the world map (tiles), dress it with a biome room or set its region.",
+  deleteWorldRoom: "Delete a game-world room; doors to it become unconnected.",
+  resizeWorldRoom: "Resize a room's grid; shiftX/shiftY move the content right/down. New cells: empty, solid outer edge.",
+  paintTiles: "Set a rectangle (area) or [col, row] cells of a room's grid (the arena's without roomId) to one tile kind.",
+  setDoor: "Add or change (by id) a door: an opening carved in one side. The floor inside should be level with its bottom edge.",
+  removeDoor: "Remove a door (its partner becomes unconnected; tiles stay).",
+  connectDoors: "Make two doors lead to each other (right <-> left, bottom <-> top); to: null disconnects.",
+  addRoomSpawn: "Place an enemy in a room (feet, px from its top-left). Enemies respawn on entering.",
+  moveRoomSpawn: "Move an enemy spawn in a room.",
+  removeRoomSpawn: "Remove an enemy spawn from a room.",
+  setWorldStart: "Set where the game begins (room, player's feet); roomId null clears it.",
+  setGameRules: "Game rules: onDeath room (back to the room's entry) | start, save room | never, hazardDamage.",
+  setLedgeThickness: "Thickness (px) of ledge and one-way tiles everywhere.",
 };
+
+const int = z.number().int();
+const xy = z.strictObject({ x: int, y: int });
+const side = z.enum(["left", "right", "top", "bottom"]);
+const doorEnd = z.strictObject({ roomId: z.string(), doorId: z.string() });
 
 /** Precise parameter schemas for the model; the operations themselves accept `unknown` and validate. */
 const writeSchemas: Record<BuildOperation, z.ZodType> = {
@@ -163,6 +184,33 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   removePlacement: RemovePlacementInput,
   setDressing: z.strictObject({ biomeId: Id.nullable(), roomId: Id.optional() }),
   applyRoomLayout: ApplyRoomLayoutInput,
+  // Game-world tools take compact specs too (ids as plain strings, details in the descriptions); the operations validate fully.
+  createWorldRoom: z.strictObject({ name: z.string(), id: z.string().optional(), cols: int.optional(), rows: int.optional(), at: xy.optional() }),
+  updateWorldRoom: z.strictObject({
+    roomId: z.string(),
+    changes: z.strictObject({ name: z.string().optional(), at: xy.optional(), dressing: z.strictObject({ biome: z.string(), room: z.string() }).nullable().optional(), regionId: z.string().nullable().optional() }),
+  }),
+  deleteWorldRoom: z.strictObject({ roomId: z.string() }),
+  resizeWorldRoom: z.strictObject({ roomId: z.string(), cols: int, rows: int, shiftX: int.optional(), shiftY: int.optional() }),
+  paintTiles: z.strictObject({
+    roomId: z.string().optional(),
+    kind: z.enum(["empty", "solid", "ledge", "oneway", "hazard", "breakable"]),
+    area: z.strictObject({ col: int, row: int, cols: int, rows: int }).optional(),
+    cells: z.array(z.tuple([int, int])).optional(),
+  }),
+  setDoor: z.strictObject({
+    roomId: z.string(),
+    door: z.strictObject({ id: z.string().optional(), side, offset: int.describe("tiles from the top (left/right) or left (top/bottom)"), size: int }),
+    carve: z.boolean().optional(),
+  }),
+  removeDoor: z.strictObject({ roomId: z.string(), doorId: z.string() }),
+  connectDoors: z.strictObject({ from: doorEnd, to: doorEnd.nullable() }),
+  addRoomSpawn: z.strictObject({ roomId: z.string(), characterId: z.string(), x: z.number(), y: z.number(), spawnId: z.string().optional() }),
+  moveRoomSpawn: z.strictObject({ roomId: z.string(), spawnId: z.string(), x: z.number().optional(), y: z.number().optional() }),
+  removeRoomSpawn: z.strictObject({ roomId: z.string(), spawnId: z.string() }),
+  setWorldStart: z.strictObject({ roomId: z.string().nullable(), x: z.number().optional(), y: z.number().optional() }),
+  setGameRules: z.strictObject({ onDeath: GameRules.shape.onDeath.unwrap().optional(), save: GameRules.shape.save.unwrap().optional(), hazardDamage: int.optional() }),
+  setLedgeThickness: z.strictObject({ thickness: int }),
 };
 
 /** Apply an operation to the draft and stage it for the end-of-turn commit. */
@@ -215,6 +263,19 @@ const readTools: ToolSpec[] = [
         spawns: draft.current.sandbox.spawns.filter((s) => s.characterId === character.id),
         summary: describeCharacter(draft.current, character),
       };
+    },
+  },
+  {
+    name: "getRoom",
+    description: "One game-world room in full: its tile rows (row 0 at the top), doors, enemy spawns and dressing.",
+    schema: RoomRef,
+    run: (draft, args) => {
+      const parsed = RoomRef.safeParse(args);
+      const room = parsed.success && draft.current.world.rooms.find((r) => r.id === parsed.data.roomId);
+      if (!room) {
+        return { ok: false, error: { code: "not_found", message: `known rooms: ${draft.current.world.rooms.map((r) => r.id).join(", ") || "none"}` } };
+      }
+      return { ok: true, room, summary: describeRoom(room) };
     },
   },
   {

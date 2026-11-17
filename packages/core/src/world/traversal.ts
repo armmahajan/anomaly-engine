@@ -2,7 +2,7 @@ import { MOVEMENT_FPS, toFrames, type MovementAbility, type MovementParams } fro
 import { deriveMovement, initialState, stepMovement, type Derived, type FrameInput, type MoveState, type Solid } from "../movement/simulate.ts";
 import { movementModel, type MovementModel } from "../movement/model.ts";
 import { DEFAULT_LEDGE_THICKNESS, gridSize, gridToSolids, TILE, type TileGrid } from "./tiles.ts";
-import type { DoorSide, World } from "./world.ts";
+import { DOOR_UP_CARRY, type DoorSide, type World } from "./world.ts";
 
 /**
  * Traversal checking: which surfaces and doors of a room the player can reach
@@ -42,7 +42,7 @@ export interface TraversalOpening {
 
 export interface TraversalOptions {
   ledgeThickness?: number;
-  /** Upward speed when entering through a bottom door, px/s. */
+  /** Upward speed when entering through a bottom door, px/s (default: what the runtime gives, enough to rise DOOR_UP_CARRY). */
   entryLift?: number;
   /** Longest single move, frames. */
   maxFrames?: number;
@@ -485,7 +485,7 @@ export function roomGraph(grid: TileGrid, doors: readonly TraversalOpening[], pa
     return node;
   };
   for (const door of doors) {
-    const e = doorEntry(door, width, height, params, options.entryLift);
+    const e = doorEntry(door, width, height, params, options.entryLift ?? Math.sqrt(2 * params.gravity * DOOR_UP_CARRY));
     addStart(`in:${door.id}`, e.x, e.y, e.vy);
   }
 

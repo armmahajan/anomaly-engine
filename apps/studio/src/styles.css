@@ -1676,3 +1676,121 @@ body.resizing iframe {
   border: 1px solid var(--accent);
   border-radius: 6px;
 }
+
+/* --- Rooms mode (the game world) ------------------------------------------ */
+
+.rooms-top {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.rooms-top .stage-tools {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.tool-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  font-size: 12px;
+  background: transparent;
+}
+
+.tool-button.selected {
+  border-color: var(--accent);
+  background: #1f2433;
+}
+
+/* Over the runtime's view of the room; only the canvas (the room itself) takes the pointer. */
+.room-painter {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.room-painter canvas {
+  position: absolute;
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.room-painter canvas.locked {
+  cursor: not-allowed;
+}
+
+.world-map {
+  width: 100%;
+  max-height: 180px;
+  margin-bottom: 8px;
+  background: #0d0f14;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.world-map rect {
+  fill: #232733;
+  stroke: var(--border);
+  stroke-width: 0.6;
+  cursor: pointer;
+}
+
+.world-map .selected rect {
+  fill: #2b3550;
+  stroke: var(--accent);
+}
+
+.world-map text {
+  font-size: 4px;
+  fill: var(--muted);
+  pointer-events: none;
+}
+
+.world-map line {
+  stroke: var(--ok);
+  stroke-width: 1;
+}
+
+.rooms-panel .spawn select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: #11141a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.number-box {
+  width: 52px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.rooms-panel .list-actions {
+  margin: 0 0 12px;
+  align-items: center;
+}
+
+.rooms-panel .list-actions .art-text {
+  margin-bottom: 0;
+}
+
+.rooms-panel button {
+  white-space: nowrap;
+}
+
+.rooms-row {
+  margin: 0 0 12px;
+}
+
+.muted {
+  color: var(--muted);
+}

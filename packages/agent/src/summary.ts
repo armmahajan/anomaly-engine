@@ -1,4 +1,4 @@
-import { gridSize, lintProject, movementModel, movementParams, TILE, type Action, type Character, type Condition, type ProjectSpec, type Transition } from "@anomaly/core";
+import { gridCols, gridRows, gridSize, lintProject, movementModel, movementParams, TILE, type Action, type Character, type Condition, type ProjectSpec, type Transition, type WorldRoom } from "@anomaly/core";
 
 /**
  * Compact, readable descriptions of the project for the model. The raw JSON
@@ -52,6 +52,7 @@ export function summarizeProject(project: ProjectSpec): string {
       : "",
     "Characters:",
     ...project.characters.map((c) => describeCharacter(project, c) + (c.appearance ? ` Drawn by art asset "${c.appearance}".` : " No art yet (a colored box).")),
+    ...worldSummary(project),
     ...artSummary(project),
     warnings.length ? `Warnings:\n${warnings.map((w) => `- ${w.message}`).join("\n")}` : "Warnings: none",
   ]
@@ -74,5 +75,27 @@ function artSummary(project: ProjectSpec): string[] {
         : "",
     ),
     dressing ? `The arena is dressed with ${dressing.biome} / ${dressing.room}.` : "The arena is plain (not dressed).",
+  ];
+}
+
+/** One line per room: size, map position, doors and spawns (getRoom has the tiles). */
+export function describeRoom(room: WorldRoom): string {
+  const doors = room.doors.map((d) => `${d.id} ${d.side} @${d.offset}+${d.size}${d.to ? ` -> ${d.to.room}/${d.to.door}` : " (unconnected)"}`);
+  const spawns = room.spawns.map((s) => `${s.id} ${s.characterId} (${s.x}, ${s.y})`);
+  return (
+    `- ${room.id} "${room.name}" ${gridCols(room.grid)}x${gridRows(room.grid)} tiles at map (${room.at.x}, ${room.at.y}); ` +
+    `doors: ${doors.join(", ") || "none"}; enemies: ${spawns.join(", ") || "none"}` +
+    (room.dressing ? `; dressed with ${room.dressing.biome}/${room.dressing.room}` : "") +
+    (room.regionId ? `; region ${room.regionId}` : "")
+  );
+}
+
+function worldSummary(project: ProjectSpec): string[] {
+  const { world } = project;
+  if (world.rooms.length === 0) return ["Game world: no rooms yet (createWorldRoom). Play happens in the arena only."];
+  const start = world.start ? `starts in ${world.start.room} at (${world.start.x}, ${world.start.y})` : "no start set";
+  return [
+    `Game world (${TILE} px tiles; doors: offset/size in tiles; getRoom shows a room's tiles): ${start}; on death back to the ${world.rules.onDeath}; saves ${world.rules.save === "room" ? "on entering each room" : "never"}; hazards cost ${world.rules.hazardDamage}; ledges ${world.ledgeThickness} px thick.`,
+    ...world.rooms.map(describeRoom),
   ];
 }

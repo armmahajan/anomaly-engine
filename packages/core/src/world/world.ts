@@ -17,6 +17,9 @@ export const DoorSide = z.enum(["left", "right", "top", "bottom"]);
 export type DoorSide = z.infer<typeof DoorSide>;
 export const OPPOSITE: Record<DoorSide, DoorSide> = { left: "right", right: "left", top: "bottom", bottom: "top" };
 
+/** Going up through a top door carries you at least this high (px) into the room above (world_runtime.gd UP_CARRY). */
+export const DOOR_UP_CARRY = 3 * 32;
+
 export const Door = z.strictObject({
   id: Id,
   side: DoorSide,

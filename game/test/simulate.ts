@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARENA_FLOOR, createDefaultProject, ProjectSpec, toRuntimeProject, type EntityState, type GridSolid } from "@anomaly/core";
+import { ARENA_FLOOR, createDefaultProject, ProjectSpec, toRuntimeProject, type EntityState, type GridSolid, type WorldStart } from "@anomaly/core";
 
 const GAME_DIR = fileURLToPath(new URL("..", import.meta.url));
 export const FPS = 60;
@@ -13,6 +13,8 @@ export interface Scenario {
   /** Collision to use instead of the arena grid's (for exact, non-tile geometry in physics tests). */
   solids?: GridSolid[];
   seed?: number;
+  /** Start in the game world (as the play message's `world`) instead of the arena. */
+  world?: WorldStart;
   frames: number;
   samples: number[];
   input?: { action: Input; from: number; to: number }[];
@@ -23,6 +25,10 @@ export type Input = "move_left" | "move_right" | "jump" | "attack" | "aim_up" | 
 export interface Sample {
   frame: number;
   deaths: number;
+  /** World play: the current room, its respawn point [x, y] and the rooms visited (null / [] in the arena). */
+  room: string | null;
+  entry: [number, number] | null;
+  visited: string[];
   entities: EntityState[];
 }
 

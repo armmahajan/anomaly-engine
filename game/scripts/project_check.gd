@@ -53,6 +53,30 @@ static func check(project: Variant) -> String:
 			players += 1
 	if players != 1:
 		return "sandbox needs exactly one player spawn"
+	return _check_world(project.get("world"), ids)
+
+
+## World rooms (optional): derived geometry, doors and enemy spawns.
+static func _check_world(world: Variant, ids: Dictionary) -> String:
+	if world == null:
+		return ""
+	if typeof(world) != TYPE_DICTIONARY or typeof(world.get("rooms", [])) != TYPE_ARRAY:
+		return "world.rooms must be an array"
+	for room in world.get("rooms", []):
+		if typeof(room) != TYPE_DICTIONARY or typeof(room.get("id")) != TYPE_STRING or not _all_num(room, ["width", "height"]):
+			return "every world room needs an id and numeric width, height (send core toRuntimeProject)"
+		for key in ["solids", "doors", "spawns"]:
+			if typeof(room.get(key)) != TYPE_ARRAY:
+				return "room '%s' needs a %s array" % [room.id, key]
+		var problem := check_solids(room.solids)
+		if problem != "":
+			return problem
+		for door in room.doors:
+			if typeof(door) != TYPE_DICTIONARY or not door.get("side") in ["left", "right", "top", "bottom"] or not _all_num(door, ["offset", "size"]):
+				return "room '%s' has a malformed door" % room.id
+		for spawn in room.spawns:
+			if typeof(spawn) != TYPE_DICTIONARY or not _all_num(spawn, ["x", "y"]) or ids.get(spawn.get("characterId")) != "enemy":
+				return "room '%s' spawns must be enemies with numeric x, y" % room.id
 	return ""
 
 

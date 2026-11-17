@@ -17,7 +17,7 @@ import type { RuntimeProject } from "./world/runtime.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -27,8 +27,11 @@ export type RuntimeMode = z.infer<typeof RuntimeMode>;
 
 export type StudioToRuntime =
   | { type: "load"; project: RuntimeProject }
-  /** `seed` drives every random choice in the run (e.g. `chance`), so a run can be replayed. */
-  | { type: "play"; seed: number }
+  /**
+   * `seed` drives every random choice in the run (e.g. `chance`), so a run can be replayed.
+   * With `world`, play the game world from there; without it, the arena.
+   */
+  | { type: "play"; seed: number; world?: WorldStart }
   | { type: "stop" }
   | { type: "getState"; requestId: string }
   /** Render frames of a rig into one PNG contact sheet (left to right, then down). Works without a loaded project. */
@@ -39,6 +42,18 @@ export type StudioToRuntime =
   | { type: "stage"; stage: Stage }
   /** Images (base64 by file ref) for worlds; the runtime keeps them, so each is sent once. */
   | { type: "images"; images: Record<string, string> };
+
+/** Where a world run begins. */
+export interface WorldStart {
+  room: string;
+  /** The player's feet, px from the room's top-left. */
+  x: number;
+  y: number;
+  /** Movement abilities the player has (pickups arrive later). */
+  abilities: string[];
+  /** Resume the run saved in this browser (rules.save "room"), if there is one; else start here. */
+  continue?: boolean;
+}
 
 /**
  * The runtime's stage: the arena (`game`), one character large on a neutral
@@ -64,7 +79,9 @@ export type Stage =
        */
       onion: { image: string | null; alpha: number };
     }
-  | StageWorld;
+  | StageWorld
+  /** One game-world room, frozen, for editing (Rooms mode). */
+  | { mode: "room"; roomId: string };
 
 export interface StageWorld {
   mode: "world";
@@ -136,10 +153,14 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     /** Times the player has died (and the run restarted) since play began. */
     deaths: z.number(),
     /** What the runtime is showing (see Stage). */
-    stage: z.enum(["game", "character", "world"]).default("game"),
+    stage: z.enum(["game", "character", "world", "room"]).default("game"),
     /** The arena is drawn with its biome dressing. */
     dressed: z.boolean().default(false),
     entities: z.array(EntityState),
+    /** World play: the room the player is in (null in the arena), rooms visited this run, and where the player comes back on death. */
+    room: z.string().nullable().default(null),
+    visited: z.array(z.string()).default([]),
+    entry: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
   /** World stage: the creator clicked a piece (null = empty space). */

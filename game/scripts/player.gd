@@ -7,6 +7,8 @@ signal landed_hit
 signal died
 ## A ground pound smashed a breakable platform (main.gd clears what stood on it).
 signal smashed(rect: Rect2)
+## Ran into (or landed on) a hazard tile this frame (world play applies the game's hazard rule).
+signal touched_hazard
 
 var character_id := ""
 var spawn_id := ""
@@ -92,6 +94,7 @@ var _floor_solid = null
 var _gliding := false
 var _sliding := false
 var _dashing := false
+var _touched_hazard := false
 
 
 static func _frames(seconds: float) -> int:
@@ -244,6 +247,9 @@ func _physics_process(delta: float) -> void:
 			_start_slash()
 
 	_move(delta)
+	if _touched_hazard:
+		_touched_hazard = false
+		touched_hazard.emit()
 	if _on_floor and _pounding:
 		if not _smash_floor():
 			_pounding = false
@@ -389,6 +395,8 @@ func _move(delta: float) -> void:
 			_py += ry
 			break
 		var t := maxf(0.0, best_t)
+		if str(best_solid.kind) == "hazard":
+			_touched_hazard = true
 		_px += rx * t
 		_py += ry * t
 		if best_axis == "x":
