@@ -104,7 +104,7 @@ function project(): ProjectSpec {
         { on: on("gameStarted"), when: [flag("a", false)], do: [{ type: "setFlag", flag: "b" }] },
         { on: on("timer", { timer: "t1" }), do: [{ type: "takeItem", item: "coin", count: 3 }, { type: "setFlag", flag: "timed" }, { type: "setFlag", flag: "a", value: false }] },
         { on: on("enemyKilled", { character: "crawler" }), when: [{ type: "all", of: [item("trophy"), { type: "ability", ability: "dash" }] }], do: [{ type: "setFlag", flag: "any_crawler" }] },
-        { on: on("hazardTouched"), do: [{ type: "setFlag", flag: "ouch" }] },
+        { on: on("hazardTouched"), do: [{ type: "setFlag", flag: "ouch" }, { type: "setCheckpoint" }] },
         { on: on("playerDied"), do: [{ type: "giveItem", item: "life" }] },
         { on: on("roomEntered", { room: "spikes" }), when: [{ type: "visited", room: "cistern" }], do: [{ type: "setFlag", flag: "back_trip" }] },
         { on: on("roomEntered", { room: "hall" }), do: [{ type: "endGame", modal: "end" }] },
