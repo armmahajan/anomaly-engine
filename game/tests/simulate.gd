@@ -29,15 +29,25 @@ func _simulate(scenario: Dictionary) -> Dictionary:
 	for frame in range(int(scenario.frames) + 1):
 		for press in scenario.get("input", []):
 			if frame == int(press.from):
-				Input.action_press(press.action)
+				_send_action(press.action, true)
 			elif frame == int(press.to):
-				Input.action_release(press.action)
+				_send_action(press.action, false)
 		if float(frame) in wanted or frame in wanted:
 			samples.append({"frame": frame, "deaths": main._deaths, "entities": main._entity_states()})
 		await physics_frame
-	for action in ["move_left", "move_right", "jump", "attack", "aim_up", "aim_down"]:
+	for action in ["move_left", "move_right", "jump", "attack", "aim_up", "aim_down", "dash"]:
 		Input.action_release(action)
+	Input.flush_buffered_events()
 	var error: String = main.last_error
 	main.queue_free()
 	await process_frame
 	return {"error": error, "samples": samples}
+
+
+## Like a key event from the browser: queued, and seen by the next physics frame as pressed and just pressed together.
+func _send_action(action: String, pressed: bool) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	event.strength = 1.0 if pressed else 0.0
+	Input.parse_input_event(event)

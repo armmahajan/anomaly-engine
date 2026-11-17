@@ -11,6 +11,7 @@ import {
   Id,
   lintProject,
   MoveSpawnInput,
+  SetArenaAbilitiesInput,
   SpawnRef,
   UpdateBehaviorInput,
   UpdateCharacterInput,
@@ -64,7 +65,8 @@ const writeDescriptions: Record<BuildOperation, string> = {
     "Create a new enemy type. It does not appear in the arena until you also call addSpawn. Give it a behavior built from the primitives (see listPrimitives).",
   duplicateCharacter: "Copy an existing enemy type under a new id (stats, look, behavior), e.g. to make a variant.",
   deleteCharacter: "Delete an enemy type and all its spawns. The player cannot be deleted.",
-  updateCharacter: "Change a character's name, color, size or stats. Applies to every spawn of it.",
+  updateCharacter: "Change a character's name, color, size or stats (and, for the player, movement ability tuning). Applies to every spawn of it.",
+  setArenaAbilities: "Choose which movement abilities (dash, double_jump, wall_jump, glide, ground_pound) the player has when playtesting the arena.",
   updateBehavior:
     "Targeted edit of one behavior state (action params, transitions by index) and/or the behavior's interrupts by index. Prefer this over setBehavior for tweaks.",
   setBehavior:
@@ -80,6 +82,7 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   duplicateCharacter: DuplicateCharacterInput,
   deleteCharacter: CharacterRef,
   updateCharacter: UpdateCharacterInput,
+  setArenaAbilities: SetArenaAbilitiesInput,
   updateBehavior: UpdateBehaviorInput,
   setBehavior: z.strictObject({ characterId: Id, behavior: Behavior }),
   addSpawn: AddSpawnInput,

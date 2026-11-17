@@ -12,7 +12,7 @@ import { ProjectSpec } from "./schema.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -37,7 +37,8 @@ const EntityState = z.object({
   velocityY: z.number(),
   /**
    * Enemies: current behavior state ("windup"). Player: "slash_forward" | "slash_up" | "slash_down"
-   * while swinging, "hurt" while invulnerable after a hit, else null.
+   * while swinging, else "dash" | "ground_pound" | "wall_slide" | "glide", else "hurt" while
+   * invulnerable after a hit, else null.
    */
   behaviorState: z.string().nullable(),
   /** Remaining hit points; 0 = dead (a dead enemy stays listed but is gone from play). */

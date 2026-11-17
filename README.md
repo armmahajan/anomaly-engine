@@ -26,6 +26,10 @@ the browser warning once) and open `https://<this-machine>:5173`, or tunnel:
 
 Click **Play**, move with A/D or arrows, jump with Space/Z, attack with X/J
 (hold W/Up to swing up; hold S/Down in the air to strike down and pogo).
+With abilities on (tick them in the player's inspector): dash with C/Shift/K,
+jump again in mid-air, press toward a wall to slide and jump off it, hold jump
+while falling to glide, S/Down + jump in the air to ground pound (smashes the
+cracked platform).
 **Stop** resets the playtest. Edit stats in the inspector while stopped; Play again to test.
 **Undo** (or Ctrl/Cmd+Z outside a text field) reverts the last change.
 
@@ -87,6 +91,20 @@ e2e/            Playwright acceptance test.
     toolbar, replayable) that drives `chance`.
   - Primitive tests run the real game headless (`game/tests/simulate.gd`)
     at a fixed 60 fps and assert positions and states.
+- **Movement is exact and modelled.** The player moves with its own
+  box-against-rectangles code (not Godot's `move_and_slide`), mirrored line
+  for line by `packages/core/src/movement/` in TypeScript. On top of that
+  simulation, `movementModel(params, abilities)` searches jump, double-jump,
+  dash and glide timings to say how high the player reaches, the widest gap
+  it can cross for any height difference, and whether it can climb walls or
+  smash floors. Level checks (and later the Architect) rely on it.
+  `game/test/movement.test.ts` runs the same inputs through both and requires
+  them to agree to 0.001 px, and replays the model's best jumps in the
+  runtime to confirm its predicted gaps are exactly crossable.
+  - Abilities: dash, double jump, wall jump (with wall slide), glide, ground
+    pound; each tunable on the player. Coyote time, jump buffering and
+    short hops are built in. Which abilities the player has comes from the
+    arena (`sandbox.playerAbilities`) for now, from the game later.
 - **Schema changes ship with a migration** (`packages/core/src/migrations.ts`);
   older project files are upgraded when loaded.
 - **The protocol speaks project terms, not Godot terms**, so the runtime is

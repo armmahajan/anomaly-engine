@@ -30,6 +30,7 @@ var _attack_reach := 56.0
 var _attack_cooldown := 0.35
 var _pogo_velocity := 620.0
 var _gravity := 0.0
+var _max_fall := 1100.0
 var _size := Vector2.ZERO
 var _color := Color.WHITE
 var _spawn := Vector2.ZERO
@@ -44,6 +45,52 @@ var _slash_hits: Array = []
 var _recoil := 0.0
 var _recoil_direction := 0.0
 
+# Movement. Mirrors packages/core/src/movement/simulate.ts `step` line for
+# line (game/test/movement.test.ts compares the two); counters are in frames.
+const FPS := 60
+const JUMP_CUT := 0.5
+const WALL_COYOTE_FRAMES := 6
+const POUND_RECOVERY_FRAMES := 9
+var _has := {}
+var _tuning := {}
+var _coyote_frames := 0
+var _buffer_frames := 0
+var _dash_length := 1
+var _dash_speed := 0.0
+var _dash_cooldown_frames := 0
+var _kick_length := 0
+var _air_jump_count := 0
+var _coyote := 0
+var _buffer := 0
+var _air_jumps := 0
+var _air_dashes := 0
+var _dash_frames := 0
+var _dash_dir := 1.0
+var _dash_cooldown := 0
+var _kick_frames := 0
+var _kick_dir := 0.0
+var _wall_frames := 0
+var _wall_normal := 0.0
+var _pounding := false
+var _pound_recover := 0
+## Solid rectangles to collide with, set by main.gd: {x, y, w, h, breakable, body}.
+var solids: Array = []
+# Position and velocity in 64-bit floats (Vector2 is 32-bit); mirrored to position/velocity.
+var _px := 0.0
+var _py := 0.0
+var _vx := 0.0
+var _vy := 0.0
+var _on_floor := false
+var _on_wall := false
+var _floor_solid = null
+var _gliding := false
+var _sliding := false
+var _dashing := false
+
+
+static func _frames(seconds: float) -> int:
+	return maxi(0, roundi(seconds * FPS))
+
 
 func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2) -> void:
 	character_id = character.id
@@ -56,12 +103,27 @@ func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2) -> void:
 	_attack_reach = float(stats.get("attackReach", 56))
 	_attack_cooldown = float(stats.get("attackCooldown", 0.35))
 	_pogo_velocity = float(stats.get("pogoVelocity", 620))
+	_max_fall = float(stats.get("maxFallSpeed", 1100))
+	_coyote_frames = _frames(float(stats.get("coyoteTime", 0.1)))
+	_buffer_frames = _frames(float(stats.get("jumpBuffer", 0.12)))
 	_size = Vector2(character.size.width, character.size.height)
 	_color = Color(character.color)
 	_gravity = float(sandbox.gravity)
 	_spawn = spawn
 	_kill_y = float(sandbox.height) + 400.0
 	position = spawn
+	_px = spawn.x
+	_py = spawn.y
+
+	_tuning = character.get("abilities", {})
+	for ability in sandbox.get("playerAbilities", []):
+		_has[str(ability)] = true
+	var dash: Dictionary = _tuning.get("dash", {})
+	_dash_length = maxi(1, _frames(float(dash.get("duration", 0.2))))
+	_dash_speed = float(dash.get("distance", 220)) / (_dash_length / float(FPS))
+	_dash_cooldown_frames = maxi(_dash_length, _frames(float(dash.get("cooldown", 0.45))))
+	_kick_length = _frames(float(_tune("wallJump", "kickTime", 0.16)))
+	_air_jump_count = int(_tune("doubleJump", "jumps", 1)) if _has.has("double_jump") else 0
 
 	collision_layer = 2
 	collision_mask = 1  # world only; characters pass through each other for now
@@ -84,10 +146,11 @@ func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2) -> void:
 	add_child(camera)
 
 
-func _physics_process(delta: float) -> void:
-	if not is_on_floor():
-		velocity.y += _gravity * delta
+func _tune(ability: String, key: String, fallback: float) -> float:
+	return float(_tuning.get(ability, {}).get(key, fallback))
 
+
+func _physics_process(delta: float) -> void:
 	_invulnerable = maxf(0.0, _invulnerable - delta)
 	_stun = maxf(0.0, _stun - delta)
 	_cooldown = maxf(0.0, _cooldown - delta)
@@ -98,43 +161,236 @@ func _physics_process(delta: float) -> void:
 			_slash = ""
 			queue_redraw()
 
+	var direction := Input.get_axis("move_left", "move_right")
+	var on_floor := _on_floor
+	_buffer = maxi(0, _buffer - 1)
+	_dash_cooldown = maxi(0, _dash_cooldown - 1)
+	_kick_frames = maxi(0, _kick_frames - 1)
+	_wall_frames = maxi(0, _wall_frames - 1)
+	_pound_recover = maxi(0, _pound_recover - 1)
+	if on_floor:
+		_coyote = _coyote_frames
+		_air_jumps = _air_jump_count
+		_air_dashes = 1
+	else:
+		_coyote = maxi(0, _coyote - 1)
+	_gliding = false
+	_sliding = false
+	_dashing = false
+
 	if _stun > 0.0:
 		# Knocked back: no control until the stun wears off.
-		velocity.x = move_toward(velocity.x, 0.0, STUN_FRICTION * delta)
+		if not on_floor:
+			_vy = minf(_vy + _gravity * delta, _max_fall)
+		_vx = move_toward(_vx, 0.0, STUN_FRICTION * delta)
+	elif _dash_frames > 0:
+		_vx = _dash_dir * _dash_speed
+		_vy = 0.0
+		_dash_frames -= 1
+		_dashing = true
+	elif _pounding:
+		_vx = 0.0
+		_vy = _tune("groundPound", "speed", 1400)
 	else:
-		var direction := Input.get_axis("move_left", "move_right")
-		velocity.x = direction * _run_speed
-		if direction != 0.0 and signf(direction) != _facing:
-			_facing = signf(direction)
-			queue_redraw()
+		if not on_floor:
+			_vy = minf(_vy + _gravity * delta, _max_fall)
+		if _pound_recover > 0:
+			_vx = 0.0
+		elif _kick_frames > 0:
+			_vx = _kick_dir * _tune("wallJump", "kickSpeed", 340)
+		else:
+			_vx = direction * _run_speed
+			if direction != 0.0 and signf(direction) != _facing:
+				_facing = signf(direction)
+				queue_redraw()
 		if _recoil > 0.0:
-			velocity.x = _recoil_direction * RECOIL_SPEED
-
-		if Input.is_action_just_pressed("jump") and is_on_floor():
-			velocity.y = -_jump_velocity
-		if Input.is_action_just_released("jump") and velocity.y < 0.0:
-			velocity.y *= 0.5  # short hop when jump is released early
+			_vx = _recoil_direction * RECOIL_SPEED
+		_jump(on_floor)
+		if Input.is_action_just_released("jump") and _vy < 0.0:
+			_vy *= JUMP_CUT  # short hop when jump is released early
+		var glide_fall := _tune("glide", "fallSpeed", 110)
+		if _has.has("glide") and Input.is_action_pressed("jump") and not _pounding and _vy > glide_fall:
+			_vy = glide_fall
+			_gliding = true
+		var slide := _tune("wallJump", "slideSpeed", 150)
+		if _has.has("wall_jump") and not on_floor and _on_wall and direction == -_wall_normal and _vy > slide:
+			_vy = slide
+			_sliding = true
+		if _has.has("dash") and Input.is_action_just_pressed("dash") and _dash_cooldown == 0 and (on_floor or _air_dashes > 0) and not _pounding:
+			_dash_dir = signf(direction) if direction != 0.0 else _facing
+			_facing = _dash_dir
+			_dash_frames = _dash_length - 1
+			_dashing = true
+			_vx = _dash_dir * _dash_speed
+			_vy = 0.0
+			_dash_cooldown = _dash_cooldown_frames
+			_kick_frames = 0
+			if not on_floor:
+				_air_dashes -= 1
 		if Input.is_action_just_pressed("attack") and _cooldown <= 0.0:
 			_start_slash()
 
-	move_and_slide()
+	_move(delta)
+	if _on_floor and _pounding:
+		if not _smash_floor():
+			_pounding = false
+			_pound_recover = POUND_RECOVERY_FRAMES
+	if not _on_floor and _on_wall and _has.has("wall_jump") and direction == -_wall_normal:
+		_wall_frames = WALL_COYOTE_FRAMES
+		_air_jumps = _air_jump_count
+		_air_dashes = 1
 	if _slash != "":
 		_strike()
+	velocity = Vector2(_vx, _vy)
 
-	var shown = ("slash_" + _slash) if _slash != "" else ("hurt" if _invulnerable > 0.0 else null)
-	if shown != behavior_state or _invulnerable > 0.0:
+	var shown = _shown_state()
+	if shown != behavior_state or _invulnerable > 0.0 or _dashing:
 		queue_redraw()  # blink while invulnerable
 	behavior_state = shown
 
-	if position.y > _kill_y:
+	if _py > _kill_y:
+		_px = _spawn.x
+		_py = _spawn.y
+		_vx = 0.0
+		_vy = 0.0
 		position = _spawn
 		velocity = Vector2.ZERO
+
+
+## Ground jump (with coyote time and buffering), wall jump, ground pound or mid-air jump.
+func _jump(on_floor: bool) -> void:
+	var pressed := Input.is_action_just_pressed("jump")
+	if pressed:
+		_buffer = _buffer_frames
+	if _buffer == 0:
+		return
+	if on_floor or _coyote > 0:
+		_vy = -_jump_velocity
+		_buffer = 0
+		_coyote = 0
+	elif _has.has("wall_jump") and _wall_frames > 0:
+		_vy = -_tune("wallJump", "velocity", 700)
+		_kick_frames = _kick_length
+		_kick_dir = _wall_normal
+		_vx = _kick_dir * _tune("wallJump", "kickSpeed", 340)
+		_facing = _kick_dir
+		_buffer = 0
+		_wall_frames = 0
+		_air_jumps = _air_jump_count
+		_air_dashes = 1
+	elif pressed and _has.has("ground_pound") and Input.is_action_pressed("aim_down"):
+		_pounding = true
+		_vx = 0.0
+		_vy = _tune("groundPound", "speed", 1400)
+		_buffer = 0
+	elif pressed and _air_jumps > 0:
+		_vy = -_tune("doubleJump", "velocity", 680)
+		_air_jumps -= 1
+		_buffer = 0
+
+
+## A ground pound landed: smash the platform under the feet if it is breakable.
+func _smash_floor() -> bool:
+	if _floor_solid == null or not _floor_solid.breakable:
+		return false
+	solids.erase(_floor_solid)
+	_floor_solid.body.queue_free()
+	_floor_solid = null
+	return true
+
+
+const EPS := 1e-9
+
+## Move by velocity * delta, sliding along solids. A port of simulate.ts `move`
+## (not Godot's move_and_slide, whose collision margins make ledges fuzzy), so
+## the movement model stays exact.
+func _move(delta: float) -> void:
+	var was_on_floor := _on_floor
+	var hw := _size.x / 2.0
+	_on_floor = false
+	_on_wall = false
+	_floor_solid = null
+	var rx := _vx * delta
+	var ry := _vy * delta
+	for iteration in 4:
+		if rx == 0.0 and ry == 0.0:
+			break
+		var best_t := INF
+		var best_axis := ""
+		var best_solid = null
+		for solid in solids:
+			var sx = _span(_px - hw, _px + hw, rx, solid.x, solid.x + solid.w)
+			var sy = _span(_py - _size.y, _py, ry, solid.y, solid.y + solid.h)
+			if sx.is_empty() or sy.is_empty():
+				continue
+			var entry: float = maxf(sx[0], sy[0])
+			var exit: float = minf(sx[1], sy[1])
+			if entry > exit - EPS or entry < -EPS or entry > 1.0 or (sx[0] < -EPS and sy[0] < -EPS):
+				continue
+			if entry < best_t:
+				best_t = entry
+				best_axis = "x" if sx[0] > sy[0] else "y"
+				best_solid = solid
+		if best_axis == "":
+			_px += rx
+			_py += ry
+			break
+		var t := maxf(0.0, best_t)
+		_px += rx * t
+		_py += ry * t
+		if best_axis == "x":
+			_on_wall = true
+			_wall_normal = -1.0 if rx > 0.0 else 1.0
+			_vx = 0.0
+			rx = 0.0
+			ry *= 1.0 - t
+		else:
+			if ry > 0.0:
+				_on_floor = true
+				_floor_solid = best_solid
+			_vy = 0.0
+			ry = 0.0
+			rx *= 1.0 - t
+	# Floor snap: stay grounded while walking along a floor.
+	if not _on_floor and was_on_floor and _vy >= 0.0:
+		for solid in solids:
+			if solid.y >= _py - EPS and solid.y <= _py + 1.0 and _px + hw > solid.x + EPS and _px - hw < solid.x + solid.w - EPS:
+				_py = solid.y
+				_on_floor = true
+				_floor_solid = solid
+				break
+	position = Vector2(_px, _py)
+
+
+## Entry and exit time of a moving interval against a fixed one; [] if they never overlap.
+static func _span(lo: float, hi: float, motion: float, r_lo: float, r_hi: float) -> Array:
+	if motion > 0.0:
+		return [(r_lo - hi) / motion, (r_hi - lo) / motion]
+	if motion < 0.0:
+		return [(r_hi - lo) / motion, (r_lo - hi) / motion]
+	return [-INF, INF] if hi > r_lo + EPS and lo < r_hi - EPS else []
+
+
+func _shown_state():
+	if _slash != "":
+		return "slash_" + _slash
+	if _dashing:
+		return "dash"
+	if _pounding:
+		return "ground_pound"
+	if _sliding:
+		return "wall_slide"
+	if _gliding:
+		return "glide"
+	if _invulnerable > 0.0:
+		return "hurt"
+	return null
 
 
 func _start_slash() -> void:
 	if Input.is_action_pressed("aim_up"):
 		_slash = "up"
-	elif Input.is_action_pressed("aim_down") and not is_on_floor():
+	elif Input.is_action_pressed("aim_down") and not _on_floor:
 		_slash = "down"
 	else:
 		_slash = "forward"
@@ -163,7 +419,7 @@ func _strike() -> void:
 		return
 	match _slash:
 		"down":
-			velocity.y = -_pogo_velocity
+			_vy = -_pogo_velocity
 		"forward":
 			_recoil = RECOIL_TIME
 			_recoil_direction = -_facing
@@ -186,7 +442,11 @@ func hit(direction: float, knockback: float, damage: int) -> void:
 	if _invulnerable > 0.0 or health <= 0:
 		return
 	health = maxi(0, health - damage)
-	velocity = Vector2(direction * knockback, -knockback * 0.45)
+	_dash_frames = 0
+	_pounding = false
+	_kick_frames = 0
+	_vx = direction * knockback
+	_vy = -knockback * 0.45
 	_invulnerable = INVULNERABLE_TIME
 	_stun = STUN_TIME if knockback > 0.0 else 0.0
 	queue_redraw()
@@ -206,7 +466,13 @@ func _draw() -> void:
 	var color := _color
 	if _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07:
 		color = Color(1, 0.35, 0.35, 0.55)
+	if _dashing:
+		draw_rect(Rect2(-_size.x / 2.0 - _dash_dir * _size.x, -_size.y * 0.8, _size.x, _size.y * 0.6), Color(color, 0.3))
 	draw_rect(Rect2(-_size.x / 2.0, -_size.y, _size.x, _size.y), color)
+	if _gliding:
+		draw_line(Vector2(-_size.x * 1.2, -_size.y * 0.75), Vector2(_size.x * 1.2, -_size.y * 0.75), Color(color, 0.8), 3.0)
+	if _pounding:
+		draw_line(Vector2(0, 4), Vector2(0, 18), Color.WHITE, 3.0)
 	draw_rect(Rect2(_facing * _size.x * 0.18 - 3.0, -_size.y * 0.8, 6.0, 6.0), Color.BLACK)
 	if _slash != "":
 		var area := slash_rect()

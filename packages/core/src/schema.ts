@@ -3,6 +3,7 @@ import { Behavior } from "./behavior.ts";
 import { Color, Id } from "./common.ts";
 import { defaultWiki, Wiki } from "./wiki/wiki.ts";
 import { defaultProgression, Progression, progressionIssues } from "./progression/progression.ts";
+import { AbilityTuning, MovementAbility } from "./movement/params.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -31,6 +32,9 @@ export const PlayerStats = z.strictObject({
     .max(2000)
     .default(620)
     .describe("Upward bounce in px/s when a downward strike (down + attack in the air) hits an enemy."),
+  maxFallSpeed: z.number().min(100).max(4000).default(1100).describe("Fastest fall, px/s."),
+  coyoteTime: z.number().min(0).max(0.3).default(0.1).describe("Seconds after running off a ledge when jump still works."),
+  jumpBuffer: z.number().min(0).max(0.3).default(0.12).describe("Seconds a jump pressed too early (just before landing or reaching a wall) is remembered."),
 });
 
 export const EnemyStats = z.strictObject({
@@ -57,6 +61,8 @@ export const PlayerCharacter = z.strictObject({
   ...characterBase,
   kind: z.literal("player"),
   stats: PlayerStats,
+  /** Tuning of every movement ability (which ones the player has is decided by the game, or the arena's playerAbilities). */
+  abilities: AbilityTuning.prefault({}),
 });
 
 export const EnemyCharacter = z.strictObject({
@@ -82,6 +88,10 @@ const Rect = z.strictObject({
   height: z.number().min(1).max(10_000),
 });
 
+const Platform = Rect.extend({
+  breakable: z.boolean().optional().describe("A ground pound smashes it (it stays gone until the run restarts)."),
+});
+
 /** One placed instance of a character type. `id` is stable across edits. */
 export const Spawn = z.strictObject({
   id: Id,
@@ -97,7 +107,9 @@ export const Sandbox = z.strictObject({
   gravity: z.number().min(0).max(10_000),
   backgroundColor: Color,
   platformColor: Color,
-  platforms: z.array(Rect).max(500),
+  platforms: z.array(Platform).max(500),
+  /** Movement abilities the player has when playtesting the arena. */
+  playerAbilities: z.array(MovementAbility).max(5).default([]),
   spawns: z.array(Spawn).max(200),
 });
 

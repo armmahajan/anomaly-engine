@@ -1,6 +1,7 @@
 import { SCHEMA_VERSION, type EnemyCharacter, type ProjectSpec } from "./schema.ts";
 import { defaultWiki } from "./wiki/wiki.ts";
 import { defaultProgression } from "./progression/progression.ts";
+import { defaultAbilityTuning } from "./movement/params.ts";
 
 /** Starter project: a sandbox arena with a player, a patroller and a charger. */
 export function createDefaultProject(): ProjectSpec {
@@ -24,7 +25,11 @@ export function createDefaultProject(): ProjectSpec {
           attackReach: 56,
           attackCooldown: 0.35,
           pogoVelocity: 620,
+          maxFallSpeed: 1100,
+          coyoteTime: 0.1,
+          jumpBuffer: 0.12,
         },
+        abilities: defaultAbilityTuning(),
       },
       {
         id: "crawler",
@@ -83,12 +88,14 @@ export function createDefaultProject(): ProjectSpec {
       gravity: 1800,
       backgroundColor: "#1b2030",
       platformColor: "#4a5470",
+      playerAbilities: [],
       platforms: [
         { x: 0, y: 660, width: 1600, height: 60 }, // floor
         { x: -40, y: 0, width: 40, height: 720 }, // left wall
         { x: 1600, y: 0, width: 40, height: 720 }, // right wall
+        { x: -40, y: -40, width: 1680, height: 40 }, // ceiling (wall jumps can climb)
         { x: 380, y: 530, width: 220, height: 20 },
-        { x: 720, y: 420, width: 220, height: 20 },
+        { x: 720, y: 420, width: 220, height: 20, breakable: true },
       ],
       spawns: [
         { id: "player_1", characterId: "player", x: 160, y: 660 },

@@ -3,7 +3,7 @@ extends Node2D
 ## builds the sandbox scene from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 5
+const PROTOCOL_VERSION := 6
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -158,8 +158,12 @@ func _build_world() -> void:
 	add_child(_world)
 
 	var platform_color := Color(sandbox.platformColor)
+	var solids := []
 	for rect in sandbox.platforms:
-		_world.add_child(_make_platform(rect, platform_color))
+		var breakable := bool(rect.get("breakable", false))
+		var body := _make_platform(rect, platform_color, breakable)
+		_world.add_child(body)
+		solids.append({"x": float(rect.x), "y": float(rect.y), "w": float(rect.width), "h": float(rect.height), "breakable": breakable, "body": body})
 
 	var characters := {}
 	for c in _project.characters:
@@ -178,6 +182,7 @@ func _build_world() -> void:
 	for enemy in enemies:
 		enemy.player = _player
 	if _player != null:
+		_player.solids = solids
 		_player.enemies = enemies
 		_player.landed_hit.connect(_hit_stop)
 		_player.died.connect(_restart_run, CONNECT_DEFERRED)
@@ -217,9 +222,13 @@ func _physics_process(_delta: float) -> void:
 			_world.process_mode = Node.PROCESS_MODE_INHERIT
 
 
-func _make_platform(rect: Dictionary, color: Color) -> StaticBody2D:
+## Breakable platforms are lighter and cracked; a ground pound smashes them (player.gd).
+func _make_platform(rect: Dictionary, color: Color, breakable: bool) -> StaticBody2D:
 	var size := Vector2(rect.width, rect.height)
 	var body := StaticBody2D.new()
+	if breakable:
+		body.set_meta("breakable", true)
+		color = color.lightened(0.25)
 	body.position = Vector2(rect.x, rect.y) + size / 2.0
 	body.collision_layer = 1
 	var shape := CollisionShape2D.new()
@@ -233,6 +242,14 @@ func _make_platform(rect: Dictionary, color: Color) -> StaticBody2D:
 	visual.size = size
 	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.add_child(visual)
+	if breakable:
+		for i in range(1, int(size.x / 24.0)):
+			var crack := ColorRect.new()
+			crack.color = color.darkened(0.45)
+			crack.position = Vector2(-size.x / 2.0 + i * 24.0, -size.y / 2.0 + 3.0)
+			crack.size = Vector2(2.0, size.y - 6.0)
+			crack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			body.add_child(crack)
 	return body
 
 
@@ -299,6 +316,7 @@ func _setup_input() -> void:
 	_add_action("attack", [KEY_X, KEY_J])
 	_add_action("aim_up", [KEY_W, KEY_UP])
 	_add_action("aim_down", [KEY_S, KEY_DOWN])
+	_add_action("dash", [KEY_C, KEY_SHIFT, KEY_K])
 
 
 func _add_action(action: String, keys: Array) -> void:

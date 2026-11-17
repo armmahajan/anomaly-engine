@@ -13,7 +13,7 @@ export const MECHANICS = {
   double_jump: "A second jump in mid-air; reaches higher ledges.",
   wall_jump: "Cling to and jump off walls; climbs vertical shafts.",
   glide: "Fall slowly; crosses very long gaps and updrafts.",
-  swim: "Move through deep water.",
+  swim: "Move through deep water (not playable yet).",
   ground_pound: "Slam downward; breaks floors.",
   key: "No mechanic: a key, story item or boss token that opens something.",
 } as const;

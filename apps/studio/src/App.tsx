@@ -259,6 +259,7 @@ export function App({ session }: { session: Session }) {
             locked={locked}
             lockHint={aiBusy ? "The AI is editing. Wait for it or cancel." : "Stop the playtest to edit."}
             wikiPageId={project.wiki.pages.find((p) => p.characterId === selected.id)?.id}
+            arenaAbilities={project.sandbox.playerAbilities}
             onOpenWiki={openWikiPage}
           />
         )}

@@ -5,7 +5,7 @@ const wrap = (message: unknown) => JSON.stringify({ source: RUNTIME_SOURCE, mess
 
 describe("decodeRuntimeMessage", () => {
   it("decodes a valid runtime message", () => {
-    const ready = { type: "ready", protocolVersion: 5, primitives: { actions: ["wait"], conditions: ["after"] } };
+    const ready = { type: "ready", protocolVersion: 6, primitives: { actions: ["wait"], conditions: ["after"] } };
     expect(decodeRuntimeMessage(wrap(ready))).toEqual({ kind: "message", message: ready });
   });
 
@@ -25,7 +25,7 @@ describe("encodeStudioMessage", () => {
   it("wraps messages in a versioned envelope", () => {
     expect(JSON.parse(encodeStudioMessage({ type: "play", seed: 7 }))).toEqual({
       source: "anomaly-studio",
-      protocolVersion: 5,
+      protocolVersion: 6,
       message: { type: "play", seed: 7 },
     });
   });

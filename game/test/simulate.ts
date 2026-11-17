@@ -16,7 +16,7 @@ export interface Scenario {
   input?: { action: Input; from: number; to: number }[];
 }
 
-export type Input = "move_left" | "move_right" | "jump" | "attack" | "aim_up" | "aim_down";
+export type Input = "move_left" | "move_right" | "jump" | "attack" | "aim_up" | "aim_down" | "dash";
 
 export interface Sample {
   frame: number;

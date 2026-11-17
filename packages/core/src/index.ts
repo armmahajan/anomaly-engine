@@ -15,3 +15,6 @@ export * from "./wiki/gaps.ts";
 export * from "./progression/progression.ts";
 export * from "./progression/operations.ts";
 export * from "./progression/report.ts";
+export * from "./movement/params.ts";
+export * from "./movement/simulate.ts";
+export * from "./movement/model.ts";

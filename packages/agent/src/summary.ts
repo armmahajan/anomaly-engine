@@ -1,4 +1,4 @@
-import { lintProject, type Action, type Character, type Condition, type ProjectSpec, type Transition } from "@anomaly/core";
+import { lintProject, movementModel, movementParams, type Action, type Character, type Condition, type ProjectSpec, type Transition } from "@anomaly/core";
 
 /**
  * Compact, readable descriptions of the project for the model. The raw JSON
@@ -21,7 +21,10 @@ export function describeCharacter(project: ProjectSpec, character: Character): s
     .map(([k, v]) => `${k} ${v}`)
     .join(", ");
   const head = `- ${character.id} "${character.name}" [${character.kind}] ${character.size.width}x${character.size.height} ${character.color}; ${stats}; spawns: ${placed}`;
-  if (character.kind !== "enemy") return head;
+  if (character.kind === "player") {
+    const tuning = Object.entries(character.abilities).map(([k, v]) => `${k} {${Object.entries(v).map(([f, x]) => `${f} ${x}`).join(", ")}}`);
+    return `${head}\n  ability tuning: ${tuning.join("; ")}`;
+  }
   const interrupts = character.behavior.interrupts.map((t, i) => `    any state: [${i}] -> ${t.to} when ${condition(t)}`);
   const states = Object.entries(character.behavior.states).map(([id, state]) => {
     const exits = state.transitions.map((t, i) => `[${i}] -> ${t.to} when ${condition(t)}`);
@@ -36,15 +39,16 @@ export function summarizeProject(project: ProjectSpec): string {
   const { sandbox } = project;
   const playerSpawn = sandbox.spawns.find((s) => project.characters.find((c) => c.id === s.characterId)?.kind === "player");
   const player = project.characters.find((c) => c.kind === "player");
-  const jump =
-    player?.kind === "player" ? Math.round(player.stats.jumpVelocity ** 2 / (2 * sandbox.gravity)) : undefined;
+  const reach = player?.kind === "player" ? movementModel(movementParams(player, sandbox.gravity), sandbox.playerAbilities) : undefined;
   const warnings = lintProject(project);
   return [
     `Project "${project.name}" (revision ${project.revision})`,
     `Arena: ${sandbox.width}x${sandbox.height} px, gravity ${sandbox.gravity} px/s^2, y grows downward.` +
       (playerSpawn ? ` The player stands on y = ${playerSpawn.y}.` : ""),
-    `Platforms (x, y, width, height): ${sandbox.platforms.map((p) => `(${p.x}, ${p.y}, ${p.width}, ${p.height})`).join(" ")}`,
-    jump !== undefined ? `The player can jump about ${jump} px high.` : "",
+    `Platforms (x, y, width, height): ${sandbox.platforms.map((p) => `(${p.x}, ${p.y}, ${p.width}, ${p.height}${p.breakable ? ", breakable" : ""})`).join(" ")}`,
+    reach
+      ? `Player abilities in arena playtests: ${sandbox.playerAbilities.join(", ") || "none"}. With them the player jumps ${Math.round(reach.maxHeight)} px high and crosses gaps up to ${Math.round(reach.maxGap(0))} px between platforms at the same height${reach.climbsWalls ? "; climbs walls" : ""}${reach.breaksFloors ? "; smashes breakable platforms" : ""}.`
+      : "",
     "Characters:",
     ...project.characters.map((c) => describeCharacter(project, c)),
     warnings.length ? `Warnings:\n${warnings.map((w) => `- ${w.message}`).join("\n")}` : "Warnings: none",

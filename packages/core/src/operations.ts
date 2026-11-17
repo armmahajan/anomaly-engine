@@ -4,6 +4,7 @@ import { Id } from "./common.ts";
 import type { Transition } from "./behavior.ts";
 import { wikiOperations } from "./wiki/operations.ts";
 import { progressionOperations, withoutEnemy } from "./progression/operations.ts";
+import { MovementAbility } from "./movement/params.ts";
 
 /**
  * Project operations: pure functions (project, untrusted input) -> result.
@@ -82,7 +83,13 @@ export const UpdateCharacterInput = z.strictObject({
       .record(z.string(), z.unknown())
       .optional()
       .describe(
-        "Stats to change. Player: runSpeed, jumpVelocity, health, attackDamage, attackReach, attackCooldown, pogoVelocity. Enemy: knockback, health, contactDamage.",
+        "Stats to change. Player: runSpeed, jumpVelocity, health, attackDamage, attackReach, attackCooldown, pogoVelocity, maxFallSpeed, coyoteTime, jumpBuffer. Enemy: knockback, health, contactDamage.",
+      ),
+    abilities: z
+      .record(z.string(), z.record(z.string(), z.unknown()))
+      .optional()
+      .describe(
+        "Player only: movement ability tuning to change, e.g. {\"dash\": {\"distance\": 260}}. Abilities: dash {distance, duration, cooldown}, doubleJump {jumps, velocity}, wallJump {slideSpeed, velocity, kickSpeed, kickTime}, glide {fallSpeed}, groundPound {speed}.",
       ),
   }),
 });
@@ -108,6 +115,9 @@ export function updateCharacter(project: ProjectSpec, input: unknown): Operation
     return noCharacter(project, characterId);
   }
 
+  if (changes.abilities !== undefined && current.kind !== "player") {
+    return fail("invalid_input", `"${characterId}" is a ${current.kind}; only the player has movement abilities`);
+  }
   if (changes.movement !== undefined && current.kind !== "enemy") {
     return fail("invalid_input", `"${characterId}" is a ${current.kind}; only enemies have a movement type`);
   }
@@ -134,6 +144,12 @@ export function updateCharacter(project: ProjectSpec, input: unknown): Operation
     ...(changes.movement !== undefined && { movement: changes.movement }),
     size: { ...current.size, ...changes.size },
     stats: { ...current.stats, ...statChanges },
+    ...(current.kind === "player" &&
+      changes.abilities && {
+        abilities: Object.fromEntries(
+          Object.entries({ ...current.abilities, ...changes.abilities }).map(([k, v]) => [k, { ...(current.abilities as Record<string, object>)[k], ...v }]),
+        ),
+      }),
   };
 
   const parsedCharacter = Character.safeParse(candidate);
@@ -148,6 +164,17 @@ export function updateCharacter(project: ProjectSpec, input: unknown): Operation
   const characters = project.characters.slice();
   characters[index] = parsedCharacter.data;
   return commit({ ...project, characters });
+}
+
+export const SetArenaAbilitiesInput = z.strictObject({
+  abilities: z.array(MovementAbility).describe("Every movement ability the player has in the arena (replaces the list); [] for none."),
+});
+
+/** Choose which movement abilities the player has when playtesting the arena. */
+export function setArenaAbilities(project: ProjectSpec, input: unknown): OperationResult {
+  const parsed = SetArenaAbilitiesInput.safeParse(input);
+  if (!parsed.success) return fail("invalid_input", "setArenaAbilities input is malformed", toIssues(parsed.error));
+  return commit({ ...project, sandbox: { ...project.sandbox, playerAbilities: [...new Set(parsed.data.abilities)] } });
 }
 
 /** Find an enemy (only enemies have behaviors). */
@@ -418,6 +445,7 @@ const operations = {
   addSpawn,
   moveSpawn,
   removeSpawn,
+  setArenaAbilities,
   ...wikiOperations,
   ...progressionOperations,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;

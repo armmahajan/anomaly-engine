@@ -1,10 +1,13 @@
 import { Fragment, useRef, useState, type KeyboardEvent } from "react";
 import {
+  MOVEMENT_ABILITIES,
   primitiveParams,
   type ChangeResult,
   type Character,
   type Condition,
   type EnemyCharacter,
+  type MovementAbility,
+  type PlayerCharacter,
   type Spawn,
   type Transition,
 } from "@anomaly/core";
@@ -20,6 +23,17 @@ const PARAM_META: Record<string, { label: string; unit: string }> = {
   attackReach: { label: "Attack reach", unit: "px" },
   attackCooldown: { label: "Attack cooldown", unit: "s" },
   pogoVelocity: { label: "Pogo bounce", unit: "px/s" },
+  maxFallSpeed: { label: "Max fall speed", unit: "px/s" },
+  coyoteTime: { label: "Coyote time", unit: "s" },
+  jumpBuffer: { label: "Jump buffer", unit: "s" },
+  duration: { label: "Duration", unit: "s" },
+  cooldown: { label: "Cooldown", unit: "s" },
+  jumps: { label: "Mid-air jumps", unit: "" },
+  velocity: { label: "Velocity", unit: "px/s" },
+  slideSpeed: { label: "Slide speed", unit: "px/s" },
+  kickSpeed: { label: "Kick speed", unit: "px/s" },
+  kickTime: { label: "Kick time", unit: "s" },
+  fallSpeed: { label: "Fall speed", unit: "px/s" },
   fraction: { label: "Fraction", unit: "0–1" },
   speed: { label: "Speed", unit: "px/s" },
   distance: { label: "Distance", unit: "px" },
@@ -71,9 +85,11 @@ interface Props {
   /** This character's wiki page, if it has one. */
   wikiPageId?: string;
   onOpenWiki?: (pageId: string) => void;
+  /** Movement abilities the player has in arena playtests. */
+  arenaAbilities?: MovementAbility[];
 }
 
-export function Inspector({ character, spawns, defaultSpawn, session, locked, lockHint, wikiPageId, onOpenWiki }: Props) {
+export function Inspector({ character, spawns, defaultSpawn, session, locked, lockHint, wikiPageId, onOpenWiki, arenaAbilities = [] }: Props) {
   return (
     <section className="inspector">
       <h2 className="inspector-title">
@@ -98,9 +114,60 @@ export function Inspector({ character, spawns, defaultSpawn, session, locked, lo
           onCommit={(v) => session.updateCharacter({ characterId: character.id, changes: { stats: { [stat]: v } } })}
         />
       ))}
+      {character.kind === "player" && <AbilityPanel player={character} inArena={arenaAbilities} session={session} locked={locked} />}
       <SpawnList character={character} spawns={spawns} defaultSpawn={defaultSpawn} session={session} locked={locked} />
       {character.kind === "enemy" && <BehaviorEditor character={character} session={session} locked={locked} />}
     </section>
+  );
+}
+
+const ABILITY_LABEL: Record<MovementAbility, string> = {
+  dash: "Dash",
+  double_jump: "Double jump",
+  wall_jump: "Wall jump",
+  glide: "Glide",
+  ground_pound: "Ground pound",
+};
+const TUNING_KEY = { dash: "dash", double_jump: "doubleJump", wall_jump: "wallJump", glide: "glide", ground_pound: "groundPound" } as const;
+
+/** Which abilities the player has in arena playtests, and each one's tuning. */
+function AbilityPanel({ player, inArena, session, locked }: { player: PlayerCharacter; inArena: MovementAbility[]; session: Session; locked: boolean }) {
+  const toggle = (ability: MovementAbility, on: boolean) =>
+    session.applyOperation("setArenaAbilities", { abilities: on ? [...inArena, ability] : inArena.filter((a) => a !== ability) });
+  return (
+    <>
+      <h3>Abilities</h3>
+      <p className="hint">Checked abilities are on in arena playtests. Controls: move A/D, jump Space, attack X, dash C, down + jump in the air to ground pound.</p>
+      {(Object.keys(MOVEMENT_ABILITIES) as MovementAbility[]).map((ability) => {
+        const key = TUNING_KEY[ability];
+        return (
+          <div key={ability} className="ability">
+            <label className="field field-check" title={MOVEMENT_ABILITIES[ability]}>
+              <input
+                type="checkbox"
+                checked={inArena.includes(ability)}
+                disabled={locked}
+                onChange={(e) => void toggle(ability, e.target.checked)}
+              />
+              {ABILITY_LABEL[ability]}
+            </label>
+            {inArena.includes(ability) &&
+              Object.entries(player.abilities[key]).map(([field, value]) => (
+                <NumberField
+                  key={`${field}:${value}`}
+                  id={`ability-${ability}-${field}`}
+                  label={`${meta(field).label}`}
+                  ariaLabel={`${ABILITY_LABEL[ability]} ${meta(field).label.toLowerCase()}`}
+                  unit={meta(field).unit}
+                  value={value}
+                  disabled={locked}
+                  onCommit={(v) => session.updateCharacter({ characterId: player.id, changes: { abilities: { [key]: { [field]: v } } } })}
+                />
+              ))}
+          </div>
+        );
+      })}
+    </>
   );
 }
 

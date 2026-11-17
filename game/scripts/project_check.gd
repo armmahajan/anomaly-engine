@@ -35,6 +35,12 @@ static func check(project: Variant) -> String:
 	for rect in sandbox.platforms:
 		if typeof(rect) != TYPE_DICTIONARY or not _all_num(rect, ["x", "y", "width", "height"]):
 			return "every platform needs numeric x, y, width, height"
+	if sandbox.has("playerAbilities"):
+		if typeof(sandbox.playerAbilities) != TYPE_ARRAY:
+			return "sandbox.playerAbilities must be an array"
+		for ability in sandbox.playerAbilities:
+			if typeof(ability) != TYPE_STRING:
+				return "sandbox.playerAbilities must hold ability names"
 
 	var players := 0
 	for spawn in sandbox.spawns:
@@ -61,9 +67,15 @@ static func _check_character(c: Variant) -> String:
 		return "character '%s' needs stats" % c.id
 	match c.get("kind"):
 		"player":
-			var needed := ["runSpeed", "jumpVelocity", "health", "attackDamage", "attackReach", "attackCooldown", "pogoVelocity"]
+			var needed := ["runSpeed", "jumpVelocity", "health", "attackDamage", "attackReach", "attackCooldown", "pogoVelocity", "maxFallSpeed", "coyoteTime", "jumpBuffer"]
 			if not _all_num(c.stats, needed):
 				return "player '%s' needs numeric %s" % [c.id, ", ".join(needed)]
+			var abilities = c.get("abilities", {})
+			if typeof(abilities) != TYPE_DICTIONARY:
+				return "player '%s' abilities must be an object" % c.id
+			for ability in abilities:
+				if typeof(abilities[ability]) != TYPE_DICTIONARY or not _all_num(abilities[ability], abilities[ability].keys()):
+					return "player '%s' ability '%s' needs numeric tuning" % [c.id, ability]
 		"enemy":
 			if not _all_num(c.stats, ["knockback", "health", "contactDamage"]):
 				return "enemy '%s' needs numeric knockback, health and contactDamage" % c.id
