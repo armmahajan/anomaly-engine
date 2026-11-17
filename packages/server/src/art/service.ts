@@ -1,6 +1,7 @@
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  gameArtPlan,
   ArtJobRequest,
   ArtJobSummary,
   fail,
@@ -66,7 +67,11 @@ interface Running {
   revisions: number[];
   controller: AbortController;
   done: Promise<void>;
+  /** USD this job may spend (gameArt gets its plan's estimate, with headroom). */
+  budget?: number;
 }
+
+type Step = { stage: Exclude<ArtStage, "auto">; run: () => Promise<StageResult> };
 
 /**
  * Runs art jobs (one at a time) and keeps their log (<dir>/art-jobs.jsonl).
@@ -222,6 +227,78 @@ export class ArtService {
     }));
   }
 
+  /**
+   * The game-art job: core gameArtPlan's steps (or the requested subset), each run as its
+   * usual stages and saved on its own. A failed step is logged and skipped, along with the
+   * steps that need it (the rooms of a biome that failed); planning again later resumes.
+   */
+  private gameArtSteps(ctx: ArtContext, running: Running): Step[] {
+    const wanted = running.request.steps;
+    const plan = gameArtPlan(this.store.getState().project).filter((s) => !wanted || wanted.includes(s.id));
+    const estimate = plan.reduce((sum, s) => sum + s.estimatedCost, 0);
+    running.budget = Math.max(this.options.budget, estimate * 3);
+    ctx.log({ text: `plan: ${plan.length} steps, about $${estimate.toFixed(2)}` });
+    const biomes = new Map<string, string>();
+    const failed = new Set<string>();
+    const out: Step[] = [];
+    for (const step of plan) {
+      const r = step.request;
+      const add = (stage: Step["stage"], run: () => Promise<StageResult>, first = false) =>
+        out.push({
+          stage,
+          run: async () => {
+            if (failed.has(step.id) || (r.biomeStep && failed.has(r.biomeStep))) return { operations: [], summary: "" };
+            if (first) ctx.log({ text: `step ${step.id}: ${step.description}` });
+            try {
+              return await run();
+            } catch (e) {
+              if (e instanceof BudgetExceeded || running.controller.signal.aborted) throw e;
+              failed.add(step.id);
+              ctx.log({ text: `step ${step.id} failed: ${e instanceof Error ? e.message : String(e)}` });
+              return { operations: [], summary: `${step.id} failed` };
+            }
+          },
+        });
+      switch (r.stage) {
+        case "auto": {
+          const c = { characterId: r.characterId! };
+          add("concepts", () => generateConcepts(ctx, c), true);
+          add("choose", () => chooseConcept(ctx, c));
+          add("rig", () => buildRig(ctx, c));
+          add("animate", () => animate(ctx, c));
+          break;
+        }
+        case "animate":
+          add("animate", () => animate(ctx, { characterId: r.characterId! }), true);
+          break;
+        case "worldKit":
+          add(
+            "worldKit",
+            async () => {
+              const result = await worldKitStage(ctx, { theme: r.brief, name: r.name });
+              biomes.set(step.id, result.biomeId);
+              return result;
+            },
+            true,
+          );
+          break;
+        case "worldCompose":
+          add("worldCompose", () => worldComposeStage(ctx, { biomeId: r.biomeId ?? biomes.get(r.biomeStep!)!, roomId: r.roomId, dressRoom: r.dressRoom }), true);
+          break;
+        case "propArt":
+          add("propArt", () => propArtStage(ctx, { worldRoomId: r.worldRoomId! }), true);
+          break;
+        case "modalArt":
+          add("modalArt", () => modalArtStage(ctx, { modalId: r.modalId! }), true);
+          break;
+        case "itemArt":
+          add("itemArt", () => itemArtStage(ctx), true);
+          break;
+      }
+    }
+    return out;
+  }
+
   cancel(): { ok: true } {
     this.queue = [];
     this.running?.controller.abort();
@@ -248,11 +325,12 @@ export class ArtService {
         running.activity.push({ at: new Date().toISOString(), ...a });
         this.emit();
       },
-      remaining: () => this.options.budget - running.cost,
+      remaining: () => (running.budget ?? this.options.budget) - running.cost,
       spend: (usage) => {
         running.cost += usage.cost;
-        if (running.cost > this.options.budget) {
-          throw new BudgetExceeded(`this job reached its $${this.options.budget.toFixed(2)} budget`);
+        const budget = running.budget ?? this.options.budget;
+        if (running.cost > budget) {
+          throw new BudgetExceeded(`this job reached its $${budget.toFixed(2)} budget`);
         }
       },
     };
@@ -315,7 +393,7 @@ export class ArtService {
         stages.push({ stage: "itemArt", run: () => itemArtStage(ctx) });
         break;
       case "gameArt":
-        stages.push({ stage: "gameArt", run: async () => { throw new StageError("gameArt is not implemented yet"); } });
+        stages.push(...this.gameArtSteps(ctx, running));
         break;
       case "auto": {
         // Auto takes the AI's picks; feedback and sheet/cell choices apply to the first stage only.
@@ -339,6 +417,10 @@ export class ArtService {
         const result = await step.run();
         // A cancel that arrived during the stage's last model call still wins.
         if (running.controller.signal.aborted) throw new StageError("cancelled");
+        if (result.operations.length === 0) {
+          if (result.summary) summaries.push(result.summary);
+          continue;
+        }
         const saved = await this.store.applyBatch({
           operations: result.operations,
           baseRevision: this.store.getState().project.revision,

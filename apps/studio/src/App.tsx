@@ -351,7 +351,7 @@ export function App({ session }: { session: Session }) {
       ) : tab === "game" ? (
         <aside className="sidebar">
           <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
-          <GamePanel project={project} session={session} locked={locked} />
+          <GamePanel project={project} session={session} art={state.art} locked={locked} />
           {problem}
         </aside>
       ) : checks ? (

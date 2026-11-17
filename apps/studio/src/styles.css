@@ -1844,3 +1844,7 @@ body.resizing iframe {
 .spawn-details summary { cursor: pointer; color: var(--muted); }
 .spawn-bar { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
 .spawn-bar input:not([type="checkbox"]) { flex: 1; min-width: 0; }
+
+/* Game art (Make the art) */
+.game-art-steps { margin: 4px 0 8px; padding-left: 18px; font-size: 12px; }
+.game-art-progress { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }

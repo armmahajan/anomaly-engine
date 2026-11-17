@@ -7,6 +7,7 @@ import {
   Condition,
   DuplicateCharacterInput,
   Effect,
+  gameArtPlan,
   GameCondition,
   GameEvent,
   EnemyCharacter,
@@ -394,6 +395,18 @@ const artTools: ToolSpec[] = [
         { stage: "worldCompose", biomeId: biome.id, feedback: p.data.direction, newLayout: p.data.newLayout, dressRoom: p.data.dressRoom },
         `a new room for ${biome.name}`,
       );
+    },
+  },
+  {
+    name: "generateGameArt",
+    description:
+      "Queue art for everything the game still lacks (characters and their animations, a biome per region, every room, props, screens, item icons), step by step. Reruns resume.",
+    schema: z.strictObject({}),
+    run: (draft) => {
+      const plan = gameArtPlan(draft.current);
+      if (plan.length === 0) return { ok: true, note: "Nothing to draw: the game has art for everything." };
+      const estimate = plan.reduce((sum, s) => sum + s.estimatedCost, 0);
+      return queue(draft, { stage: "gameArt" }, `art for the whole game (${plan.length} steps, about $${estimate.toFixed(2)})`);
     },
   },
 ];

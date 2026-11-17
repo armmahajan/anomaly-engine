@@ -1,6 +1,7 @@
-import type { ChangeResult, ProjectSpec } from "@anomaly/core";
+import type { ArtState, ChangeResult, ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { HandlerEditor } from "./HandlerEditor.tsx";
+import { GameArtSection } from "./GameArtSection.tsx";
 import { ItemsPanel } from "./ItemsPanel.tsx";
 import { ModalsPanel } from "./ModalsPanel.tsx";
 import { MapSettings } from "./MapSettings.tsx";
@@ -8,9 +9,9 @@ import { MapSettings } from "./MapSettings.tsx";
 /**
  * Game mode's sidebar: what belongs to the whole game rather than one room.
  * The rules (presets of handlers), the world's own handlers, items, modals
- * and the map. The runtime shows the playtest room meanwhile.
+ * and the map, and the art for all of it. The runtime shows the playtest room meanwhile.
  */
-export function GamePanel({ project, session, locked }: { project: ProjectSpec; session: Session; locked: boolean }) {
+export function GamePanel({ project, session, art, locked }: { project: ProjectSpec; session: Session; art: ArtState; locked: boolean }) {
   const { rules } = project.world;
   const edit = async (op: string, input: unknown) => {
     const result: ChangeResult = await session.applyOperation(op, input);
@@ -20,6 +21,7 @@ export function GamePanel({ project, session, locked }: { project: ProjectSpec; 
   return (
     <section className="game-panel" data-testid="game-panel">
       <h2>Game</h2>
+      <GameArtSection project={project} session={session} art={art} locked={locked} />
       <h3>Rules</h3>
       <p className="hint">Presets: each choice is a few handlers on top of the ones below.</p>
       <div className="field">

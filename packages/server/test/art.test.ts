@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeImageModel, FakeRenderer, FakeVisionModel } from "@anomaly/art";
-import type { ArtState, ChangeResult, ProjectState } from "@anomaly/core";
+import { gameArtPlan, type ArtState, type ChangeResult, type ProjectState } from "@anomaly/core";
 import { callTools, FakeModel, runAgentTurn, say, toolCall, type TurnRunner } from "@anomaly/agent";
 import { createProjectServer, type ArtService } from "../src/index.ts";
 
@@ -174,6 +174,27 @@ describe("world jobs over HTTP", () => {
     const recomposed = (await get<ProjectState>("/api/project")).project.art.assets.find((a) => a.id === biome.id)!;
     expect(recomposed.kind === "biome" && recomposed.rooms.map((r) => r.id)).toEqual(after.kind === "biome" ? after.rooms.map((r) => r.id) : []);
     expect(after.kind === "biome" && biome.kind === "biome" && after.kit!.backdrop).not.toBe(biome.kit!.backdrop);
+  });
+
+  it("the game-art job draws everything the plan lists, each step saved; leaving only what the models did not make", async () => {
+    await start({ budget: 0.05 }); // the job's own budget comes from its plan
+    expect(gameArtPlan((await get<ProjectState>("/api/project")).project).map((s) => s.id)).toEqual([
+      "character:player",
+      "character:crawler",
+      "character:charger",
+      "biome:world",
+      "room:arena",
+    ]);
+    expect(await post("/api/art/jobs", { stage: "gameArt" })).toMatchObject({ ok: true });
+    await art.idle();
+    const job = (await get<ArtState>("/api/art")).jobs.at(-1)!;
+    expect(job).toMatchObject({ outcome: "committed", stage: "gameArt" });
+    expect(job.revisions.length).toBe(3 * 4 + 2); // four stages per character, kit, room
+    const { project } = await get<ProjectState>("/api/project");
+    expect(project.characters.every((c) => project.art.assets.some((a) => a.id === c.appearance && a.kind === "character" && a.rig))).toBe(true);
+    expect(project.world.rooms[0]!.dressing?.tiles).toBeTruthy();
+    // Only animations are left: the fake model always returns the same few clips.
+    expect(gameArtPlan(project).map((s) => [s.kind, s.reason])).toEqual([["character", "incomplete"], ["character", "incomplete"], ["character", "incomplete"]]);
   });
 
   it("validates world requests", async () => {
