@@ -100,6 +100,15 @@ e2e/            Playwright acceptance test.
   the grid (`gridToSolids`) and sent to the runtime with the project
   (`toRuntimeProject`), never stored. The game's rooms, doors and rules live
   in `project.world` (`world/world.ts`).
+- **Terrain is drawn from the grid, as one mass** (`game/scripts/terrain.gd`):
+  every cell is filled with one material (flat color, or the biome's ground
+  texture sampled in world space), darkened by its distance from the nearest
+  exposed edge. Lit rims run along exposed tops only, fine edges along exposed
+  sides, darkening inside exposed undersides; nothing is drawn between two
+  solid cells or outside them. Ledges are planks, one-ways a board on posts
+  with a dashed rim, hazards spikes, breakables cracked; a smash clears its
+  cells. `describe()` reports what was drawn, for the headless probe
+  (`game/tests/terrain_probe.gd`, `game/test/terrain.test.ts`).
 - **Movement is exact and modelled.** The player moves with its own
   box-against-rectangles code (not Godot's `move_and_slide`), mirrored line
   for line by `packages/core/src/movement/` in TypeScript. On top of that

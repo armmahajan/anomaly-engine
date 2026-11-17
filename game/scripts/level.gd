@@ -1,26 +1,57 @@
 extends RefCounted
 ## Level geometry: the runtime's solids (core gridToSolids, sent with the
-## project) become static bodies for enemies and line of sight, plain
-## visuals, and the player's own collision list (player.gd `solids`).
+## project) become static bodies for enemies and line of sight, and the
+## player's own collision list (player.gd `solids`). The grid is drawn as one
+## terrain (terrain.gd), unless a biome dressing draws it.
 
-const BREAKABLE_LIGHTEN := 0.25
+const Terrain := preload("res://scripts/terrain.gd")
 const HAZARD_COLOR := Color("#b0413e")
 
 
-## Add a body per solid under `parent`. With `dressed`, a biome draws the
-## ground, so only breakable tiles keep a visual (they can disappear).
+## Add a body per solid under `parent`, and a "Terrain" node drawing `grid` ({rows}; rebuilt
+## from the solids when absent) unless `dressed` (a biome draws the ground then).
 ## Returns the player's solids: [{x, y, w, h, kind, group, body}].
-static func build(parent: Node2D, solids: Array, color: Color, dressed: bool) -> Array:
+static func build(parent: Node2D, solids: Array, color: Color, dressed: bool, grid: Variant = null, ledge_thickness := 20) -> Array:
 	var out := []
 	for s in solids:
 		var kind := str(s.get("kind", "solid"))
-		var body := _make_body(s, kind, color, dressed and kind != "breakable")
+		var body := _make_body(s, kind)
 		parent.add_child(body)
 		out.append({"x": float(s.x), "y": float(s.y), "w": float(s.width), "h": float(s.height), "kind": kind, "group": s.get("group"), "body": body})
+	if not dressed:
+		var terrain: Node2D = Terrain.new()
+		terrain.name = "Terrain"
+		parent.add_child(terrain)
+		if typeof(grid) == TYPE_DICTIONARY and typeof(grid.get("rows")) == TYPE_ARRAY:
+			terrain.build(grid.rows, ledge_thickness, plain_style(color))
+		else:
+			var rebuilt := Terrain.rows_from_solids(solids)
+			terrain.build(rebuilt.rows, rebuilt.ledge, plain_style(color), rebuilt.origin)
 	return out
 
 
-static func _make_body(s: Dictionary, kind: String, color: Color, hidden: bool) -> StaticBody2D:
+## The undressed look: flat colors from the platform color.
+static func plain_style(color: Color) -> Dictionary:
+	return {
+		"color": color,
+		"shade": 0.35,
+		"rim": color.lightened(0.45),
+		"edge": Color(color.lightened(0.3), 0.6),
+		"hazard": HAZARD_COLOR.darkened(0.2),
+		"spike": Color("#e6d6c3"),
+		"breakable": color.lerp(Color("#a08860"), 0.55),
+		"oneway": color.lightened(0.3),
+	}
+
+
+## A smashed area (world px): clear it from the plain terrain under `parent`, if any.
+static func clear(parent: Node, rect: Rect2) -> void:
+	var terrain := parent.get_node_or_null("Terrain")
+	if terrain != null:
+		terrain.clear_rect(rect)
+
+
+static func _make_body(s: Dictionary, kind: String) -> StaticBody2D:
 	var size := Vector2(s.width, s.height)
 	var body := StaticBody2D.new()
 	body.position = Vector2(s.x, s.y) + size / 2.0
@@ -31,27 +62,4 @@ static func _make_body(s: Dictionary, kind: String, color: Color, hidden: bool) 
 	shape.shape = box
 	shape.one_way_collision = kind == "oneway"
 	body.add_child(shape)
-	if hidden:
-		return body
-	match kind:
-		"breakable":
-			color = color.lightened(BREAKABLE_LIGHTEN)
-		"hazard":
-			color = HAZARD_COLOR
-		"oneway":
-			color = color.lightened(0.15)
-	var visual := ColorRect.new()
-	visual.color = color
-	visual.position = -size / 2.0
-	visual.size = size
-	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.add_child(visual)
-	if kind == "breakable":
-		for i in range(1, int(size.x / 24.0)):
-			var crack := ColorRect.new()
-			crack.color = color.darkened(0.45)
-			crack.position = Vector2(-size.x / 2.0 + i * 24.0, -size.y / 2.0 + 3.0)
-			crack.size = Vector2(2.0, size.y - 6.0)
-			crack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			body.add_child(crack)
 	return body
