@@ -20,7 +20,17 @@ const LINT_STAGE: Record<string, ArchitectStage> = {
 };
 
 /** Lint codes that never fail a build (advisory: the creator's call). */
-const ADVISORY = new Set(["dressing_out_of_date", "fairness", "unfair_attack", "unplaced_character"]);
+const ADVISORY = new Set([
+  "dressing_out_of_date",
+  "fairness",
+  "unfair_attack",
+  "unplaced_character",
+  // Art polish: the runtime ignores what these point at, so they never stop a build.
+  "clip_unknown_bone",
+  "clip_unknown_part",
+  "rig_size_mismatch",
+  "clips_without_idle",
+]);
 
 /** The checker's state budget for verify: big games (25-30 rooms, several abilities) need a few hundred thousand. */
 export const VERIFY_MAX_STATES = 600_000;
