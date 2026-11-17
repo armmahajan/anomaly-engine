@@ -37,7 +37,11 @@ export interface LayoutResult {
   placed: number;
 }
 
-export function layoutPlan(plan: ArchitectPlan, world: { rooms: WorldRoom[] }, units: Units, only?: Set<string>): LayoutResult {
+/**
+ * `gated`: links that need a movement ability (their `a` end gets a gate block; keys and other mechanics don't count).
+ * `only`: rooms that may move (the rest of the map stays); those that already have a place keep it if it is still free.
+ */
+export function layoutPlan(plan: ArchitectPlan, world: { rooms: WorldRoom[] }, units: Units, only?: Set<string>, gated: Set<string> = new Set(plan.links.filter((l) => l.requires.length).map((l) => l.id))): LayoutResult {
   const issues: StageIssue[] = [];
   const rooms = new Map(plan.rooms.map((r) => [r.id, { ...r }]));
   const links = plan.links.map((l) => ({ ...l, a: { ...l.a }, b: { ...l.b } }));
@@ -58,6 +62,13 @@ export function layoutPlan(plan: ArchitectPlan, world: { rooms: WorldRoom[] }, u
     return { x: p.x, y: p.y, w: r.cols, h: r.rows };
   };
   const free = (c: Rect, except?: string) => [...at.keys()].every((id) => id === except || !overlaps(c, rect(id)));
+  // Re-laying out some rooms: those that already have a place keep it while it is still free (the map stays put).
+  if (only) {
+    for (const r of rooms.values()) {
+      if (!movable(r.id) || !r.at) continue;
+      if (free({ x: r.at.x, y: r.at.y, w: r.cols, h: r.rows })) at.set(r.id, r.at);
+    }
+  }
 
   // Sides fixed before placement: the creator's, and pinned rooms' existing doors.
   const end = (l: RoomLink, e: "a" | "b") => l[e];
@@ -82,9 +93,11 @@ export function layoutPlan(plan: ArchitectPlan, world: { rooms: WorldRoom[] }, u
     if (l.a.side) take(l.a.room, l.a.side);
     if (l.b.side) take(l.b.room, l.b.side);
   }
-  const fits = (room: string, side: DoorSide) => {
+  /** A gated two-way link may go past a side's capacity on the left or right (layout grows the room a band): a gate on a side door builds in far less room than one on the top or bottom. */
+  const fits = (room: string, side: DoorSide, l?: RoomLink) => {
     const r = rooms.get(room)!;
-    return count(room, side) < doorCapacity(r.cols, r.rows, side, units);
+    const extra = l && gated.has(l.id) && !l.oneWay && (side === "left" || side === "right") ? 2 : 0;
+    return count(room, side) < doorCapacity(r.cols, r.rows, side, units) + extra;
   };
 
   /** Sides to try for the end of `l` in room `here`, best first. */
@@ -94,8 +107,7 @@ export function layoutPlan(plan: ArchitectPlan, world: { rooms: WorldRoom[] }, u
     const flip = hashText(l.id) % 2 === 1;
     const horizontal = flip ? ["left", "right"] : HORIZONTAL;
     const vertical: DoorSide[] = flip ? ["top", "bottom"] : ["bottom", "top"];
-    const gated = l.requires.length > 0;
-    return [...horizontal, ...(gated ? [] : vertical), ...(gated ? vertical : [])] as DoorSide[];
+    return [...horizontal, ...vertical] as DoorSide[];
   };
 
   /** Place `child` next to `parent` across `side` (the side of parent), sliding along it until free. */
@@ -162,7 +174,7 @@ export function layoutPlan(plan: ArchitectPlan, world: { rooms: WorldRoom[] }, u
         if (!rooms.has(other) || at.has(other)) continue;
         let done = false;
         const choices = sideChoices(l, here);
-        const fitting = choices.filter((s) => fits(id, s) && fits(other, OPPOSITE[s]));
+        const fitting = choices.filter((s) => fits(id, s, l) && fits(other, OPPOSITE[s], l));
         for (const side of fitting.length ? fitting : choices) {
           const pos = place(id, other, side);
           if (!pos) continue;
@@ -213,10 +225,10 @@ export function layoutPlan(plan: ArchitectPlan, world: { rooms: WorldRoom[] }, u
     const dy = rb.y + rb.h / 2 - (ra.y + ra.h / 2);
     const prefer: DoorSide[] = l.oneWay
       ? ["bottom"]
-      : Math.abs(dx) * ra.h >= Math.abs(dy) * ra.w || l.requires.length > 0
+      : Math.abs(dx) * ra.h >= Math.abs(dy) * ra.w || gated.has(l.id)
         ? [dx >= 0 ? "right" : "left", dy >= 0 ? "bottom" : "top", dx >= 0 ? "left" : "right", dy >= 0 ? "top" : "bottom"]
         : [dy >= 0 ? "bottom" : "top", dx >= 0 ? "right" : "left", dy >= 0 ? "top" : "bottom", dx >= 0 ? "left" : "right"];
-    const side = prefer.find((s) => fits(l.a.room, s) && fits(l.b.room, OPPOSITE[s])) ?? prefer[0]!;
+    const side = prefer.find((s) => fits(l.a.room, s, l) && fits(l.b.room, OPPOSITE[s], l)) ?? prefer[0]!;
     setSides(l, "a", side);
   }
 
