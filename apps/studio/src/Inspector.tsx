@@ -50,6 +50,29 @@ const PARAM_META: Record<string, { label: string; unit: string }> = {
   shake: { label: "Shake", unit: "" },
   direction: { label: "Direction", unit: "" },
   toward: { label: "Toward", unit: "" },
+  armor: { label: "Armor", unit: "0–1" },
+  windup: { label: "Warning", unit: "s" },
+  active: { label: "Active", unit: "s" },
+  recovery: { label: "Recovery", unit: "s" },
+  damage: { label: "Damage", unit: "HP" },
+  width: { label: "Width", unit: "px" },
+  offsetX: { label: "Ahead", unit: "px" },
+  lunge: { label: "Lunge", unit: "px/s" },
+  count: { label: "Count", unit: "" },
+  spread: { label: "Spread", unit: "°" },
+  gravity: { label: "Gravity", unit: "px/s²" },
+  aim: { label: "Aim", unit: "" },
+  angle: { label: "Angle", unit: "°" },
+  lifetime: { label: "Lifetime", unit: "s" },
+  pogo: { label: "Pogo-able", unit: "" },
+  maxDistance: { label: "Max distance", unit: "px" },
+  waveSpeed: { label: "Wave speed", unit: "px/s" },
+  waveReach: { label: "Wave reach", unit: "px" },
+  waveHeight: { label: "Wave height", unit: "px" },
+  character: { label: "Summons", unit: "" },
+  max: { label: "Max alive", unit: "" },
+  to: { label: "To", unit: "" },
+  range: { label: "Range", unit: "px" },
 };
 
 const CONDITION_TEXT: Record<Condition["type"], string> = {
@@ -105,7 +128,7 @@ export function Inspector({ character, roomId, spawns, defaultSpawn, session, lo
       </h2>
       {locked && lockHint && <p className="hint">{lockHint}</p>}
       <h3>Stats</h3>
-      {Object.entries(character.stats).map(([stat, value]) => (
+      {Object.entries(character.kind === "enemy" ? { ...character.stats, armor: character.stats.armor ?? 0 } : character.stats).map(([stat, value]) => (
         <NumberField
           // Remount when the committed value changes so the draft resyncs.
           key={`${stat}:${value}`}

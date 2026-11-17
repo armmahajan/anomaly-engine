@@ -1808,3 +1808,9 @@ body.resizing iframe {
 
 /* Over the room painter: the props overlay (PropsOverlay.tsx) covers the room exactly. */
 .props-overlay { position: absolute; }
+
+/* Enemy combat */
+.spawn-details { margin: 2px 0 8px 8px; font-size: 12px; }
+.spawn-details summary { cursor: pointer; color: var(--muted); }
+.spawn-bar { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.spawn-bar input:not([type="checkbox"]) { flex: 1; min-width: 0; }

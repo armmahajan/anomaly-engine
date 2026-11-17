@@ -10,10 +10,24 @@ import { Color, Id } from "./common.ts";
  * studio flags any mismatch with ACTION_TYPES / CONDITION_TYPES.
  */
 
-const Speed = z.number().min(0).max(2000).describe("Speed in px/s (the player runs at ~320).");
-const Distance = z.number().min(0).max(4000).describe("Distance in px (the player is ~44px tall).");
+const Speed = z.number().min(0).max(2000).meta({ id: "Speed", description: "Speed in px/s (the player runs at ~320)." });
+const Distance = z.number().min(0).max(4000).meta({ id: "Distance", description: "Distance in px (the player is ~44px tall)." });
 const Seconds = z.number().min(0).max(30).describe("Duration in seconds.");
-const Margin = z.number().min(0).max(4000).default(40).describe("Vertical tolerance in px between the two centres.");
+const Margin = z.number().min(0).max(4000).default(40).meta({ id: "Margin", description: "Vertical tolerance in px between the two centres." });
+
+/** Shortest warning (s) before any attack can hurt: the schema can't express a faster one. */
+export const MIN_WARNING = 0.25;
+// Shared attack params: ids put them in $defs once per tool schema instead of repeating them.
+const Windup = z
+  .number()
+  .min(MIN_WARNING)
+  .max(5)
+  .meta({ id: "Windup", description: `Warning (s, min ${MIN_WARNING}) before it can hurt; it flashes \`color\`.` });
+const Time = z.number().min(0).max(10).meta({ id: "Time", description: "Seconds." });
+const Px = z.number().min(0).max(4000).meta({ id: "Px", description: "px." });
+const Offset = z.number().min(-400).max(400).meta({ id: "Offset", description: "px." });
+const Damage = z.number().int().min(1).max(20).default(1).meta({ id: "Damage", description: "Damage to the player (knockback: its knockback stat)." });
+const WarnColor = Color.default("#ffd27a").meta({ id: "WarnColor", description: "Warning flash color." });
 
 export const Action = z
   .discriminatedUnion("type", [
@@ -74,6 +88,78 @@ export const Action = z
         period: z.number().min(0.2).max(30).default(2).describe("Seconds per bob."),
       })
       .describe("Flyers: float in place, bobbing up and down. Ground characters just stand still."),
+    z
+      .strictObject({
+        type: z.literal("strike"),
+        windup: Windup.default(0.4),
+        active: Time.default(0.2),
+        recovery: Time.default(0.5),
+        damage: Damage,
+        width: Px.default(64),
+        height: Px.default(48),
+        offsetX: Offset.default(40),
+        lunge: Speed.default(0),
+        color: WarnColor,
+      })
+      .describe(
+        "Melee: a width x height box centred offsetX px ahead shows during the windup, hurts for `active` s (moving `lunge` px/s forward), then `recovery` s still. Done at the end.",
+      ),
+    z
+      .strictObject({
+        type: z.literal("shoot"),
+        windup: Windup.default(0.5),
+        count: z.number().int().min(1).max(12).default(1),
+        spread: z.number().min(0).max(360).default(30).describe("Fan angle in degrees."),
+        speed: Speed.default(400),
+        gravity: Px.default(0).describe("Fall acceleration, px/s²."),
+        aim: z.enum(["player", "angle"]).default("player"),
+        angle: z.number().min(-180).max(180).default(0).describe("Degrees from facing; 90 = down."),
+        lifetime: Time.default(3),
+        damage: Damage,
+        pogo: z.boolean().default(false).describe("A downward sword strike bounces off it."),
+        color: WarnColor,
+      })
+      .describe("Fire `count` projectiles in a fan; they break on solids or the player. Done once fired."),
+    z
+      .strictObject({
+        type: z.literal("leap"),
+        windup: Windup.default(0.4),
+        height: Px.default(160),
+        maxDistance: Px.default(400),
+        color: WarnColor,
+      })
+      .describe("Ground: crouch flashing, then leap to land where the player stood (at most maxDistance px away). Done on landing."),
+    z
+      .strictObject({
+        type: z.literal("slam"),
+        windup: Windup.default(0.5),
+        height: Px.default(80).describe("Hop height before crashing down (in the air: drops from there)."),
+        damage: Damage,
+        waveSpeed: Speed.default(500),
+        waveReach: Px.default(400),
+        waveHeight: Px.default(28),
+        color: WarnColor,
+      })
+      .describe("Ground: hop and crash down; on landing a shockwave runs along the ground both ways (jump over it). Done on landing."),
+    z
+      .strictObject({
+        type: z.literal("summon"),
+        character: Id.describe("Enemy character to summon."),
+        count: z.number().int().min(1).max(5).default(1),
+        max: z.number().int().min(1).max(10).describe("Cap on its summons alive at once."),
+        windup: Windup.default(0.6),
+        color: WarnColor,
+      })
+      .describe("Flash, then call `count` enemies beside itself (never more than `max` alive). Done after."),
+    z
+      .strictObject({
+        type: z.literal("teleport"),
+        to: z.enum(["home", "random", "behindPlayer"]).default("behindPlayer"),
+        range: Px.default(300).describe("random: max px from home; behindPlayer: px behind the player."),
+        windup: Windup.default(0.6).describe("Seconds gone (untouchable) while a marker shows where it will appear."),
+        color: WarnColor,
+      })
+      .describe("Vanish, mark the spot, reappear there. Done on reappearing."),
   ])
   .describe("What the character does while in a state.");
 export type Action = z.infer<typeof Action>;
@@ -190,7 +276,7 @@ export const Behavior = z
   });
 export type Behavior = z.infer<typeof Behavior>;
 
-export type ParamKind = "number" | "boolean" | "color" | "enum";
+export type ParamKind = "number" | "boolean" | "color" | "enum" | "text";
 export interface ParamInfo {
   name: string;
   kind: ParamKind;
@@ -209,6 +295,6 @@ export function primitiveParams(group: "action" | "condition", type: string): Pa
       if (inner instanceof z.ZodEnum) return { name, kind: "enum" as const, options: inner.options as string[] };
       if (inner instanceof z.ZodBoolean) return { name, kind: "boolean" as const };
       if (inner instanceof z.ZodNumber) return { name, kind: "number" as const };
-      return { name, kind: "color" as const };
+      return { name, kind: inner.safeParse("#000000").success ? ("color" as const) : ("text" as const) };
     });
 }
