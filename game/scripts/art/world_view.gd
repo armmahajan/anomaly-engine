@@ -1,14 +1,24 @@
 extends Node2D
 ## Draws a world scene (packages/core/src/art/world.ts) from a biome kit:
-## parallax layers, textured ground, placed pieces tinted by depth, 2D lights,
-## fog between layers, light shafts, dust and a vignette. All the depth is
-## built here, for free; the kit only supplies a few painted images.
+## painted background planes, parallax layers, textured ground, placed pieces
+## tinted and softened by depth, 2D lights, fog between layers, light shafts,
+## particles at several depths and a vignette. All the depth is built here, for
+## free; the kit only supplies a few painted images.
+##
+## Parallax works on both axes. Background planes are drawn across the view
+## (screen space): they stand on its bottom edge, scroll at their depth and sink
+## as the camera climbs. Layers of placed pieces scroll at their factor (SCROLL);
+## a piece is seen where it was placed when the camera looks at it (x: centred on
+## it; y: as near as the camera gets). The front layer frames the view: it
+## scrolls past horizontally and keeps to the view's top and bottom edges.
 
 const LAYER_ORDER := ["far", "mid", "back", "play", "front"]
 ## How fast each layer scrolls relative to the camera (1 = with the world).
 const SCROLL := {"far": 0.12, "mid": 0.38, "back": 0.72, "play": 1.0, "front": 1.35}
 ## How much each layer is tinted toward the fog color.
 const FOG_TINT := {"far": 0.0, "mid": 0.5, "back": 0.35, "play": 0.0, "front": 0.0}
+## Softness (image px) of placed pieces by layer: distant ones blur, the front is out of focus.
+const DEPTH_BLUR := {"far": 2.0, "mid": 1.2, "back": 0.0, "play": 0.0, "front": 1.0}
 ## A standing piece in the play layer sinks this share of its drawn height into its surface (px bounds).
 const CONTACT_SINK := 0.05
 const CONTACT_SINK_MIN := 4.0
@@ -17,6 +27,23 @@ const CONTACT_SINK_MAX := 12.0
 const FOG_MAX := {"mid": 0.42, "back": 0.32, "play": 0.22}
 ## Far and mid layers live on their own canvas, untouched by the scene's darkness (they are distant and hazy).
 const DISTANT := ["far", "mid"]
+## A kit without planes: its one backdrop, drawn as before (sharp, the view's height, scrolling with the far layer).
+const LEGACY_PLANE := {"name": "backdrop", "depth": 0.12, "span": 1.0, "opaque": true, "blur": 0.0, "haze": 0.0, "mist": 0.0}
+## Particles at each depth: the layer, its share of the amount, size and opacity (front ones are big, soft and few).
+const PARTICLE_DEPTHS := [
+	{"layer": "mid", "share": 0.25, "size": 0.55, "alpha": 0.45},
+	{"layer": "back", "share": 0.25, "size": 0.8, "alpha": 0.65},
+	{"layer": "play", "share": 0.4, "size": 1.0, "alpha": 0.85},
+	{"layer": "front", "share": 0.1, "size": 7.0, "alpha": 0.16},
+]
+## How each kind of particle moves and looks (sizes in room px at the play layer).
+const PARTICLES := {
+	"dust": {"direction": Vector2(0.3, -1), "spread": 60.0, "gravity": Vector2(0, -4), "speed": [4.0, 14.0], "size": [3.0, 6.0], "lifetime": 9.0, "add": true, "color": "#ffe2b0"},
+	"embers": {"direction": Vector2(0.15, -1), "spread": 25.0, "gravity": Vector2(0, -16), "speed": [16.0, 42.0], "size": [3.0, 6.5], "lifetime": 6.0, "add": true, "color": "#ff9a4a"},
+	"spores": {"direction": Vector2(0, -1), "spread": 180.0, "gravity": Vector2(0, -2), "speed": [3.0, 9.0], "size": [4.0, 8.0], "lifetime": 12.0, "add": true, "color": "#b8f0a0"},
+	"snow": {"direction": Vector2(0.2, 1), "spread": 20.0, "gravity": Vector2(0, 6), "speed": [18.0, 36.0], "size": [4.0, 8.0], "lifetime": 10.0, "add": false, "color": "#f2f6ff"},
+	"ash": {"direction": Vector2(0.25, 1), "spread": 35.0, "gravity": Vector2(0, 3), "speed": [8.0, 18.0], "size": [4.0, 9.0], "lifetime": 12.0, "add": false, "color": "#9a9590"},
+}
 const Terrain := preload("res://scripts/terrain.gd")
 
 const FOG_SHADER := """
@@ -52,18 +79,70 @@ void fragment() {
 }
 """
 
-## Atmospheric perspective: wash a sprite toward the fog color and flatten its contrast.
+## A soft sample of the texture: `blur` image px wide (a ring of taps on a coarser mip), alpha-weighted.
+const SOFT_SAMPLE := """
+vec4 soft_sample(sampler2D tex, vec2 uv, vec2 texel, float blur) {
+	if (blur < 0.05) {
+		return texture(tex, uv);
+	}
+	float lod = log2(max(blur, 1.0));
+	vec4 c = textureLod(tex, uv, lod);
+	vec3 rgb = c.rgb * c.a * 0.2;
+	float a = c.a * 0.2;
+	for (int i = 0; i < 8; i++) {
+		float t = float(i) * 0.785398 + 0.39;
+		vec4 s = textureLod(tex, uv + vec2(cos(t), sin(t)) * texel * blur, lod);
+		rgb += s.rgb * s.a * 0.1;
+		a += s.a * 0.1;
+	}
+	return vec4(rgb / max(a, 0.0001), a);
+}
+"""
+
+## Atmospheric perspective: soften a sprite, wash it toward the fog color and flatten its contrast.
+## (Fragment COLOR already holds the texture times the modulate; `tint` is the modulate alone.
+## Unblurred pieces keep the look they always had: texture x COLOR.)
 const DEPTH_SHADER := """
 shader_type canvas_item;
 uniform vec4 fog_color : source_color;
 uniform float amount = 0.5;
+uniform float blur = 0.0;
+uniform bool keep_tone = true;
+varying vec4 tint;
+%s
+void vertex() { tint = COLOR; }
 void fragment() {
-	vec4 c = texture(TEXTURE, UV) * COLOR;
+	vec4 c;
+	if (blur < 0.05) {
+		c = texture(TEXTURE, UV) * COLOR;
+	} else {
+		vec4 s = soft_sample(TEXTURE, UV, TEXTURE_PIXEL_SIZE, blur);
+		c = (keep_tone ? s * s : s) * tint;
+	}
 	float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
 	vec3 muted = mix(c.rgb, vec3(luma), amount * 0.6);
 	COLOR = vec4(mix(muted, fog_color.rgb, amount), c.a);
 }
-"""
+""" % SOFT_SAMPLE
+
+## A background plane: softened by `blur`, hazed toward the fog, with mist thickening toward its base.
+const PLANE_SHADER := """
+shader_type canvas_item;
+uniform vec4 fog_color : source_color;
+uniform float haze = 0.0;
+uniform float mist = 0.0;
+uniform float blur = 0.0;
+varying vec4 tint;
+%s
+void vertex() { tint = COLOR; }
+void fragment() {
+	vec4 c = soft_sample(TEXTURE, UV, TEXTURE_PIXEL_SIZE, blur) * tint;
+	float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+	vec3 muted = mix(c.rgb, vec3(luma), haze * 0.5);
+	float fog = clamp(haze + mist * smoothstep(0.4, 1.0, UV.y), 0.0, 1.0);
+	COLOR = vec4(mix(muted, fog_color.rgb, fog), c.a);
+}
+""" % SOFT_SAMPLE
 
 const VIGNETTE_SHADER := """
 shader_type canvas_item;
@@ -75,8 +154,14 @@ void fragment() {
 }
 """
 
-## Center of the view the layers are parallaxed against (set by the owner each frame).
+## Centre of the view the layers are parallaxed against (set by the owner each frame).
 var focus := Vector2.ZERO
+## Height (room px) of the view the room is played in; 0 = the room's own height (the whole room
+## fits, as in the Worlds stage and renders). Pieces line up for this view.
+var view_height := 0.0
+## Draw only the far planes beyond the room's edges, fogged (rooms in the game): everything placed
+## is clipped to the room, so a room smaller than the view sits in its own distance.
+var frame_room := false
 ## Draw the vignette (off when dressing the arena, so the HUD stays clean).
 var vignette := true
 ## Write each placement's id on it (renders for the AI reviewer, which names pieces to fix).
@@ -89,11 +174,18 @@ var _layers := {}
 var _pieces := {}
 var _ambient := Color.WHITE
 var _distant_canvas: CanvasLayer = null
+var _plane_canvas: CanvasLayer = null
 var _ambient_node: CanvasModulate = null
+var _width := 2400.0
+var _height := 720.0
+## Background planes: {sprite, plane}.
+var _planes: Array = []
 ## Editing support: placed sprites (meta "placement", "layer"), fog rects, lights and halos.
 var _sprites: Array[Sprite2D] = []
 var _fogs: Array[CanvasItem] = []
 var _glows: Array[Node] = []
+## Particle emitters by depth (meta "layer").
+var _particles: Array[CPUParticles2D] = []
 ## The scene's own lights (play layer): {at: Vector2, nodes: [light, halo]}.
 var _scene_lights: Array = []
 var _explode := {}  # layer -> vertical offset while exploded
@@ -116,6 +208,8 @@ static func textures_from(images: Variant) -> Dictionary:
 		if ok != OK:
 			ok = image.load_jpg_from_buffer(bytes)
 		if ok == OK:
+			if image.detect_alpha() != Image.ALPHA_NONE:
+				image.fix_alpha_edges()  # transparent pixels take their neighbours' color: no dark fringes when softened or shrunk
 			image.generate_mipmaps()
 			out[str(key)] = ImageTexture.create_from_image(image)
 	return out
@@ -138,7 +232,7 @@ static func aim(camera: Camera2D, world: Node2D, scene: Dictionary, view: Vector
 	world._update_layers()
 
 
-## `textures`: FileRef -> Texture2D.
+## `textures`: FileRef -> Texture2D. `view_size`: the most of the room's surroundings any view shows (room px).
 func build(scene: Dictionary, textures: Dictionary, view_size: Vector2) -> void:
 	_scene = scene
 	_textures = textures
@@ -146,18 +240,28 @@ func build(scene: Dictionary, textures: Dictionary, view_size: Vector2) -> void:
 		_pieces[p.id] = p
 	var palette: Dictionary = scene.get("palette", {})
 	var fog := Color(str(palette.get("fog", "#33465a")))
-	var width := float(scene.get("width", 2400))
-	var height := float(scene.get("height", 720))
+	_width = float(scene.get("width", 2400))
+	_height = float(scene.get("height", 720))
+	var width := _width
+	var height := _height
+	if focus == Vector2.ZERO:
+		focus = Vector2(width, height) / 2.0
 
 	_ambient = Color(str(palette.get("ambient", "#8090a0")))
 	var ambient := CanvasModulate.new()
 	ambient.color = _ambient
 	add_child(ambient)
 	_ambient_node = ambient
+	_plane_canvas = CanvasLayer.new()
+	_plane_canvas.name = "Planes"
+	_plane_canvas.layer = -2
+	add_child(_plane_canvas)
 	_distant_canvas = CanvasLayer.new()
 	_distant_canvas.layer = -1
 	_distant_canvas.follow_viewport_enabled = true
 	add_child(_distant_canvas)
+	if frame_room:
+		_add_outside(fog)
 
 	# Art is drawn smaller than its source (a 1024 px backdrop fills a ~450 px room): sample the
 	# mipmaps, or it aliases into jagged, shimmering pixels.
@@ -166,15 +270,15 @@ func build(scene: Dictionary, textures: Dictionary, view_size: Vector2) -> void:
 		var node := Node2D.new()
 		node.name = layer
 		node.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS  # distant layers sit under a CanvasLayer: no inheritance
-		if layer in DISTANT:
-			_distant_canvas.add_child(node)
-		else:
-			add_child(node)
+		var parent: Node = _distant_canvas if layer in DISTANT else self
+		if frame_room:
+			parent = _room_frame(parent, layer)
+		parent.add_child(node)
 		_layers[layer] = node
 		if layer != "far" and layer != "front":
 			_add_fog(node, layer, fog, minf(float(scene.get("fog", {}).get(layer, 0.3)), FOG_MAX[layer]), width, height, view_size)
 
-	_build_backdrop(height, width, view_size)
+	_build_planes(fog)
 	_build_ground(palette)
 	for placement in scene.get("placements", []):
 		_place(placement, fog, palette)
@@ -182,7 +286,7 @@ func build(scene: Dictionary, textures: Dictionary, view_size: Vector2) -> void:
 		_add_light(light)
 	for ray in scene.get("rays", []):
 		_add_ray(ray, Color(str(palette.get("light", "#ffd9a0"))), height)
-	_add_dust(scene.get("dust", {}), width, height)
+	_add_particles(scene.get("dust", {}), view_size)
 	if vignette:
 		_add_vignette(Color(str(palette.get("shadow", "#05070a"))))
 	# Characters (z 0) walk between the room's layers: back and play behind them, front in front.
@@ -199,8 +303,150 @@ func _process(_delta: float) -> void:
 func _update_layers() -> void:
 	for layer in _layers:
 		var f: float = SCROLL[layer]
-		_layers[layer].position.x = focus.x * (1.0 - f)
-		_layers[layer].position.y = _explode.get(layer, 0.0)
+		var node: Node2D = _layers[layer]
+		node.position.x = focus.x * (1.0 - f)
+		# The front layer keeps to the view vertically; the others scroll at their factor.
+		node.position.y = (focus.y if layer == "front" else focus.y * (1.0 - f)) + _explode.get(layer, 0.0)
+	_update_planes()
+
+
+## Height (room px) of the view the pieces line up for.
+func _view_h() -> float:
+	return view_height if view_height > 0.0 else _height
+
+
+## Where the camera's centre can be, top to bottom (one point when the room is no taller than the view).
+func _camera_range() -> Vector2:
+	var half := _view_h() / 2.0
+	if _height <= half * 2.0:
+		return Vector2(_height / 2.0, _height / 2.0)
+	return Vector2(half, _height - half)
+
+
+## Local y offset in `layer` for something placed at room y around `at_y`: it shows at its room y
+## when the camera's centre is as near `at_y` as it gets (layers scroll by focus.y * (1 - f)).
+func _align_y(layer: String, at_y: float) -> float:
+	var reach := _camera_range()
+	return -clampf(at_y, reach.x, reach.y) * (1.0 - SCROLL[layer])
+
+
+# --- background planes -------------------------------------------------------------------
+
+## The kit's planes (back to front), or its one backdrop drawn as before.
+func _build_planes(fog: Color) -> void:
+	var planes = _scene.get("backgrounds")
+	if typeof(planes) != TYPE_ARRAY or planes.is_empty():
+		var legacy := LEGACY_PLANE.duplicate()
+		legacy.file = _scene.get("backdrop")
+		planes = [legacy]
+	for plane in planes:
+		var tex := _texture(plane.get("file"))
+		if tex == null:
+			continue
+		var sprite := Sprite2D.new()
+		sprite.name = "Plane_%s" % plane.get("name", "")
+		sprite.texture = tex
+		sprite.centered = false
+		sprite.region_enabled = true
+		sprite.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		var blur := float(plane.get("blur", 0.0))
+		var haze := float(plane.get("haze", 0.0))
+		var mist := float(plane.get("mist", 0.0))
+		if blur > 0.0 or haze > 0.0 or mist > 0.0:
+			var mat := ShaderMaterial.new()
+			var shader := Shader.new()
+			shader.code = PLANE_SHADER
+			mat.shader = shader
+			mat.set_shader_parameter("fog_color", fog.lightened(0.12))
+			mat.set_shader_parameter("haze", haze)
+			mat.set_shader_parameter("mist", mist)
+			mat.set_shader_parameter("blur", blur)
+			sprite.material = mat
+		_plane_canvas.add_child(sprite)
+		_planes.append({"sprite": sprite, "plane": plane})
+
+
+## Lay the planes across the view: each `span` of the view's height, standing on its bottom edge,
+## scrolled by depth x the camera's movement on both axes (an opaque plane stops sinking once
+## its top reaches the view's top). Screen space, so a plane's size never depends on the room.
+func _update_planes() -> void:
+	if _planes.is_empty() or not is_inside_tree():
+		return
+	var viewport := get_viewport()
+	var screen := viewport.get_visible_rect().size
+	var zoom := viewport.get_canvas_transform().get_scale().x
+	if zoom <= 0.0:
+		return
+	# The lowest the play camera goes; the planes stand on the view's bottom edge there.
+	var bottom := maxf(_height - screen.y / zoom / 2.0, _height / 2.0)
+	for entry in _planes:
+		var sprite: Sprite2D = entry.sprite
+		var plane: Dictionary = entry.plane
+		var depth := float(plane.get("depth", 0.1))
+		var tex_h := float(sprite.texture.get_height())
+		var drawn := float(plane.get("span", 1.0)) * screen.y
+		var s := drawn / tex_h
+		var sink := maxf(0.0, depth * (bottom - focus.y) * zoom)
+		if bool(plane.get("opaque", false)):
+			sink = minf(sink, maxf(0.0, drawn - screen.y))
+		sprite.scale = Vector2(s, s)
+		sprite.region_rect = Rect2(depth * focus.x * zoom / s, 0.0, screen.x / s + 2.0, tex_h)
+		sprite.position = Vector2(0.0, screen.y + sink - drawn + _explode.get("far", 0.0))
+
+
+## Physical screen px per image px of each plane on a window `window` physical px tall (for checks).
+func plane_scales(window_height: float) -> Dictionary:
+	var out := {}
+	var screen := get_viewport().get_visible_rect().size
+	for entry in _planes:
+		var sprite: Sprite2D = entry.sprite
+		out[str(entry.plane.get("name", ""))] = sprite.scale.y * window_height / screen.y
+	return out
+
+
+## Planes, particles and layer offsets as drawn now (headless checks; see game/test/depth.test.ts).
+func describe() -> Dictionary:
+	var planes := []
+	for entry in _planes:
+		var sprite: Sprite2D = entry.sprite
+		planes.append({"name": str(entry.plane.get("name", "")), "x": sprite.region_rect.position.x * sprite.scale.x, "y": sprite.position.y, "height": sprite.texture.get_height() * sprite.scale.y, "blurred": sprite.material != null and float(entry.plane.get("blur", 0.0)) > 0.0})
+	var layers := {}
+	for layer in _layers:
+		layers[layer] = {"x": _layers[layer].position.x, "y": _layers[layer].position.y}
+	var particles := []
+	for p in _particles:
+		particles.append({"layer": str(p.get_meta("layer")), "amount": p.amount, "front": p.get_parent() != null and p.is_visible_in_tree()})
+	return {"planes": planes, "layers": layers, "particles": particles, "screen": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y]}
+
+
+# --- framing ------------------------------------------------------------------------------
+
+## A container clipping `layer` to the room's rectangle (room coordinates: its canvas follows the camera).
+func _room_frame(parent: Node, layer: String) -> Control:
+	var clip := Control.new()
+	clip.name = "Frame_%s" % layer
+	clip.clip_contents = true
+	clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip.size = Vector2(_width, _height)
+	parent.add_child(clip)
+	return clip
+
+
+## Fog over the planes everywhere outside the room.
+func _add_outside(fog: Color) -> void:
+	var outside := Node2D.new()
+	outside.name = "Outside"
+	_distant_canvas.add_child(outside)
+	var m := 100000.0
+	var color := Color(fog.darkened(0.45), 0.7)
+	for r in [Rect2(-m, -m, _width + 2.0 * m, m), Rect2(-m, _height, _width + 2.0 * m, m), Rect2(-m, 0, m, _height), Rect2(_width, 0, m, _height)]:
+		var rect := ColorRect.new()
+		rect.position = r.position
+		rect.size = r.size
+		rect.color = color
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		outside.add_child(rect)
 
 
 # --- editing (Worlds mode) -----------------------------------------------------------
@@ -209,6 +455,8 @@ func _update_layers() -> void:
 func set_options(hidden: Array, fog: bool, lights: bool, exploded: bool) -> void:
 	for layer in _layers:
 		_layers[layer].visible = not hidden.has(layer)
+	for entry in _planes:
+		entry.sprite.visible = not hidden.has("far")
 	for f in _fogs:
 		f.visible = fog
 	for g in _glows:
@@ -283,7 +531,7 @@ func sprite_for(placement_id: String) -> Sprite2D:
 ## Room position a placed sprite stands for (x as seen when the camera is there; y = its anchor).
 func room_position(sprite: Sprite2D) -> Vector2:
 	var f: float = SCROLL[str(sprite.get_meta("layer"))]
-	return Vector2(sprite.position.x / f, sprite.position.y)
+	return Vector2(sprite.position.x / f, sprite.position.y - float(sprite.get_meta("align_y", 0.0)))
 
 
 ## Lights set on a platform this far (px) above its top belong to what stands there.
@@ -357,23 +605,6 @@ func _texture(ref) -> Texture2D:
 	if t == null:
 		warnings.append("missing image %s" % ref)
 	return t
-
-
-func _build_backdrop(height: float, width: float, view_size: Vector2) -> void:
-	var tex := _texture(_scene.get("backdrop"))
-	if tex == null:
-		return
-	var sprite := Sprite2D.new()
-	sprite.texture = tex
-	sprite.centered = false
-	sprite.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
-	sprite.region_enabled = true
-	var s := height / tex.get_height()  # exactly the room's height: nothing shows above or below it
-	var cover := view_size.x * 2.0 + width * SCROLL["far"] + 400.0
-	sprite.region_rect = Rect2(0, 0, cover / s, tex.get_height())
-	sprite.scale = Vector2(s, s)
-	sprite.position = Vector2(-view_size.x, 0.0)
-	_layers["far"].add_child(sprite)
 
 
 ## The scene's tiles as one terrain in the ground texture (breakables cracked, hazards spiked).
@@ -462,15 +693,16 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 	sprite.centered = false
 	sprite.offset = Vector2(-tex.get_width() / 2.0, 0.0 if hanging else -tex.get_height())
 	var y := float(placement.y)
+	var top_edge := hanging  # front pieces: framing the view's top edge (else its bottom edge)
 	if layer == "front":
 		# Foreground silhouettes frame the view: they hang from the top or rise from below the bottom edge, never float.
 		if hanging:
 			y = minf(y, 0.0)
 		elif str(piece.kind) == "span":
-			pass  # set below, once its scale is capped: a beam overhead, across the top edge
+			top_edge = true  # set below, once its scale is capped: a beam overhead, across the top edge
 		else:
-			y = maxf(y, float(_scene.get("height", 720)) + 40.0)
-		s = minf(s, float(_scene.get("height", 720)) * 0.42 / float(piece.height))
+			y = maxf(y, _height + 40.0)
+		s = minf(s, minf(_height, _view_h()) * 0.42 / float(piece.height))
 		sprite.scale = Vector2(-s if bool(placement.get("flip", false)) else s, s)
 		if str(piece.kind) == "span":
 			y = minf(y, tex.get_height() * s)
@@ -478,22 +710,32 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 		# Painted bases taper or fade at the bottom, and the ground draws a lit rim on its top:
 		# sink a standing piece a little into the surface it rests on so it sits, not floats.
 		y += clampf(tex.get_height() * s * CONTACT_SINK, CONTACT_SINK_MIN, CONTACT_SINK_MAX)
-	sprite.position = Vector2(_local_x(layer, float(placement.x)), y)
+	var drawn := tex.get_height() * s
+	var align := 0.0
+	if layer == "front":
+		# Kept to the view's top or bottom edge, wherever the camera is (the layer follows the view's centre).
+		align = -_view_h() / 2.0 if top_edge else -_height + _view_h() / 2.0
+	else:
+		align = _align_y(layer, y + drawn / 2.0 if hanging else y - drawn / 2.0)
+	sprite.position = Vector2(_local_x(layer, float(placement.x)), y + align)
 	sprite.set_meta("placement", str(placement.get("id", "")))
 	sprite.set_meta("layer", layer)
+	sprite.set_meta("align_y", align)
 	_sprites.append(sprite)
 	if layer == "front":
 		sprite.modulate = Color(str(palette.get("shadow", "#05070a")))
-	else:
-		var tint: float = FOG_TINT[layer]
-		if tint > 0.0:
-			var mat := ShaderMaterial.new()
-			var shader := Shader.new()
-			shader.code = DEPTH_SHADER
-			mat.shader = shader
-			mat.set_shader_parameter("fog_color", _emissive(fog.lightened(0.18), layer))
-			mat.set_shader_parameter("amount", tint)
-			sprite.material = mat
+	var tint: float = FOG_TINT[layer]
+	var blur: float = DEPTH_BLUR[layer]
+	if tint > 0.0 or blur > 0.0:
+		var mat := ShaderMaterial.new()
+		var shader := Shader.new()
+		shader.code = DEPTH_SHADER
+		mat.shader = shader
+		mat.set_shader_parameter("fog_color", _emissive(fog.lightened(0.18), layer))
+		mat.set_shader_parameter("amount", tint)
+		mat.set_shader_parameter("blur", blur)
+		mat.set_shader_parameter("keep_tone", layer != "front")  # front silhouettes had no shader before
+		sprite.material = mat
 	_layers[layer].add_child(sprite)
 	if labels:
 		_add_label(sprite, str(placement.get("id", "")), hanging, layer)
@@ -509,15 +751,15 @@ func _add_label(sprite: Sprite2D, text: String, hanging: bool, layer: String) ->
 	if text == "":
 		return
 	var shown := sprite.texture.get_height() * absf(sprite.scale.y)
-	var y := sprite.position.y + (shown / 2.0 if hanging else -shown / 2.0)
-	var height := float(_scene.get("height", 720))
+	var align := float(sprite.get_meta("align_y", 0.0))
+	var y := sprite.position.y - align + (shown / 2.0 if hanging else -shown / 2.0)
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_size_override("font_size", 20)
 	label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.35))
 	label.add_theme_color_override("font_outline_color", Color.BLACK)
 	label.add_theme_constant_override("outline_size", 6)
-	label.position = Vector2(sprite.position.x - 22.0, clampf(y - 12.0, 8.0, height - 36.0))
+	label.position = Vector2(sprite.position.x - 22.0, clampf(y - 12.0, 8.0, _height - 36.0) + align)
 	label.z_index = 100
 	_layers[layer].add_child(label)
 
@@ -584,7 +826,7 @@ func _add_fog(parent: Node2D, layer: String, fog: Color, density: float, width: 
 	mat.set_shader_parameter("density", density)
 	mat.set_shader_parameter("speed", 0.015 + 0.02 * SCROLL[layer])
 	rect.material = mat
-	rect.position = Vector2(-view_size.x, 0)
+	rect.position = Vector2(-view_size.x, _align_y(layer, height / 2.0))
 	rect.size = Vector2(view_size.x * 2.0 + width, height)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(rect)
@@ -612,44 +854,73 @@ func _add_ray(ray: Dictionary, color: Color, height: float) -> void:
 	_glows.append(rect)
 
 
-func _add_dust(dust: Dictionary, width: float, height: float) -> void:
+## The scene's air: particles of the biome's kind (atmosphere.particles) at several depths,
+## from faint specks far off to a few big, soft ones drifting in front of the play layer.
+## `dust` (the room's) sets how many and their color.
+func _add_particles(dust: Dictionary, view_size: Vector2) -> void:
+	var kind := str(_scene.get("atmosphere", {}).get("particles", "dust")) if typeof(_scene.get("atmosphere")) == TYPE_DICTIONARY else "dust"
+	var look: Dictionary = PARTICLES.get(kind, {})
 	var amount := int(dust.get("amount", 80))
-	if amount <= 0:
+	if look.is_empty() or amount <= 0:
 		return
-	var p := CPUParticles2D.new()
-	p.amount = amount
-	p.lifetime = 9.0
-	p.preprocess = 9.0
-	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
-	p.emission_rect_extents = Vector2(width / 2.0, height / 2.0)
-	p.position = Vector2(width / 2.0 + CLIP_REACH, height / 2.0)
-	p.direction = Vector2(0.3, -1)
-	p.spread = 60.0
-	p.gravity = Vector2(0, -4)
-	p.initial_velocity_min = 4.0
-	p.initial_velocity_max = 14.0
-	p.scale_amount_min = 1.0
-	p.scale_amount_max = 2.6
-	var c := _emissive(Color(str(dust.get("color", "#ffe2b0"))), "play")
-	var ramp := Gradient.new()
-	ramp.set_color(0, Color(c, 0.0))
-	ramp.set_color(1, Color(c, 0.0))
-	ramp.add_point(0.3, Color(c, 0.7))
-	ramp.add_point(0.7, Color(c, 0.5))
-	p.color_ramp = ramp
-	var mat := CanvasItemMaterial.new()
-	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	mat.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
-	p.material = mat
-	_room_clip("play", height).add_child(p)
-	_fogs.append(p)
+	var color := Color(str(dust.get("color", look.color)))
+	var view_h := _view_h()
+	var view_w := maxf(view_size.x, view_h * 2.4)  # wide enough for any window shape
+	var reach := _camera_range()
+	for depth in PARTICLE_DEPTHS:
+		var layer: String = depth.layer
+		var f: float = SCROLL[layer]
+		var count := clampi(roundi(amount * float(depth.share)), 0, 400)
+		if layer == "front":
+			count = clampi(count, 3, 24)
+		if count <= 0:
+			continue
+		var p := CPUParticles2D.new()
+		p.name = "Particles_%s" % layer
+		p.amount = count
+		p.lifetime = float(look.lifetime)
+		p.preprocess = float(look.lifetime)
+		p.texture = _radial_texture()
+		p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+		# Cover every place the camera can show in this layer: x scrolls by f, y by f (front: the view).
+		var x0 := -view_w / 2.0
+		var x1 := _width * f + view_w / 2.0
+		var y0 := -view_h / 2.0 if layer == "front" else reach.x * f - view_h / 2.0
+		var y1 := view_h / 2.0 if layer == "front" else reach.y * f + view_h / 2.0
+		p.emission_rect_extents = Vector2((x1 - x0) / 2.0, (y1 - y0) / 2.0)
+		p.position = Vector2((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+		p.direction = look.direction
+		p.spread = float(look.spread)
+		var size: float = depth.size
+		p.gravity = look.gravity * size
+		p.initial_velocity_min = float(look.speed[0]) * size
+		p.initial_velocity_max = float(look.speed[1]) * size
+		# The radial texture's visible core is about a third of its 256 px.
+		p.scale_amount_min = float(look.size[0]) * size / 90.0
+		p.scale_amount_max = float(look.size[1]) * size / 90.0
+		var c := color if layer in DISTANT else _emissive(color, layer)
+		var a := float(depth.alpha)
+		var ramp := Gradient.new()
+		ramp.set_color(0, Color(c, 0.0))
+		ramp.set_color(1, Color(c, 0.0))
+		ramp.add_point(0.3, Color(c, a))
+		ramp.add_point(0.7, Color(c, a * 0.7))
+		p.color_ramp = ramp
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD if bool(look.add) else CanvasItemMaterial.BLEND_MODE_MIX
+		mat.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
+		p.material = mat
+		p.set_meta("layer", layer)
+		_layers[layer].add_child(p)
+		_particles.append(p)
+		_fogs.append(p)
 
 
 ## How far (px) a room clip reaches left and right of the room's origin.
 const CLIP_REACH := 40000.0
 
-## A container in a layer that clips what it holds to the room's height (light shafts lean and
-## dust drifts; neither should show above or below the room). Children are offset by CLIP_REACH.
+## A container in a layer that clips what it holds to the room's height (light shafts lean;
+## they should not show above or below the room). Children are offset by CLIP_REACH.
 func _room_clip(layer: String, height: float) -> Control:
 	var clip: Control = _layers[layer].get_node_or_null("RoomClip")
 	if clip == null:
@@ -657,7 +928,7 @@ func _room_clip(layer: String, height: float) -> Control:
 		clip.name = "RoomClip"
 		clip.clip_contents = true
 		clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		clip.position = Vector2(-CLIP_REACH, 0)
+		clip.position = Vector2(-CLIP_REACH, _align_y(layer, height / 2.0))
 		clip.size = Vector2(CLIP_REACH * 2.0, height)
 		_layers[layer].add_child(clip)
 	return clip

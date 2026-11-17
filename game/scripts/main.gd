@@ -3,7 +3,7 @@ extends Node2D
 ## shows the playtest room (edit mode) or plays the world (rooms and doors) from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 13
+const PROTOCOL_VERSION := 14
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -213,7 +213,17 @@ func run_state() -> Dictionary:
 		"mapOpen": _modals.map_open(),
 		"healthBars": _hud.health_bars(),
 		"props": _props.state() if _props != null and is_instance_valid(_props) else [],
+		"camera": _camera_state(),
 	}
+
+
+## Where the current camera looks (room px, the view's centre) and its zoom (screen px per room px).
+func _camera_state():
+	var camera := get_viewport().get_camera_2d()
+	if camera == null:
+		return null
+	var at := camera.get_screen_center_position()
+	return {"x": at.x, "y": at.y, "zoom": camera.zoom.x}
 
 
 ## Pause or resume gameplay (a modal is open): the room stops, doors and timers wait.
@@ -326,7 +336,7 @@ func _set_mode(mode: String) -> void:
 		_world.process_mode = Node.PROCESS_MODE_INHERIT if mode == "play" else Node.PROCESS_MODE_DISABLED
 	if mode == "play" and _player != null:
 		_player.camera.make_current()
-		_player.camera.reset_smoothing()
+		_player.camera.snap()
 		_focus_canvas()
 	else:
 		_edit_camera.make_current()
@@ -488,7 +498,10 @@ func _dressing_scene(level: Dictionary) -> Dictionary:
 	if room == null:
 		return {}
 	var kit: Dictionary = biome.kit
-	for ref in [kit.backdrop, kit.ground]:
+	var refs := [kit.backdrop, kit.ground]
+	for plane in kit.get("backgrounds", []):
+		refs.append(plane.file)
+	for ref in refs:
 		if not _textures.has(ref):
 			return {}
 	var scene: Dictionary = room.composition.duplicate()
@@ -497,6 +510,8 @@ func _dressing_scene(level: Dictionary) -> Dictionary:
 		"width": maxf(960.0, float(level.width)),
 		"height": maxf(360.0, float(level.height)),
 		"backdrop": kit.backdrop,
+		"backgrounds": kit.get("backgrounds", []),
+		"atmosphere": kit.get("atmosphere", {}),
 		"ground": kit.ground,
 		"pieces": kit.pieces,
 		"platforms": level.solids.filter(func(p): return str(p.kind) != "breakable" and float(p.height) >= 8.0).map(func(p): return {"x": p.x, "y": p.y, "width": p.width, "height": p.height}),
@@ -562,8 +577,8 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 	_props = level.props
 	player._spawn = at
 	player._kill_y = float(room.height) + 400.0
-	player.camera.limit_right = int(room.width)
-	player.camera.limit_bottom = int(room.height)
+	player.camera.room_size = Vector2(float(room.width), float(room.height))
+	player.camera.rows = view_rows()
 	player.solids = level.solids
 	player.enemies = level.enemies
 	for enemy in level.enemies:
@@ -572,14 +587,19 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 	_hud.player = player
 	if _mode == "play":
 		player.camera.make_current()
-		player.camera.reset_smoothing()
+	player.camera.snap()
 	if _seed != null:
 		_seed_run(_seed)
 
 
 ## What characters set up from (the world's gravity, the room's size, the run's abilities).
 func _room_bounds(room: Dictionary, abilities: Array) -> Dictionary:
-	return {"gravity": _project.world.get("gravity", 1800), "width": room.width, "height": room.height, "playerAbilities": abilities}
+	return {"gravity": _project.world.get("gravity", 1800), "width": room.width, "height": room.height, "playerAbilities": abilities, "viewRows": view_rows()}
+
+
+## Tiles the play view shows top to bottom (world.camera.rows).
+func view_rows() -> float:
+	return float(_project.get("world", {}).get("camera", {}).get("rows", 14))
 
 
 func _player_character() -> Dictionary:
@@ -597,8 +617,13 @@ func _populate_room(parent: Node2D, room: Dictionary, bounds: Dictionary, player
 		dressing_view = WorldView.new()
 		dressing_view.process_mode = Node.PROCESS_MODE_ALWAYS
 		dressing_view.vignette = false
+		# Beyond the room's edges only its far planes show, fogged (a room smaller than the view sits centred in them).
+		dressing_view.frame_room = true
+		# Playing, the layers line up for the play camera's view; edit views fit the whole room.
+		dressing_view.view_height = view_rows() * WorldRuntime.TILE if player != null and _run.active else 0.0
 		parent.add_child(dressing_view)
 		dressing_view.build(scene, _textures, Vector2(room.width, room.height) * 1.5)
+	else:
 		_frame_room(parent, room)
 	var solids: Array = Level.build(parent, room.solids, Color(_project.world.get("platformColor", "#4a5470")), dressing_view != null, room.get("grid"), int(_project.get("world", {}).get("ledgeThickness", 20)))
 	Level.add_enemy_bounds(parent, float(room.width), float(room.height))
@@ -629,7 +654,7 @@ func _populate_room(parent: Node2D, room: Dictionary, bounds: Dictionary, player
 	return {"solids": solids, "enemies": enemies, "dressing": dressing_view, "props": props}
 
 
-## Cover everything outside a dressed room: its backdrop, fog and glows reach past the walls.
+## Shade everything outside a plain (undressed) room, so a room smaller than the view sits framed in it.
 func _frame_room(parent: Node2D, room: Dictionary) -> void:
 	var frame := CanvasLayer.new()
 	frame.name = "RoomFrame"
@@ -643,7 +668,7 @@ func _frame_room(parent: Node2D, room: Dictionary) -> void:
 	var w := float(room.width)
 	var h := float(room.height)
 	var m := 100000.0
-	var color := Color(str(_project.world.get("backgroundColor", "#1b2030")))
+	var color := Color(str(_project.world.get("backgroundColor", "#1b2030"))).darkened(0.35)
 	for r in [Rect2(-m, -m, w + 2.0 * m, m), Rect2(-m, h, w + 2.0 * m, m), Rect2(-m, 0, m, h), Rect2(w, 0, m, h)]:
 		var rect := ColorRect.new()
 		rect.position = r.position

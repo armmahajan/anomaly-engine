@@ -12,7 +12,8 @@ signal touched_hazard
 
 var character_id := ""
 var spawn_id := ""
-var camera: Camera2D
+## The play camera (play_camera.gd).
+var camera = null
 ## "slash_<direction>" while swinging, "hurt" while invulnerable, else null (reported to the studio).
 var behavior_state = null
 var health := 0
@@ -55,6 +56,7 @@ var _rig: Node2D = null
 var _preview_clip := ""
 
 const CharacterArt := preload("res://scripts/art/character_art.gd")
+const PlayCamera := preload("res://scripts/play_camera.gd")
 
 # Movement. Mirrors packages/core/src/movement/simulate.ts `step` line for
 # line (game/test/movement.test.ts compares the two); counters are in frames.
@@ -154,14 +156,10 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 		add_child(_rig)
 		_update_rig()
 
-	camera = Camera2D.new()
-	camera.position = Vector2(0, -_size.y / 2.0)
-	camera.limit_left = 0
-	camera.limit_top = 0
-	camera.limit_right = int(bounds.width)
-	camera.limit_bottom = int(bounds.height)
-	camera.position_smoothing_enabled = true
-	camera.position_smoothing_speed = 8.0
+	camera = PlayCamera.new()
+	camera.target = self
+	camera.rows = float(bounds.get("viewRows", 14))
+	camera.room_size = Vector2(float(bounds.width), float(bounds.height))
 	add_child(camera)
 
 
