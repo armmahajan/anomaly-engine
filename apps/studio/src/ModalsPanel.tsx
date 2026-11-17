@@ -3,6 +3,7 @@ import { modalImageChoices, type ChangeResult, type Effect, type Modal, type Pro
 import type { Session } from "./session.ts";
 import { fileUrl } from "./api.ts";
 import { EffectList } from "./HandlerEditor.tsx";
+import { ArtJobButton } from "./ArtJobButton.tsx";
 
 const MAX_BUTTONS = 4;
 type Button = Modal["buttons"][number];
@@ -78,7 +79,15 @@ export function ModalsPanel({ project, session, locked }: { project: ProjectSpec
                 </option>
               ))}
             </select>
-            {modal.image && <img className="modal-image" src={fileUrl(modal.image)} alt="" />}
+            <ArtJobButton
+              session={session}
+              request={{ stage: "modalArt", modalId: modal.id }}
+              label={modal.image ? "🎨 Illustrate again" : "🎨 Illustrate"}
+              cost="$0.01: one image from the title and text"
+              locked={locked}
+              nothing={!modal.title.trim() && !modal.body.trim() ? "Give it a title or text first" : undefined}
+            />
+            {modal.image && <img className="modal-image" src={fileUrl(modal.image)} alt="" data-testid="modal-image" />}
           </div>
           <span className="muted">Buttons {modal.buttons.length === 0 && "(none: one Continue button)"}</span>
           {modal.buttons.map((b, i) => (

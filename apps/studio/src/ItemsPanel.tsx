@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { ChangeResult, ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
+import { ArtJobButton } from "./ArtJobButton.tsx";
+import { fileUrl } from "./api.ts";
 
 /** Game tab: the game's items (counted things the player carries): create, rename, recolor, describe, delete. */
 export function ItemsPanel({ project, session, locked }: { project: ProjectSpec; session: Session; locked: boolean }) {
@@ -17,9 +19,22 @@ export function ItemsPanel({ project, session, locked }: { project: ProjectSpec;
     <>
       <h3>Items</h3>
       <p className="hint">Things the player carries, counted. Handlers give and take them; conditions check them.</p>
+      {project.world.items.length > 0 && (
+        <div className="art-actions">
+          <ArtJobButton
+            session={session}
+            request={{ stage: "itemArt" }}
+            label={`🎨 Draw icons (${project.world.items.filter((i) => !i.icon).length})`}
+            cost="$0.005 per 9 items: one sheet cut into icons"
+            locked={locked}
+            nothing={project.world.items.every((i) => i.icon) ? "Every item has an icon" : undefined}
+          />
+        </div>
+      )}
       {project.world.items.map((item) => (
         <div key={item.id} className="item-row" data-testid={`item-${item.id}`}>
           <div className="spawn">
+            {item.icon && <img className="item-icon" src={fileUrl(item.icon)} alt="" data-testid={`item-icon-${item.id}`} />}
             <input type="color" aria-label={`${item.id} color`} value={item.color} disabled={locked} onChange={(e) => void edit("updateItem", { itemId: item.id, changes: { color: e.target.value } })} />
             <input
               key={item.name}
