@@ -163,10 +163,17 @@ async function paintPlanes(ctx: ArtContext, theme: string, direction: ArtDirecti
     PLANE_RECIPE.map(async (recipe) => ({ recipe, image: await paint(ctx, "plane", planePrompt(recipe, theme, direction, feedback), quality, { transparent: recipe.transparent, label: `${recipe.name} plane` }) })),
   );
   const out: BackgroundPlane[] = [];
-  for (const { recipe, image } of painted) {
+  for (const { recipe, image: first } of painted) {
+    let image = first;
     if (recipe.transparent && topClearShare(image) < 0.5) {
-      ctx.log({ text: `the ${recipe.name} plane came back without a see-through sky; leaving it out` });
-      continue;
+      // Image models sometimes paint a whole scene, sky and all: ask once more, plainly.
+      ctx.log({ text: `the ${recipe.name} plane came back without a see-through sky; painting it again` });
+      const again = `${planePrompt(recipe, theme, direction, feedback)} The upper part of the image must be empty and fully transparent (alpha 0): only the silhouettes are painted.`;
+      image = await paint(ctx, "plane", again, quality, { transparent: true, label: `${recipe.name} plane, again` });
+      if (topClearShare(image) < 0.5) {
+        ctx.log({ text: `the ${recipe.name} plane came back without a see-through sky again; leaving it out` });
+        continue;
+      }
     }
     const tiled = await ctx.renderer.tileableX(image);
     const { width, height } = pngSize(tiled);

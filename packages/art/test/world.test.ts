@@ -97,6 +97,7 @@ describe("world stages", () => {
     h.image.generate = async (r) => (r.transparent && r.aspectRatio === "3:2" && r.prompt.includes("nearer silhouettes") ? { ...(await generate({ ...r, transparent: false })) } : generate(r));
     h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
     expect(h.biome().kit!.backgrounds!.map((p) => p.name)).toEqual(["sky", "far"]);
+    expect(h.image.requests.filter((r) => r.prompt.includes("nearer silhouettes"))).toHaveLength(2); // asked once more first
   });
 
   it("composes a room around the arena's platforms, or suggests a layout", async () => {
