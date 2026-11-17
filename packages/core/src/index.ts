@@ -47,3 +47,5 @@ export * from "./modals/operations.ts";
 export * from "./modals/lint.ts";
 export * from "./combat/operations.ts";
 export * from "./combat/lint.ts";
+export * from "./world/logic/check.ts";
+export * from "./progression/lint.ts";

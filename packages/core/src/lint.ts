@@ -5,6 +5,7 @@ import { lintEvents } from "./events/lint.ts";
 import { lintProps } from "./props/lint.ts";
 import { lintModals } from "./modals/lint.ts";
 import { lintCombat } from "./combat/lint.ts";
+import { lintProgressionWorld } from "./progression/lint.ts";
 
 /**
  * Semantic checks the schema can't express. A project with warnings is still
@@ -116,6 +117,6 @@ export function lintProject(project: ProjectSpec): ProjectWarning[] {
     }
   });
 
-  warnings.push(...lintArt(project), ...lintEvents(project), ...lintProps(project), ...lintModals(project), ...lintCombat(project));
+  warnings.push(...lintArt(project), ...lintEvents(project), ...lintProps(project), ...lintModals(project), ...lintCombat(project), ...lintProgressionWorld(project));
   return warnings;
 }

@@ -2,6 +2,7 @@ import type { ArtState, ChangeResult, ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { HandlerEditor } from "./HandlerEditor.tsx";
 import { GameArtSection } from "./GameArtSection.tsx";
+import { CheckSection } from "./CheckSection.tsx";
 import { ItemsPanel } from "./ItemsPanel.tsx";
 import { ModalsPanel } from "./ModalsPanel.tsx";
 import { MapSettings } from "./MapSettings.tsx";
@@ -21,6 +22,7 @@ export function GamePanel({ project, session, art, locked }: { project: ProjectS
   return (
     <section className="game-panel" data-testid="game-panel">
       <h2>Game</h2>
+      <CheckSection project={project} />
       <GameArtSection project={project} session={session} art={art} locked={locked} />
       <h3>Rules</h3>
       <p className="hint">Presets: each choice is a few handlers on top of the ones below.</p>

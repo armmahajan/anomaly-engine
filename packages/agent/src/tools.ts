@@ -39,9 +39,11 @@ import { handlerTools } from "./domains/handlers.ts";
 import { propTools } from "./domains/props.ts";
 import { modalTools } from "./domains/modals.ts";
 import { combatTools } from "./domains/combat.ts";
+import { logicTools } from "./domains/logic.ts";
+import { designTools } from "./domains/design.ts";
 
 /** Game-logic domains, each in its own file (operations, tool text, schemas, summary). */
-export const DOMAIN_TOOLS = [handlerTools, propTools, modalTools, combatTools] as const;
+export const DOMAIN_TOOLS = [handlerTools, propTools, modalTools, combatTools, logicTools, designTools] as const;
 
 /**
  * The agent's tools. Write tools are exactly the core operations (same names,
@@ -133,6 +135,8 @@ const writeDescriptions: Record<BuildOperation, string> = {
   ...propTools.descriptions,
   ...modalTools.descriptions,
   ...combatTools.descriptions,
+  ...logicTools.descriptions,
+  ...designTools.descriptions,
 };
 
 const int = z.number().int();
@@ -232,6 +236,8 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   ...propTools.schemas,
   ...modalTools.schemas,
   ...combatTools.schemas,
+  ...logicTools.schemas,
+  ...designTools.schemas,
 };
 
 /** Apply an operation to the draft and stage it for the end-of-turn commit. */
@@ -311,6 +317,8 @@ const readTools: ToolSpec[] = [
     schema: z.strictObject({}),
     run: () => ({ ok: true, events: jsonSchema(GameEvent), conditions: jsonSchema(GameCondition), effects: jsonSchema(Effect) }),
   },
+  // Domains' read tools (the design documents, the game checker, ...).
+  ...DOMAIN_TOOLS.flatMap((d) => d.reads ?? []).map((t): ToolSpec => ({ name: t.name, description: t.description, schema: t.schema, run: (draft, args) => t.run(draft.current, args) })),
 ];
 
 /** A set of tools one agent can use. */

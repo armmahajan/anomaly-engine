@@ -46,6 +46,8 @@ export interface TraversalOptions {
   entryLift?: number;
   /** Longest single move, frames. */
   maxFrames?: number;
+  /** More collision on top of the grid's (e.g. props that are solid in this game state). */
+  extraSolids?: readonly Solid[];
 }
 
 /** Where the player can stand: feet at y, feet x anywhere in [x0, x1]. */
@@ -444,7 +446,7 @@ interface Candidate {
 
 export function roomGraph(grid: TileGrid, doors: readonly TraversalOpening[], params: MovementParams, abilities: readonly MovementAbility[], options: TraversalOptions = {}): RoomGraph {
   const { width, height } = gridSize(grid);
-  const base: Solid[] = gridToSolids(grid, options.ledgeThickness ?? DEFAULT_LEDGE_THICKNESS);
+  const base: Solid[] = [...gridToSolids(grid, options.ledgeThickness ?? DEFAULT_LEDGE_THICKNESS), ...(options.extraSolids ?? [])];
   const ability = [...new Set(abilities)];
   const ctx: Ctx = {
     p: params,

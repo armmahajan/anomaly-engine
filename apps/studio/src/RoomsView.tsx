@@ -19,6 +19,7 @@ import { HandlerEditor } from "./HandlerEditor.tsx";
 import { PropsOverlay } from "./PropsOverlay.tsx";
 import { PropsSection } from "./PropsSection.tsx";
 import { SpawnDetails } from "./SpawnDetails.tsx";
+import { RegionPicker } from "./RegionPicker.tsx";
 
 /**
  * Rooms mode: the game world's rooms. The runtime shows the selected room
@@ -385,6 +386,7 @@ export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) 
             />
           </div>
           <SizeEditor key={`${room.id}:${gridCols(room.grid)}x${gridRows(room.grid)}`} room={room} locked={locked} onResize={(cols, rows) => void edit("resizeWorldRoom", { roomId: room.id, cols, rows })} />
+          <RegionPicker project={project} session={session} room={room} locked={locked} />
 
           <h3>Doors</h3>
           {room.doors.map((d) => {
