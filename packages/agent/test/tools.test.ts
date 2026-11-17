@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ACTION_TYPES, createDefaultProject, OPERATION_NAMES, PROGRESSION_OPERATION_NAMES, WIKI_OPERATION_NAMES } from "@anomaly/core";
+import { ACTION_TYPES, createDefaultProject, fixtureProject, OPERATION_NAMES, PROGRESSION_OPERATION_NAMES, WIKI_OPERATION_NAMES } from "@anomaly/core";
 import { buildSystemPrompt, Draft, executeTool, ART_TOOL_NAMES, NARRATIVE_TOOLS, PIPELINE_ONLY_OPERATIONS, READ_TOOL_NAMES, summarizeProject, toolDefinitions } from "../src/index.ts";
 
 const definitions = toolDefinitions();
@@ -22,7 +22,7 @@ describe("tool definitions", () => {
 
   it("are plain JSON a provider can accept", () => {
     expect(JSON.parse(JSON.stringify(definitions))).toEqual(definitions);
-    expect(JSON.stringify(definitions).length).toBeLessThan(40_000);
+    expect(JSON.stringify(definitions).length).toBeLessThan(48_000); // 40k before the game-world tools (+7.6k)
     expect(JSON.stringify(toolDefinitions(NARRATIVE_TOOLS)).length).toBeLessThan(40_000);
   });
 
@@ -96,5 +96,19 @@ describe("summaries and prompt", () => {
 
   it("puts the current project in the system prompt", () => {
     expect(buildSystemPrompt(createDefaultProject())).toContain('Project "Untitled Game" (revision 0)');
+  });
+});
+
+describe("game-world tools", () => {
+  it("edit rooms, read one in full and summarize the world", () => {
+    const draft = new Draft(fixtureProject());
+    expect(run(draft, "paintTiles", { roomId: "hall", kind: "hazard", cells: [[5, 11]] })).toMatchObject({ ok: true });
+    const room = run(draft, "getRoom", { roomId: "hall" });
+    expect(room.room.grid.rows[11][5]).toBe("^");
+    expect(room.summary).toContain("shaft bottom @30+3 -> cistern/shaft");
+    expect(run(draft, "getRoom", { roomId: "nope" }).error.message).toContain("known rooms: entrance, hall");
+    const summary = run(draft, "getProjectSummary", {}).summary;
+    expect(summary).toContain("starts in entrance at (96, 384)");
+    expect(summary).toContain('- sanctum "Sanctum" 30x14 tiles at map (148, 5); doors: west left @9+3 -> bridge/east; enemies: charger_1 charger (832, 384)');
   });
 });

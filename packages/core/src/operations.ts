@@ -7,6 +7,7 @@ import { progressionOperations, withoutEnemy } from "./progression/operations.ts
 import { MovementAbility } from "./movement/params.ts";
 import { artOperations } from "./art/operations.ts";
 import { worldOperations } from "./art/worldOperations.ts";
+import { withoutRoomSpawns, worldRoomOperations } from "./world/operations.ts";
 
 /**
  * Project operations: pure functions (project, untrusted input) -> result.
@@ -343,7 +344,7 @@ export function createCharacter(project: ProjectSpec, input: unknown): Operation
 
 export const CharacterRef = z.strictObject({ characterId: Id });
 
-/** Remove a character type and every spawn of it. The player cannot be deleted. */
+/** Remove a character type and every spawn of it (arena and rooms). The player cannot be deleted. */
 export function deleteCharacter(project: ProjectSpec, input: unknown): OperationResult {
   const parsed = CharacterRef.safeParse(input);
   if (!parsed.success) return fail("invalid_input", "deleteCharacter input is malformed", toIssues(parsed.error));
@@ -356,6 +357,7 @@ export function deleteCharacter(project: ProjectSpec, input: unknown): Operation
     characters: project.characters.filter((c) => c.id !== characterId),
     sandbox: { ...project.sandbox, spawns: project.sandbox.spawns.filter((s) => s.characterId !== characterId) },
     progression: withoutEnemy(project.progression, characterId),
+    world: withoutRoomSpawns(project.world, characterId),
   });
 }
 
@@ -452,6 +454,7 @@ const operations = {
   ...progressionOperations,
   ...artOperations,
   ...worldOperations,
+  ...worldRoomOperations,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;
 
 export type OperationName = keyof typeof operations;

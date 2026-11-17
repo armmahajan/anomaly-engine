@@ -3,7 +3,7 @@ extends Node2D
 ## builds the sandbox scene from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 9
+const PROTOCOL_VERSION := 10
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -54,6 +54,9 @@ func _ready() -> void:
 	hud_layer.add_child(_hud)
 	_render_service = RenderService.new()
 	add_child(_render_service)
+	_run = WorldRuntime.new()
+	_run.main = self
+	add_child(_run)
 
 	if OS.has_feature("web"):
 		_window = JavaScriptBridge.get_interface("window")
@@ -110,8 +113,11 @@ func handle_message(message: Dictionary) -> void:
 			_apply_stage()
 			_send({"type": "loaded", "revision": int(_project.revision)})
 		"play":
+			var problem := "" if _project.is_empty() else _start_world_play(message.get("world"))
 			if _project.is_empty():
 				_error("not_loaded", "no project loaded")
+			elif problem != "":
+				_error("invalid_world_start", problem)
 			else:
 				_seed_run(int(message.get("seed", 0)))
 				_deaths = 0
@@ -120,6 +126,7 @@ func handle_message(message: Dictionary) -> void:
 				_set_mode("play")
 			_send({"type": "modeChanged", "mode": _mode})
 		"stop":
+			_run.stop()
 			_build_world()  # back to spawn state = reset
 			_seed = null
 			_deaths = 0
@@ -137,6 +144,9 @@ func handle_message(message: Dictionary) -> void:
 				"stage": str(_stage.get("mode", "game")),
 				"dressed": _dressing_view != null,
 				"entities": _entity_states(),
+				"room": _run.room_id if _run.active else null,
+				"visited": _run.visited if _run.active else [],
+				"entry": {"x": _run.entry.x, "y": _run.entry.y} if _run.active else null,
 			})
 		"renderRig", "renderWorld":
 			_render_service.render(message, _send)
@@ -255,12 +265,15 @@ func _seed_run(run_seed: int) -> void:
 			child.rng.seed = hash("%d:%s" % [run_seed, child.spawn_id])
 
 
-## The player died: rebuild the arena and replay the same seed.
+## The player died: rebuild the arena (or respawn in the world) and replay the same seed.
 func _restart_run() -> void:
 	if _mode != "play":
 		return
 	_deaths += 1
-	_build_world()
+	if _run.active:
+		_run.on_player_died()
+	else:
+		_build_world()
 	_seed_run(_seed)
 	_set_mode("play")
 
@@ -303,11 +316,14 @@ func _focus_canvas() -> void:
 		canvas.focus()
 
 
-## In edit mode, show the whole arena.
+## In edit mode, show the whole arena (or the room the stage shows).
 func _fit_edit_camera() -> void:
 	if _project.is_empty():
 		return
 	var arena := Vector2(_project.sandbox.width, _project.sandbox.height)
+	var shown := _stage_room()
+	if not shown.is_empty():
+		arena = Vector2(shown.width, shown.height)
 	var view := get_viewport_rect().size
 	var z: float = min(view.x / arena.x, view.y / arena.y) * 0.95
 	_edit_camera.zoom = Vector2(z, z)
@@ -383,16 +399,18 @@ func _apply_stage() -> void:
 	if mode != "world" and _world_stage != null:
 		_world_stage.queue_free()
 		_world_stage = null
+	_show_room_stage()
 	if _world != null:
 		_world.visible = mode == "game"
 	if _dressing_view != null and is_instance_valid(_dressing_view):
 		_dressing_view.set_shown(mode == "game")
 	match mode:
-		"game":
+		"game", "room":
 			if _mode == "play" and _player != null:
 				_player.camera.make_current()
 			else:
 				_edit_camera.make_current()
+				_fit_edit_camera()
 		"character":
 			if _project.is_empty():
 				return
@@ -415,11 +433,11 @@ func _apply_stage() -> void:
 var _dressing_view: Node2D = null
 
 
-## The arena's dressing as a world scene (core worldSceneFor), or {} if none / images not here yet.
-func _dressing_scene() -> Dictionary:
+## The arena's (or a world room's) dressing as a world scene (core worldSceneFor), or {} if none / images not here yet.
+func _dressing_scene(level: Dictionary = {}) -> Dictionary:
 	if _project.is_empty():
 		return {}
-	var sandbox: Dictionary = _project.sandbox
+	var sandbox: Dictionary = level if not level.is_empty() else _project.sandbox
 	var dressing = sandbox.get("dressing")
 	if typeof(dressing) != TYPE_DICTIONARY:
 		return {}
@@ -460,3 +478,160 @@ func _process(delta: float) -> void:
 			_dressing_view.focus = camera.get_screen_center_position()
 		if _player != null and is_instance_valid(_player):
 			_dressing_view.fade_front_around(_player.center(), delta)
+	if _room_dressing != null and is_instance_valid(_room_dressing):
+		_room_dressing.focus = _edit_camera.get_screen_center_position()
+
+
+# --- world play (rooms and doors; the run and its rules live in world_runtime.gd) ----------
+
+const WorldRuntime := preload("res://scripts/world_runtime.gd")
+var _run: Node = null
+## Rooms stage (edit mode): a frozen view of one world room.
+var _room_view: Node2D = null
+var _room_dressing: Node2D = null
+
+
+## A play message's world start begins a run there; without one, play is in the arena. Returns a problem or "".
+func _start_world_play(start) -> String:
+	if typeof(start) != TYPE_DICTIONARY:
+		if _run.active:
+			_run.stop()
+			_build_world()
+		return ""
+	return _run.start(_project, start)
+
+
+## Replace the level with a world room, the player at `at` (`carried` through a door, else a fresh one).
+func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array) -> void:
+	if carried != null and carried.get_parent() != null:
+		carried.get_parent().remove_child(carried)
+	if _world != null:
+		remove_child(_world)
+		_world.queue_free()
+	_freeze = 0
+	_world = Node2D.new()
+	_world.name = "World"
+	_world.process_mode = Node.PROCESS_MODE_INHERIT if _mode == "play" else Node.PROCESS_MODE_DISABLED
+	add_child(_world)
+	var bounds := _room_bounds(room, abilities)
+	var player: Node = carried
+	if player == null:
+		player = PlayerScript.new()
+		player.setup(_player_character(), bounds, at, _project.get("art", {}))
+		player.spawn_id = "player"
+		player.landed_hit.connect(_hit_stop)
+		player.died.connect(_restart_run, CONNECT_DEFERRED)
+		player.smashed.connect(_on_smashed)
+		player.touched_hazard.connect(_run.on_hazard_touched)
+	var level := _populate_room(_world, room, bounds, player)
+	_dressing_view = level.dressing
+	player._spawn = at
+	player._kill_y = float(room.height) + 400.0
+	player.camera.limit_right = int(room.width)
+	player.camera.limit_bottom = int(room.height)
+	player.solids = level.solids
+	player.enemies = level.enemies
+	for enemy in level.enemies:
+		enemy.player = player
+	_player = player
+	_hud.player = player
+	if _mode == "play":
+		player.camera.make_current()
+		player.camera.reset_smoothing()
+	if _seed != null:
+		_seed_run(_seed)
+
+
+## What characters set up from (the arena's gravity, the room's size, the run's abilities).
+func _room_bounds(room: Dictionary, abilities: Array) -> Dictionary:
+	return {"gravity": _project.sandbox.gravity, "width": room.width, "height": room.height, "playerAbilities": abilities}
+
+
+func _player_character() -> Dictionary:
+	for c in _project.characters:
+		if c.kind == "player":
+			return c
+	return {}
+
+
+## A room's dressing, solids, the player (if given) and its enemies under `parent`.
+func _populate_room(parent: Node2D, room: Dictionary, bounds: Dictionary, player: Node) -> Dictionary:
+	var dressing_view: Node2D = null
+	var scene := _dressing_scene(room)
+	if not scene.is_empty():
+		dressing_view = WorldView.new()
+		dressing_view.process_mode = Node.PROCESS_MODE_ALWAYS
+		dressing_view.vignette = false
+		parent.add_child(dressing_view)
+		dressing_view.build(scene, _textures, Vector2(room.width, room.height) * 1.5)
+	var solids: Array = Level.build(parent, room.solids, Color(_project.sandbox.platformColor), dressing_view != null)
+	if player != null:
+		parent.add_child(player)
+	var characters := {}
+	for c in _project.characters:
+		characters[c.id] = c
+	var enemies := []
+	for spawn in room.spawns:
+		var character: Dictionary = characters.get(spawn.characterId, {})
+		if character.get("kind") != "enemy":
+			continue
+		var body: CharacterBody2D = EnemyScript.new()
+		body.setup(character, bounds, Vector2(spawn.x, spawn.y), _project.get("art", {}))
+		body.spawn_id = spawn.id
+		parent.add_child(body)
+		enemies.append(body)
+	return {"solids": solids, "enemies": enemies, "dressing": dressing_view}
+
+
+## The world room the Rooms stage shows, or {}.
+func _stage_room() -> Dictionary:
+	if str(_stage.get("mode", "")) != "room" or _project.is_empty():
+		return {}
+	for room in _project.get("world", {}).get("rooms", []):
+		if room.id == _stage.get("roomId"):
+			return room
+	return {}
+
+
+func _show_room_stage() -> void:
+	if _room_view != null:
+		remove_child(_room_view)
+		_room_view.queue_free()
+		_room_view = null
+		_room_dressing = null
+	var room := _stage_room()
+	if room.is_empty() or _mode == "play":
+		return
+	_room_view = Node2D.new()
+	_room_view.process_mode = Node.PROCESS_MODE_DISABLED
+	add_child(_room_view)
+	_room_dressing = _populate_room(_room_view, room, _room_bounds(room, []), null).dressing
+	var markers := RoomMarkers.new()
+	markers.room = room
+	markers.start = _project.get("world", {}).get("start")
+	_room_view.add_child(markers)
+
+
+## Rooms stage overlay: door openings (green when connected) and the world's start.
+class RoomMarkers extends Node2D:
+	var room: Dictionary
+	var start = null
+
+	func _draw() -> void:
+		for door in room.doors:
+			var lo := float(door.offset) * 32.0
+			var length := float(door.size) * 32.0
+			var color := Color("#5fd3a0") if typeof(door.get("to")) == TYPE_DICTIONARY else Color("#e0b050")
+			match str(door.side):
+				"left":
+					draw_rect(Rect2(0, lo, 6, length), color)
+				"right":
+					draw_rect(Rect2(float(room.width) - 6.0, lo, 6, length), color)
+				"top":
+					draw_rect(Rect2(lo, 0, length, 6), color)
+				"bottom":
+					draw_rect(Rect2(lo, float(room.height) - 6.0, length, 6), color)
+		if typeof(start) == TYPE_DICTIONARY and start.get("room") == room.id:
+			var box := Rect2(Vector2(start.x, start.y) - Vector2(14, 44), Vector2(28, 44))
+			draw_rect(box, Color(1, 1, 1, 0.3))
+			draw_rect(box, Color.WHITE, false, 2.0)

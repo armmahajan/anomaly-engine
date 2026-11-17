@@ -31,3 +31,5 @@ export * from "./art/fileRef.ts";
 export * from "./world/tiles.ts";
 export * from "./world/world.ts";
 export * from "./world/runtime.ts";
+export * from "./world/operations.ts";
+export * from "./world/fixture.ts";

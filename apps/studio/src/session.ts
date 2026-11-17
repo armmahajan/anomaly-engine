@@ -16,6 +16,7 @@ import {
   type ProjectState,
   type RuntimeMode,
   type RuntimeToStudio,
+  type WorldStart,
 } from "@anomaly/core";
 import * as api from "./api.ts";
 import { RuntimeBridge } from "./runtimeBridge.ts";
@@ -52,6 +53,10 @@ export interface RuntimeSnapshot {
   stage: Stage["mode"];
   dressed: boolean;
   entities: EntityState[];
+  /** World play: the current room (null in the arena), rooms visited and the respawn point. */
+  room: string | null;
+  visited: string[];
+  entry: { x: number; y: number } | null;
 }
 
 const BOOT_TIMEOUT_MS = 30_000;
@@ -143,11 +148,12 @@ export class Session {
     if (runtimeStatus !== "ready" || mode !== "edit" || this.requestedRevision === project.revision) return;
     // The runtime never needs the design documents.
     if (this.bridge.send({ type: "load", project: toRuntimeProject(project) })) this.requestedRevision = project.revision;
-    // A dressed arena needs its biome's images (sent once; the runtime redraws when they arrive).
-    const dressing = project.sandbox.dressing;
-    const biome = dressing && project.art.assets.find((a) => a.id === dressing.biome);
-    if (biome?.kind === "biome" && biome.kit) {
-      void this.sendImages([biome.kit.backdrop, biome.kit.ground, ...biome.kit.pieces.map((p) => p.file)]);
+    // A dressed arena (or world room) needs its biome's images (sent once; the runtime redraws when they arrive).
+    const biomeIds = new Set([project.sandbox.dressing, ...project.world.rooms.map((r) => r.dressing)].flatMap((d) => (d ? [d.biome] : [])));
+    for (const biome of project.art.assets) {
+      if (biome.kind === "biome" && biome.kit && biomeIds.has(biome.id)) {
+        void this.sendImages([biome.kit.backdrop, biome.kit.ground, ...biome.kit.pieces.map((p) => p.file)]);
+      }
     }
   }
 
@@ -429,8 +435,8 @@ export class Session {
     });
   }
 
-  /** Start a playtest. Omit `seed` for a fresh random run; pass one to replay it. */
-  play = async (seed?: number): Promise<boolean> => {
+  /** Start a playtest. Omit `seed` for a fresh random run; pass one to replay it. With `world`, play the game world from there. */
+  play = async (seed?: number, world?: WorldStart): Promise<boolean> => {
     if (!this.canPlay()) return false;
     const runSeed = seed ?? Math.floor(Math.random() * MAX_SEED);
     this.set({ mode: "play", seed: runSeed }); // lock local edits immediately
@@ -443,7 +449,7 @@ export class Session {
       this.syncRuntime();
       return false;
     }
-    if (!this.bridge.send({ type: "play", seed: runSeed })) {
+    if (!this.bridge.send({ type: "play", seed: runSeed, ...(world && { world }) })) {
       void api.setPlaytest(false, this.clientId);
       this.set({ mode: "edit" });
       return false;
@@ -458,7 +464,7 @@ export class Session {
   };
 
   getRuntimeState = async (): Promise<RuntimeSnapshot> => {
-    const { mode, revision, seed, deaths, stage, dressed, entities } = await this.bridge.requestState();
-    return { mode, revision, seed, deaths, stage, dressed, entities };
+    const { mode, revision, seed, deaths, stage, dressed, entities, room, visited, entry } = await this.bridge.requestState();
+    return { mode, revision, seed, deaths, stage, dressed, entities, room, visited, entry };
   };
 }

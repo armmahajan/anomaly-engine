@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { gridSize, newEnemyCharacter, progressionReport, snapPlacement, uniqueId, worldSceneFor, type ChangeResult } from "@anomaly/core";
+import { gridSize, newEnemyCharacter, progressionReport, snapPlacement, uniqueId, worldSceneFor, type ChangeResult, type WorldStart } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { Inspector } from "./Inspector.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
@@ -9,12 +9,13 @@ import { ArtPanel } from "./ArtPanel.tsx";
 import { CharacterBench } from "./CharacterBench.tsx";
 import { currentWorld, WorldBench, type WorldUi } from "./WorldBench.tsx";
 import { WorldPanel } from "./WorldPanel.tsx";
+import { initialRoomsUi, RoomPainter, RoomsBench, RoomsPanel, type RoomsUi } from "./RoomsView.tsx";
 import { fileUrl } from "./api.ts";
 import { useChatOpen, useSidebarWidth } from "./layout.ts";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
-type Tab = "arena" | "characters" | "worlds" | "wiki" | "progression";
-const TAB_LABEL: Record<Tab, string> = { arena: "Arena", characters: "Characters", worlds: "Worlds", wiki: "Wiki", progression: "Progression" };
+type Tab = "arena" | "characters" | "worlds" | "rooms" | "wiki" | "progression";
+const TAB_LABEL: Record<Tab, string> = { arena: "Arena", characters: "Characters", worlds: "Worlds", rooms: "Rooms", wiki: "Wiki", progression: "Progression" };
 /** Design documents (the director's tabs): the game is hidden and the chat is the director's. */
 const DESIGN_TABS: readonly Tab[] = ["wiki", "progression"];
 
@@ -39,6 +40,7 @@ export function App({ session }: { session: Session }) {
     previewLayout: false,
   });
   const [worldSelected, setWorldSelected] = useState<string | null>(null);
+  const [roomsUi, setRoomsUi] = useState<RoomsUi>(initialRoomsUi);
   // A click on a piece in the runtime selects it here; another room means nothing is selected.
   useEffect(() => setWorldSelected(state.worldPick), [state.worldPick]);
   const shownRoom = currentWorld(state.project, worldUi);
@@ -113,9 +115,9 @@ export function App({ session }: { session: Session }) {
     if (report(await session.resetProject())) setSelectedId("crawler");
   };
 
-  /** Only the arena plays: opening any other mode ends a playtest. */
+  /** The arena plays in Arena mode and the world in Rooms mode: opening another mode ends a playtest. */
   const openTab = (next: Tab) => {
-    if (next !== "arena" && playing) session.stop();
+    if (next !== tab && playing) session.stop();
     setTab(next);
   };
 
@@ -154,6 +156,7 @@ export function App({ session }: { session: Session }) {
     arena: 0,
     characters: 0,
     worlds: 0,
+    rooms: 0,
     wiki: project.wiki.pages.filter((p) => p.status === "draft").length,
     progression: [...progression.regions, ...progression.abilities, ...progression.connections, ...progression.beats].filter((i) => i.status === "draft").length,
   };
@@ -172,6 +175,13 @@ export function App({ session }: { session: Session }) {
   const onPlay = async (seed?: number) => {
     setTab("arena");
     if (await session.play(seed)) {
+      frameRef.current?.focus();
+      frameRef.current?.contentWindow?.focus();
+    }
+  };
+
+  const onPlayWorld = async (start: WorldStart) => {
+    if (await session.play(undefined, start)) {
       frameRef.current?.focus();
       frameRef.current?.contentWindow?.focus();
     }
@@ -237,6 +247,9 @@ export function App({ session }: { session: Session }) {
         {tab === "arena" && !playing && state.runtimeStatus === "ready" && (
           <div className="edit-badge">Edit mode — press Play to test</div>
         )}
+        {tab === "rooms" && !playing && state.runtimeStatus === "ready" && (
+          <RoomPainter project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} />
+        )}
         <button
           type="button"
           className="fullscreen-button"
@@ -259,6 +272,17 @@ export function App({ session }: { session: Session }) {
           selected={worldSelected}
           locked={locked}
           onPlacePiece={(pieceId) => void placePiece(pieceId)}
+        />
+      )}
+      {tab === "rooms" && (
+        <RoomsBench
+          project={project}
+          session={session}
+          ui={roomsUi}
+          setUi={setRoomsUi}
+          playing={playing}
+          ready={session.canPlay()}
+          onPlay={(start) => void onPlayWorld(start)}
         />
       )}
       {tab === "wiki" && (
@@ -298,6 +322,12 @@ export function App({ session }: { session: Session }) {
             setSelected={setWorldSelected}
             locked={locked}
           />
+          {problem}
+        </aside>
+      ) : tab === "rooms" ? (
+        <aside className="sidebar">
+          <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
+          <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} />
           {problem}
         </aside>
       ) : checks ? (

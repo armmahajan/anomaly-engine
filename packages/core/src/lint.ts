@@ -63,7 +63,8 @@ export function lintProject(project: ProjectSpec): ProjectWarning[] {
 
   project.characters.forEach((character, i) => {
     if (character.kind !== "enemy") return;
-    if (!sandbox.spawns.some((s) => s.characterId === character.id)) {
+    const inRooms = project.world.rooms.some((r) => r.spawns.some((s) => s.characterId === character.id));
+    if (!inRooms && !sandbox.spawns.some((s) => s.characterId === character.id)) {
       warnings.push({
         code: "unplaced_character",
         path: `characters.${i}`,

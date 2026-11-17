@@ -150,6 +150,11 @@ Operations (all in `packages/core/src/operations.ts`):
 | `updateBehavior` | Targeted edit of one state, e.g. `{"characterId":"charger","stateId":"windup","transitions":[{"index":0,"when":{"seconds":1.2}}]}` |
 | `setBehavior` | Replace a whole state machine |
 | `addSpawn` / `moveSpawn` / `removeSpawn` | Place, move, remove instances (spawns have stable ids like `charger_1`) |
+| `createWorldRoom` / `updateWorldRoom` / `resizeWorldRoom` / `deleteWorldRoom` | Game-world rooms (`world/operations.ts`); deleting one unlinks doors to it |
+| `paintTiles` | Fill a rectangle or a list of cells of a room's (or the arena's) grid with one tile kind |
+| `setDoor` / `removeDoor` / `connectDoors` | Door openings and their links (right <-> left, bottom <-> top) |
+| `addRoomSpawn` / `moveRoomSpawn` / `removeRoomSpawn` | Enemies in rooms |
+| `setWorldStart` / `setGameRules` / `setLedgeThickness` | Where the game begins, death/saving/hazard rules, ledge thickness |
 
 `POST /api/batch` applies several operations atomically, as one revision and
 one undo step; if any step fails nothing changes and the error names the step:
@@ -267,12 +272,38 @@ between regions (two-way or one-way, gated by abilities), **story beats**
 ## Studio modes
 
 The toolbar switches modes in one window: **Arena** (play and tune), **Characters**
-and **Worlds** (art workbenches), **Wiki** and **Progression** (design documents,
+and **Worlds** (art workbenches), **Rooms** (the game world), **Wiki** and **Progression** (design documents,
 with the director's chat). The game runtime stays mounted the whole time; modes
 only move it between named grid areas and send it a `stage` message (the arena,
-one character, or one world room). The sidebar resizes from its left edge and the
+one character, a biome room or a game-world room). The sidebar resizes from its left edge and the
 chat collapses to a strip (both remembered per browser); the stage has a
-full-screen button. Leaving the arena stops a playtest; Play returns to it.
+full-screen button. Leaving the mode a playtest runs in stops it; Play returns to the arena.
+
+## Rooms (the game world)
+
+**Rooms** mode edits `project.world`: a world map of the rooms (by `at`, with
+lines for connected doors), the selected room live in the runtime (stage
+`room`) with a tile painter over it (pick a kind, click or drag: one stroke is
+one undoable `paintTiles`), doors (add, connect, disconnect), enemy spawns, the
+start and the rules. **📍 Spot** marks a point for **Set start here**, **+ Enemy at
+spot** and **▶ Play from here** (with the chosen abilities); **▶ From start** and
+**Continue** (the run saved in this browser) play from the world's start.
+
+World play (`play` with `world: { room, x, y, abilities, continue? }`;
+`game/scripts/world_runtime.gd`): leaving through a door opening enters the
+door it leads to at the matching place along it, keeping velocity (falling
+through a floor keeps falling; going up through a ceiling gets enough lift to
+land beside the opening). Enemies respawn on entering. On death the player
+comes back where they entered the room (moved to the first ground they stood
+on) or at the world's start (`rules.onDeath`); a hazard tile costs
+`rules.hazardDamage` and puts them back on the last safe ground (both feet on
+solid, ledge or one-way). With `rules.save: "room"` the web build saves the run
+(room, entry, abilities, visited) to localStorage on entering each room.
+The rules are thin event handlers over small effects in `world_runtime.gd`
+(`respawn_at`, `restore_health`, `apply_damage`, `return_to_safe_ground`,
+`save_run`), ready to be bound to events directly later.
+`fixtureWorld()` (`world/fixture.ts`) is a six-room test world; `game/test/world.test.ts`
+plays doors, rules and a full start-to-end route in the headless runtime.
 
 ## Characters (art)
 

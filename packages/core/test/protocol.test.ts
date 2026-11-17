@@ -15,6 +15,13 @@ describe("decodeRuntimeMessage", () => {
     expect(decodeRuntimeMessage(JSON.stringify({ source: "some-extension", message: {} })).kind).toBe("foreign");
   });
 
+  it("reads world play state, defaulting to the arena", () => {
+    const state = { type: "state", requestId: "r", mode: "play", revision: 3, seed: 1, deaths: 0, entities: [] };
+    expect(decodeRuntimeMessage(wrap(state))).toMatchObject({ message: { stage: "game", room: null, visited: [], entry: null } });
+    const inWorld = { ...state, stage: "game", room: "hall", visited: ["entrance", "hall"], entry: { x: 15, y: 384 } };
+    expect(decodeRuntimeMessage(wrap(inWorld))).toMatchObject({ message: { room: "hall", visited: ["entrance", "hall"], entry: { x: 15, y: 384 } } });
+  });
+
   it("flags malformed runtime messages", () => {
     expect(decodeRuntimeMessage(wrap({ type: "loaded" })).kind).toBe("invalid");
     expect(decodeRuntimeMessage(wrap({ type: "teleport" })).kind).toBe("invalid");
