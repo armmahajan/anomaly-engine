@@ -16,6 +16,8 @@ const LOOK_SPEED := 0.3
 const STAND_BIAS := 0.1
 ## How fast (1/s) the camera catches up with where it wants to be.
 const FOLLOW := 7.0
+## The view is never narrower than this (width / height).
+const MIN_ASPECT := 1.6
 
 var target: Node2D = null
 ## Tiles the view shows top to bottom (world.camera.rows).
@@ -31,9 +33,12 @@ func _init() -> void:
 	process_priority = -10  # before the room's parallax reads where the camera looks
 
 
-## World px per screen px: the view's height holds `rows` tiles.
+## Screen px per world px: the view's height holds `rows` tiles. A window narrower than MIN_ASPECT
+## keeps that aspect's width instead (and shows more height), so a portrait window isn't a slit.
 func fitted_zoom() -> float:
-	return get_viewport_rect().size.y / (maxf(rows, 1.0) * TILE)
+	var size := get_viewport_rect().size
+	var tall := maxf(rows, 1.0) * TILE
+	return minf(size.y / tall, size.x / (tall * MIN_ASPECT))
 
 
 ## Size of the view in world px.

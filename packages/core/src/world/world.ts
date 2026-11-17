@@ -142,7 +142,7 @@ export const Camera = z.strictObject({
     .min(6)
     .max(40)
     .default(DEFAULT_VIEW_ROWS)
-    .describe("How many tiles tall the play view is (its zoom); the width follows the window (about 25 at 16:9 with 14). Rooms bigger than the view scroll; smaller ones are centred."),
+    .describe("How many tiles tall the play view is (its zoom); the width follows the window (about 25 at 16:9 with 14; never under 1.6x the height). Rooms bigger than the view scroll; smaller ones are centred."),
 });
 export type Camera = z.infer<typeof Camera>;
 
