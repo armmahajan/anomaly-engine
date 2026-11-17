@@ -204,13 +204,31 @@ export interface ConceptsInput {
   refine?: boolean;
 }
 
+const WIKI_BRIEF_LIMIT = 600;
+const LOOKS = /appear|look|visual|colou?r|cloth|outfit|wear|armou?r|build|silhouette|shape|size/i;
+
+/** A concept brief from the character's wiki page: title, summary, its looks fields, then the body (links as plain text), trimmed. */
+export function wikiBrief(project: ProjectSpec, characterId: string): string | undefined {
+  const page = project.wiki.pages.find((p) => p.characterId === characterId);
+  if (!page) return undefined;
+  const looks = Object.entries(page.fields).filter(([k]) => LOOKS.test(k)).map(([k, v]) => `${k}: ${v}`);
+  const body = page.body.replace(/\[\[[a-z0-9_]+\|([^\]\n]+)\]\]|\[\[([a-z0-9_]+)\]\]/g, (_, label, id) => label ?? id.replace(/_/g, " ")).replace(/\s+/g, " ");
+  const brief = [page.summary ? `${page.title}: ${page.summary}` : page.title, ...looks, body]
+    .map((s) => s.trim().replace(/[.\s]+$/, ""))
+    .filter(Boolean)
+    .join(". ");
+  return brief.length > WIKI_BRIEF_LIMIT ? `${brief.slice(0, WIKI_BRIEF_LIMIT - 1).replace(/\s+\S*$/, "")}…` : brief;
+}
+
 export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): Promise<StageResult & { assetId: string }> {
   const project = ctx.project();
   const character = findCharacter(project, input.characterId);
   const operations: OperationCall[] = [];
   let asset = assetOf(project, character);
   let assetId: string;
-  const brief = input.brief?.trim() || asset?.brief || character.name;
+  // An explicit brief wins, then the asset's own (unless it's only the name), then the character's wiki page.
+  const own = asset?.brief && asset.brief !== character.name ? asset.brief : undefined;
+  const brief = input.brief?.trim() || own || wikiBrief(project, character.id) || character.name;
 
   if (!asset) {
     assetId = uniqueId(`${character.id}_look`, project.art.assets.map((a) => a.id));

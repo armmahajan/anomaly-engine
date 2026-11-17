@@ -229,8 +229,16 @@ link to an in-game character (the inspector then shows "Wiki page →").
   the sidebar and given to the director.
 - Wiki edits are ordinary project operations (`createWikiPage`,
   `updateWikiPage`, `acceptWikiPage`, `deleteWikiPage`), so Undo covers them.
-  The wiki is not sent to the game runtime. Later, the **Architect** agent
-  will build the game from it.
+  The wiki is not sent to the game runtime.
+- **The build assistant reads it** (`packages/agent/src/domains/design.ts`):
+  `getWikiPage` and `getProgression`, plus a **Design** section in its project
+  summary (regions with their rooms in the world and where their abilities are
+  given, abilities, gates, the cast's pages). Ask it to "build region X from
+  the wiki" and it puts the rooms in that region and places its pickups and
+  gates as the progression says.
+- **Character art briefs:** with no brief given, a character's concepts are
+  drawn from its wiki page (title, summary, looks fields such as
+  `appearance`, then the body; ~600 chars). An explicit brief wins.
 
 ## Progression
 
@@ -261,6 +269,13 @@ between regions (two-way or one-way, gated by abilities), **story beats**
   the big structure (how many regions and abilities, what opens the ending),
   and checks for errors before replying. Not sent to the game runtime; the
   ability mechanics come next.
+- **Against the world** (`progression/lint.ts`, project lint warnings, static):
+  silent until some room is in a region (Rooms' **Region** picker or
+  `updateWorldRoom regionId`), then: every region has a room; an ability
+  obtained in a region is given by a handler on a room, prop or spawn of that
+  region: `grantAbility <mechanic>`, or for a `key`, `giveItem` of an item whose
+  id is the ability's id or its last words (`hatch_key` ← `key`; `swim` isn't
+  checked); every connection has a door between rooms of its two regions.
 
 ## Agent internals
 
@@ -294,7 +309,8 @@ full-screen button. Leaving the mode a playtest runs in stops it; Play returns t
 ## Rooms (the game world)
 
 **Rooms** mode edits `project.world`: a world map of the rooms (by `at`, with
-lines for connected doors), the selected room live in the runtime (stage
+lines for connected doors, colored by progression region; the **Region** picker
+sets the selected room's), the selected room live in the runtime (stage
 `room`) with a tile painter over it (pick a kind, click or drag: one stroke is
 one undoable `paintTiles`), doors (add, connect, disconnect), enemy spawns, the
 start and the rules. **📍 Spot** marks a point for **Set start here**, **Playtest
