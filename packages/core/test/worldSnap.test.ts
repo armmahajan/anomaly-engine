@@ -36,6 +36,7 @@ describe("snapping pieces onto surfaces", () => {
 
   it("keeps distant layers at or below the floor line and front silhouettes at the edges", () => {
     expect(floorLine(room)).toBe(610);
+    expect(floorLine({ ...room, platforms: [{ x: -100, y: -40, width: 1800, height: 40 }, ...room.platforms] })).toBe(610); // not the (wider) ceiling
     expect(snapPlacement(at("mid", 900, 400), pillar, room).placement.y).toBe(610);
     expect(snapPlacement(at("back", 900, 680), pillar, room).placement.y).toBe(680); // rising from behind the floor is fine
     expect(snapPlacement(at("back", 900, 90), vine, room).placement.y).toBe(0);

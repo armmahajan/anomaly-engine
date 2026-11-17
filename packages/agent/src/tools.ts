@@ -18,15 +18,9 @@ import {
   SetArtDirectionInput,
   UpdateAssetInput,
   AssetRef,
-  AssignAppearanceInput,
   UpdatePartInput,
-  SetStateClipInput,
-  UpdateRoomInput,
   DeleteRoomInput,
-  UpdatePlacementInput,
-  AddPlacementInput,
   RemovePlacementInput,
-  SetDressingInput,
   ApplyRoomLayoutInput,
   Clip,
   ArtJobRequest,
@@ -130,7 +124,8 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   setArtDirection: SetArtDirectionInput,
   updateAsset: UpdateAssetInput,
   deleteAsset: AssetRef,
-  assignAppearance: AssignAppearanceInput,
+  // Field notes that repeat the tool description are left out of these to keep the tool list small.
+  assignAppearance: z.strictObject({ characterId: Id, assetId: Id.nullable() }),
   updatePart: UpdatePartInput,
   // A compact spec instead of the full Clip schema keeps every chat turn cheaper; the operation validates fully.
   setClip: z.strictObject({
@@ -144,14 +139,29 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
 
       ),
   }),
-  setStateClip: SetStateClipInput,
-  // Light shafts and extra lights stay workbench-only, to keep the tool list small.
-  updateRoom: UpdateRoomInput.extend({ changes: UpdateRoomInput.shape.changes.omit({ rays: true, lights: true }) }),
+  setStateClip: z.strictObject({ assetId: Id, stateId: Id, clipId: Id.nullable() }),
+  // World edits also take compact specs (the operations validate fully); light shafts and extra lights stay workbench-only.
+  updateRoom: z.strictObject({
+    assetId: Id,
+    roomId: Id,
+    changes: z
+      .record(z.string(), z.unknown())
+      .describe("Any of: name; palette {ambient, fog, light, shadow: '#rrggbb'}; fog {mid, back, play: 0-1}; dust {color, amount}."),
+  }),
   deleteRoom: DeleteRoomInput,
-  updatePlacement: UpdatePlacementInput,
-  addPlacement: AddPlacementInput,
+  updatePlacement: z.strictObject({
+    assetId: Id,
+    roomId: Id,
+    placementId: Id,
+    changes: z.record(z.string(), z.unknown()).describe("Any of: x, y, layer (far|mid|back|play|front), scale, flip."),
+  }),
+  addPlacement: z.strictObject({
+    assetId: Id,
+    roomId: Id,
+    placement: z.record(z.string(), z.unknown()).describe("{piece, layer: far|mid|back|play|front, x, y, scale?, flip?}"),
+  }),
   removePlacement: RemovePlacementInput,
-  setDressing: SetDressingInput,
+  setDressing: z.strictObject({ biomeId: Id.nullable(), roomId: Id.optional() }),
   applyRoomLayout: ApplyRoomLayoutInput,
 };
 

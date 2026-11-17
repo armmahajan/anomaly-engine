@@ -319,7 +319,10 @@ export function worldSceneFor(project: ProjectSpec, biomeId: string, roomId: str
     backdrop: biome.kit.backdrop,
     ground: biome.kit.ground,
     pieces: biome.kit.pieces,
-    platforms: platforms.filter((r) => r.width >= 8 && r.height >= 8),
+    // Breakable platforms keep their own look in play (they can disappear), so the room leaves them out.
+    platforms: platforms
+      .filter((r) => r.width >= 8 && r.height >= 8 && !("breakable" in r && r.breakable))
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
     ...room.composition,
   });
   return scene.success ? scene.data : null;

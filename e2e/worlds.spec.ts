@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { BiomeAsset, ProjectSpec } from "@anomaly/core";
+import { floorLine, type BiomeAsset, type ProjectSpec } from "@anomaly/core";
 import { collectConsoleErrors, openStudio, projectRevision, runtimeState } from "./helpers.ts";
 
 // Worlds mode with scripted models (STUDIO_ART_BACKEND=fake); images are
@@ -49,7 +49,8 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   await fromRuntime(page, { type: "worldPick", placementId: "pl_1" });
   await expect(page.getByTestId("world-selection")).toBeVisible();
   // A dropped piece comes to rest on a surface (pl_1 is a distant pillar: the floor line); Alt keeps the drop point.
-  const floor = (await project(page)).sandbox.platforms.slice().sort((a, b) => b.width - a.width)[0]!.y;
+  const { sandbox } = await project(page);
+  const floor = floorLine({ width: Math.max(960, sandbox.width), height: Math.max(360, sandbox.height), platforms: sandbox.platforms });
   const pillar = async () => (await biome(page))!.rooms[0]!.composition.placements.find((p) => p.id === "pl_1");
   await fromRuntime(page, { type: "worldMove", placementId: "pl_1", x: 777, y: 100 });
   await expect.poll(async () => (await pillar())?.x).toBe(777);

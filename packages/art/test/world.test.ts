@@ -91,7 +91,9 @@ describe("world stages", () => {
 
     const scene = worldSceneFor(h.project(), h.biome().id, "second_hall", true);
     expect(scene?.platforms).toEqual(h.biome().rooms[1]!.layout);
-    expect(worldSceneFor(h.project(), h.biome().id, "second_hall")?.platforms).toEqual(h.project().sandbox.platforms);
+    expect(worldSceneFor(h.project(), h.biome().id, "second_hall")?.platforms).toEqual(
+      h.project().sandbox.platforms.filter((p) => !p.breakable).map(({ x, y, width, height }) => ({ x, y, width, height })),
+    ); // breakable ones keep their own look
   });
 
   it("looks at the composed room and applies the reviewer's fixes, snapped onto surfaces", async () => {

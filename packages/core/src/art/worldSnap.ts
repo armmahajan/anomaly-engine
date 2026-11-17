@@ -58,9 +58,9 @@ export interface Snapped<P> {
   unsupported: boolean;
 }
 
-/** The floor line: the top of the widest platform inside the room (else the room's bottom). */
+/** The floor line: the top of the widest platform in the room's lower half (else the room's bottom); a ceiling can be wider. */
 export function floorLine(room: SnapRoom): number {
-  const inside = room.platforms.filter((p) => p.x < room.width && p.x + p.width > 0);
+  const inside = room.platforms.filter((p) => p.x < room.width && p.x + p.width > 0 && p.y >= room.height / 2);
   const widest = inside.sort((a, b) => b.width - a.width)[0];
   return widest ? widest.y : room.height;
 }

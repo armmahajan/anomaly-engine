@@ -286,7 +286,10 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
   const room: SnapRoom = {
     width: Math.max(960, width),
     height: Math.max(360, height),
-    platforms: (platforms ?? project.sandbox.platforms).filter((r) => r.width >= 8 && r.height >= 8),
+    // Nothing rests on breakable platforms (a ground pound removes them).
+    platforms: (platforms ?? project.sandbox.platforms)
+      .filter((r) => r.width >= 8 && r.height >= 8 && !("breakable" in r && r.breakable))
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
   };
   const snapped = snapPlacements(withPlacementIds(known), kit.pieces, room);
   if (snapped.moved > 0) ctx.log({ text: `snapped ${snapped.moved} piece(s) onto surfaces` });

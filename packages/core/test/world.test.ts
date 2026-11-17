@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyBatch, applyOperation, createDefaultProject, lintProject, ProjectSpec, type BiomeAsset, type OperationResult, type ProjectSpec as Project } from "../src/index.ts";
+import { applyBatch, applyOperation, createDefaultProject, lintProject, ProjectSpec, worldSceneFor, type BiomeAsset, type OperationResult, type ProjectSpec as Project } from "../src/index.ts";
 
 const REF = (n: number) => `${String(n).repeat(16)}.png`;
 
@@ -58,6 +58,13 @@ describe("world data", () => {
     const project = withBiome();
     expect(biome(project).rooms[0]!.composition.placements.map((p) => p.id)).toEqual(["pl_1", "pl_2"]);
     expect(project.sandbox.dressing).toEqual({ biome: "cathedral", room: "hall" });
+  });
+
+  it("leaves breakable platforms out of the room's scene (they keep their own look and can disappear)", () => {
+    const project = withBiome();
+    const floor = { x: 0, y: 660, width: 1600, height: 60 };
+    const withBreakable: Project = { ...project, sandbox: { ...project.sandbox, platforms: [floor, { x: 600, y: 480, width: 120, height: 24, breakable: true }] } };
+    expect(worldSceneFor(withBreakable, "cathedral", "hall")?.platforms).toEqual([floor]);
   });
 
   it("old projects load without a dressing", () => {
