@@ -108,6 +108,13 @@ describe("snapping pieces onto surfaces", () => {
       expect(result.placements.map((p) => p.y)).toEqual([210, 610, 610]);
     });
 
+    it("only rest where they stay in view, and on a structure's top rather than its base", () => {
+      const tall = [placed("a", "pillar", "mid", 400, 400), placed("b", "pillar", "mid", 700, 400)]; // tops at the room's top edge
+      expect(snapPlacement(placed("s", "beam", "mid", 550, 0), beam, room, { placements: tall, pieces }).placement.y).toBe(610);
+      const apart = [placed("a", "pillar", "mid", 310, 610), placed("b", "pillar", "mid", 790, 610)]; // only their bases (full image width) reach the beam's ends
+      expect(snapPlacement(placed("s", "beam", "mid", 550, 300), beam, room, { placements: apart, pieces }).placement.y).toBe(610);
+    });
+
     it("cross the top edge in the front layer", () => {
       expect(snapPlacement(placed("s", "beam", "front", 550, 500), beam, room).placement.y).toBe(40);
     });

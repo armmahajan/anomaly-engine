@@ -147,40 +147,122 @@ export class BrowserRenderer implements Renderer {
     });
   }
 
-  /** Cut a cols x rows sheet into cells, each trimmed to its visible (alpha) pixels. Empty cells are dropped. */
+  /**
+   * Cut a cols x rows sheet into pieces. Image models don't keep to the grid (a long beam
+   * runs into the next cell, icicles hang into the one below), so pieces are found as
+   * connected shapes over the whole sheet; each goes to the cell its centre is in, and a
+   * piece is its cell's shapes with everything else cleared. A sheet whose shapes don't
+   * separate (an opaque background) is cut along the grid instead. Empty cells are dropped.
+   */
   sliceGrid(image: Buffer, cols: number, rows: number, maxSize = 512): Promise<SlicedPiece[]> {
     return this.withPage(async (page) => {
       const pieces = await page.evaluate(
         async ({ data, cols, rows, maxSize }) => {
           const w = window as unknown as PageWindow;
           const bitmap = await w.__anomalyDecode(data);
-          const cw = Math.floor(bitmap.width / cols);
-          const ch = Math.floor(bitmap.height / rows);
-          const out: { data: string; width: number; height: number; cell: number }[] = [];
-          for (let cell = 0; cell < cols * rows; cell++) {
-            const cx = (cell % cols) * cw;
-            const cy = Math.floor(cell / cols) * ch;
-            const cellCanvas = new OffscreenCanvas(cw, ch);
-            const cctx = cellCanvas.getContext("2d")!;
-            cctx.drawImage(bitmap, cx, cy, cw, ch, 0, 0, cw, ch);
-            const pixels = cctx.getImageData(0, 0, cw, ch).data;
-            let minX = cw, minY = ch, maxX = -1, maxY = -1;
-            for (let y = 0; y < ch; y++) {
-              for (let x = 0; x < cw; x++) {
-                if (pixels[(y * cw + x) * 4 + 3]! > 24) {
-                  if (x < minX) minX = x;
-                  if (x > maxX) maxX = x;
-                  if (y < minY) minY = y;
-                  if (y > maxY) maxY = y;
+          const W = bitmap.width;
+          const H = bitmap.height;
+          const cw = Math.floor(W / cols);
+          const ch = Math.floor(H / rows);
+          const sheet = new OffscreenCanvas(W, H);
+          const sctx = sheet.getContext("2d")!;
+          sctx.drawImage(bitmap, 0, 0);
+          const pixels = sctx.getImageData(0, 0, W, H).data;
+          const solid = (i: number) => pixels[i * 4 + 3]! > 24;
+
+          // Connected shapes (8-neighbour flood fill).
+          const label = new Int32Array(W * H).fill(-1);
+          const shapes: { minX: number; minY: number; maxX: number; maxY: number; area: number; sx: number; sy: number }[] = [];
+          const stack: number[] = [];
+          for (let start = 0; start < W * H; start++) {
+            if (label[start] !== -1 || !solid(start)) continue;
+            const id = shapes.length;
+            const shape = { minX: W, minY: H, maxX: -1, maxY: -1, area: 0, sx: 0, sy: 0 };
+            shapes.push(shape);
+            label[start] = id;
+            stack.push(start);
+            while (stack.length) {
+              const i = stack.pop()!;
+              const x = i % W;
+              const y = (i - x) / W;
+              shape.area++;
+              shape.sx += x;
+              shape.sy += y;
+              if (x < shape.minX) shape.minX = x;
+              if (x > shape.maxX) shape.maxX = x;
+              if (y < shape.minY) shape.minY = y;
+              if (y > shape.maxY) shape.maxY = y;
+              for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                  const nx = x + dx;
+                  const ny = y + dy;
+                  if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                  const j = ny * W + nx;
+                  if (label[j] === -1 && solid(j)) {
+                    label[j] = id;
+                    stack.push(j);
+                  }
                 }
               }
             }
-            if (maxX < 0 || (maxX - minX) * (maxY - minY) < 64) continue;
-            const pw = maxX - minX + 1;
-            const ph = maxY - minY + 1;
+          }
+          const separable = shapes.every((s) => s.maxX - s.minX < 2 * cw || s.maxY - s.minY < 2 * ch);
+
+          const out: { data: string; width: number; height: number; cell: number }[] = [];
+          for (let cell = 0; cell < cols * rows; cell++) {
+            const col = cell % cols;
+            const row = Math.floor(cell / cols);
+            let mine: Set<number>;
+            let box: { minX: number; minY: number; maxX: number; maxY: number };
+            if (separable) {
+              mine = new Set(
+                shapes
+                  .map((s, id) => ({ s, id }))
+                  .filter(({ s }) => Math.min(cols - 1, Math.floor(s.sx / s.area / cw)) === col && Math.min(rows - 1, Math.floor(s.sy / s.area / ch)) === row)
+                  .map(({ id }) => id),
+              );
+              const parts = [...mine].map((id) => shapes[id]!);
+              if (parts.reduce((a, s) => a + s.area, 0) < 64) continue;
+              box = {
+                minX: Math.min(...parts.map((s) => s.minX)),
+                minY: Math.min(...parts.map((s) => s.minY)),
+                maxX: Math.max(...parts.map((s) => s.maxX)),
+                maxY: Math.max(...parts.map((s) => s.maxY)),
+              };
+            } else {
+              // The grid cell, trimmed to its visible pixels.
+              mine = new Set();
+              box = { minX: W, minY: H, maxX: -1, maxY: -1 };
+              for (let y = row * ch; y < (row + 1) * ch; y++) {
+                for (let x = col * cw; x < (col + 1) * cw; x++) {
+                  if (!solid(y * W + x)) continue;
+                  if (x < box.minX) box.minX = x;
+                  if (x > box.maxX) box.maxX = x;
+                  if (y < box.minY) box.minY = y;
+                  if (y > box.maxY) box.maxY = y;
+                }
+              }
+              if (box.maxX < 0 || (box.maxX - box.minX) * (box.maxY - box.minY) < 64) continue;
+            }
+            const pw = box.maxX - box.minX + 1;
+            const ph = box.maxY - box.minY + 1;
+            const crop = new OffscreenCanvas(pw, ph);
+            const cctx = crop.getContext("2d")!;
+            cctx.drawImage(sheet, box.minX, box.minY, pw, ph, 0, 0, pw, ph);
+            if (separable) {
+              // Clear whatever belongs to other cells' shapes inside this box.
+              const img = cctx.getImageData(0, 0, pw, ph);
+              for (let y = 0; y < ph; y++) {
+                for (let x = 0; x < pw; x++) {
+                  const id = label[(box.minY + y) * W + box.minX + x]!;
+                  if (id !== -1 && !mine.has(id)) img.data[(y * pw + x) * 4 + 3] = 0;
+                }
+              }
+              cctx.putImageData(img, 0, 0);
+            }
             const fit = Math.min(1, maxSize / Math.max(pw, ph));
             const piece = new OffscreenCanvas(Math.max(1, Math.round(pw * fit)), Math.max(1, Math.round(ph * fit)));
-            piece.getContext("2d")!.drawImage(cellCanvas, minX, minY, pw, ph, 0, 0, piece.width, piece.height);
+            piece.getContext("2d")!.drawImage(crop, 0, 0, pw, ph, 0, 0, piece.width, piece.height);
             out.push({ data: await w.__anomalyEncode(piece), width: piece.width, height: piece.height, cell });
           }
           return out;

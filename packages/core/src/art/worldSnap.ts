@@ -27,6 +27,8 @@ const OVERHANG = 0.25;
 const SPAN_END = 0.25;
 /** Two supports this close in height (px) carry a span between them. */
 const SPAN_LEVEL = 16;
+/** A structure holds things up along this middle share of its width (images are wider at the base: plants, rubble). */
+const SUPPORT_TOP = 0.6;
 
 export interface SnapRoom {
   width: number;
@@ -127,7 +129,7 @@ function spanLevel(
   room: SnapRoom,
   neighbours: SnapNeighbours | undefined,
 ): number | null {
-  const { width } = extent(piece, placement.scale);
+  const { width, height } = extent(piece, placement.scale);
   const ends = [
     [placement.x - width / 2, placement.x - width / 2 + width * SPAN_END],
     [placement.x + width / 2 - width * SPAN_END, placement.x + width / 2],
@@ -141,7 +143,8 @@ function spanLevel(
     if (other === placement || (placement.id && other.id === placement.id) || other.layer !== placement.layer) return [];
     if (!shape || shape.kind !== "structure") return [];
     const size = extent(shape, other.scale);
-    return [{ x0: other.x - size.width / 2, x1: other.x + size.width / 2, top: other.y - size.height }];
+    const half = (size.width * SUPPORT_TOP) / 2;
+    return [{ x0: other.x - half, x1: other.x + half, top: other.y - size.height }];
   });
   const supports = ends.map((end) => {
     const found: Support[] = pillars.filter((p) => overlaps(p.x0, p.x1, end)).map((p) => ({ top: p.top }));
@@ -158,15 +161,17 @@ function spanLevel(
 
   const holds = (s: Support, level: number) => ("top" in s ? Math.abs(s.top - level) <= SPAN_LEVEL : s.from <= level && level <= s.to);
   const candidates = [placement.y, ...supports.flat().map((s) => ("top" in s ? s.top : s.from))];
-  const levels = candidates.filter((level) => supports.every((side) => side.some((s) => holds(s, level))));
+  // Never above the room's top edge (it would be out of view).
+  const levels = candidates.filter((level) => level >= height && supports.every((side) => side.some((s) => holds(s, level))));
   // Rest on the higher of two nearly level tops (a beam sits on the taller support).
   const rested = levels.map((level) => {
     const tops = supports.flatMap((side) => side.filter((s): s is { top: number } => "top" in s && holds(s, level)).map((s) => s.top));
     return tops.length ? Math.min(...tops) : level;
   });
-  if (rested.length === 0) return null;
-  const below = rested.filter((level) => level >= placement.y - TOLERANCE);
-  return below.length ? Math.min(...below) : Math.max(...rested);
+  const visible = rested.filter((level) => level >= height);
+  if (visible.length === 0) return null;
+  const below = visible.filter((level) => level >= placement.y - TOLERANCE);
+  return below.length ? Math.min(...below) : Math.max(...visible);
 }
 
 /**
