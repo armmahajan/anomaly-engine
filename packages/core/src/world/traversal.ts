@@ -694,7 +694,12 @@ function takeoffs(a: StandingSurface, c: Candidate, ctx: Ctx): { x: number; dir:
 function* variants(c: Candidate, x: number, dir: 1 | -1, dy: number, edge: boolean, open: boolean, ctx: Ctx): Generator<[MovePlan, TraversalMoveKind, number]> {
   const t = c.t;
   const standoff = dy < 0 && !c.passable ? x : undefined;
-  if (dy >= 0 && edge && open) yield [{ dir, target: t }, "drop", 0];
+  if (dy >= 0 && edge && open) {
+    yield [{ dir, target: t }, "drop", 0];
+    // A surface below that reaches past this edge: steer to its part beyond the edge (else you are already "over" it and never walk off).
+    const beyond = dir > 0 ? { ...t, x0: Math.max(t.x0, x + 2 * ctx.hw + 2) } : { ...t, x1: Math.min(t.x1, x - 2 * ctx.hw - 2) };
+    if (beyond.x1 - beyond.x0 > 8 && (beyond.x0 !== t.x0 || beyond.x1 !== t.x1)) yield [{ dir, target: beyond }, "drop", 0];
+  }
   yield [{ dir, target: t, jump: 1, standoff }, "jump", 0];
   if (ctx.has.has("double_jump")) yield [{ dir, target: t, jump: 1, airJumps: ["apex"], standoff }, "jump", 1];
   if (standoff !== undefined) yield [{ dir, target: t, jump: 1 }, "jump", 1];
