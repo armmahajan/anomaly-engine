@@ -1,0 +1,800 @@
+/* --- the Architect tab (plan in the main pane, the run in the sidebar) --- */
+
+.architect-main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 28px 64px;
+  line-height: 1.45;
+}
+
+.architect-head h1 {
+  font-size: 24px;
+  margin: 4px 0 6px;
+}
+
+.architect-head .hint {
+  max-width: 720px;
+}
+
+.arch-caption {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.arch-field {
+  display: block;
+}
+
+.arch-field.grow,
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.architect-main textarea,
+.architect-main input[type="text"],
+.architect-main input[type="number"],
+.architect-main select {
+  font: inherit;
+  color: var(--text);
+  background: #11141a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.architect-main textarea {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.architect-main input[type="text"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.architect-main :is(textarea, input, select):disabled {
+  opacity: 0.55;
+}
+
+.architect-main :is(textarea, input, select):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.arch-number {
+  width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+
+.architect-game {
+  margin: 16px 0 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.architect-game-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.architect-game-row .arch-caption {
+  margin: 0 4px 0 0;
+}
+
+.architect-game-row .hint {
+  margin: 0;
+}
+
+.architect-stats {
+  margin-left: auto !important;
+}
+
+.architect-empty {
+  padding: 28px 24px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.architect-empty .hint {
+  max-width: 560px;
+  margin: 0 auto 14px;
+}
+
+button.arch-primary {
+  background: #2b3550;
+  border-color: var(--accent);
+  color: #e4ebff;
+  font-weight: 600;
+  padding: 6px 16px;
+}
+
+button.arch-primary:not(:disabled):hover {
+  background: #34416a;
+}
+
+/* regions */
+
+.architect-region {
+  margin-bottom: 28px;
+}
+
+.architect-region-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.architect-region-head h2 {
+  margin: 0;
+  font-size: 15px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.architect-region-head .hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+.architect-region-head .arch-mini {
+  margin-left: auto;
+}
+
+.region-notes {
+  margin: 6px 0 10px;
+}
+
+.region-notes textarea {
+  font-size: 13px;
+}
+
+/* room cards */
+
+.room-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.room-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  scroll-margin: 16px;
+}
+
+.room-card.open {
+  border-color: #3a4152;
+}
+
+.room-card.pinned {
+  border-left: 3px solid #e0af68;
+}
+
+.room-card.focused {
+  border-color: var(--accent);
+  animation: room-flash 1.2s ease-out;
+}
+
+@keyframes room-flash {
+  from {
+    box-shadow: 0 0 0 3px rgb(122 162 247 / 0.45);
+  }
+  to {
+    box-shadow: 0 0 0 0 rgb(122 162 247 / 0);
+  }
+}
+
+.room-card.rebuilding {
+  border-style: dashed;
+}
+
+.room-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 4px;
+  min-height: 34px;
+}
+
+.room-card-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+  flex: none;
+  max-width: 50%;
+}
+
+.room-card-toggle:hover .room-card-name {
+  color: var(--accent);
+}
+
+.room-card-caret {
+  color: var(--muted);
+  width: 10px;
+}
+
+.room-card-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-card-size {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.room-card-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.content-chip {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #232733;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.content-chip.enemy {
+  color: #e6a0a8;
+}
+
+.content-chip.enemy.lock {
+  background: #3a2229;
+  color: var(--error);
+}
+
+.content-chip.pickup {
+  background: #2b3550;
+  color: var(--accent);
+}
+
+.content-chip.save {
+  color: var(--ok);
+}
+
+.content-chip.start,
+.content-chip.ending {
+  background: #233a2a;
+  color: var(--ok);
+}
+
+.room-pin {
+  flex: none;
+  font-size: 12px;
+  padding: 2px 10px;
+}
+
+.room-pin.on {
+  border-color: #e0af68;
+  color: #e0af68;
+  background: #2d2618;
+}
+
+.room-card-body {
+  padding: 6px 14px 12px 26px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room-pinned-note {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #2d2618;
+  color: #e0af68;
+  font-size: 12px;
+}
+
+.room-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.room-row > .arch-field:not(.grow) {
+  flex: 0 0 180px;
+}
+
+.room-row > .arch-field select {
+  width: 100%;
+}
+
+.room-row > .arch-caption,
+.room-size > .arch-caption {
+  margin: 0 4px 0 0;
+}
+
+.room-row .hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+.room-terrain {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px 18px;
+}
+
+.arch-slider {
+  display: grid;
+  grid-template-columns: 1fr 40px;
+  align-items: center;
+  column-gap: 8px;
+}
+
+.arch-slider .arch-caption {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.arch-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.arch-slider-value {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.room-contents ul,
+.room-links ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.room-contents .hint,
+.room-links .hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+.content-row,
+.link-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.content-row {
+  align-items: center;
+}
+
+.content-kind {
+  flex: none;
+  min-width: 96px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.content-row.enemy .content-kind {
+  color: #e6a0a8;
+}
+
+.content-row.pickup .content-kind {
+  color: var(--accent);
+}
+
+.content-row select {
+  min-width: 140px;
+}
+
+.enemy-row {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.enemy-line,
+.link-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.enemy-id {
+  flex: 0 1 170px;
+}
+
+.enemy-line .field-check,
+.link-line .field-check {
+  gap: 5px;
+  font-size: 12px;
+}
+
+.link-row {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.link-arrow {
+  color: var(--accent);
+  width: 14px;
+  text-align: center;
+}
+
+.link-side {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.link-side select {
+  padding: 1px 4px !important;
+  font-size: 12px !important;
+}
+
+.link-row .arch-remove {
+  margin-left: auto;
+}
+
+.room-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.room-add button {
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.arch-toggles {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.arch-toggle {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.arch-toggle.on {
+  background: #2b3550;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button.arch-remove {
+  flex: none;
+  padding: 0 6px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+button.arch-remove:not(:disabled):hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+button.arch-mini {
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.room-actions .room-delete {
+  margin-left: auto;
+}
+
+.room-actions .room-delete:not(:disabled):hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+/* --- the run (sidebar) --- */
+
+.arch-run-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.arch-run-buttons button {
+  flex: 1;
+}
+
+button.arch-stop {
+  border-color: var(--error);
+  color: var(--error);
+  font-weight: 600;
+  padding: 6px 16px;
+}
+
+.arch-run-hint {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.arch-progress {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.arch-progress div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.arch-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.arch-stage {
+  padding: 6px 6px 6px 8px;
+  border-left: 2px solid var(--border);
+}
+
+.arch-stage.in-run {
+  border-left-color: #3a4152;
+}
+
+.arch-stage.chip-running {
+  border-left-color: var(--accent);
+  background: #1c2130;
+}
+
+.arch-stage.chip-failed {
+  border-left-color: var(--error);
+}
+
+.arch-stage.chip-paused {
+  border-left-color: #bb9af7;
+}
+
+.arch-stage.chip-done {
+  border-left-color: #3d5a34;
+}
+
+.arch-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.arch-stage-name {
+  font-weight: 600;
+}
+
+.arch-chip {
+  flex: none;
+  min-width: 52px;
+  text-align: center;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #232733;
+  color: var(--muted);
+}
+
+.arch-chip.chip-running {
+  background: #2b3550;
+  color: var(--accent);
+  animation: arch-pulse 1.2s ease-in-out infinite;
+}
+
+.arch-chip.chip-done,
+.arch-chip.outcome-finished {
+  background: #233a2a;
+  color: var(--ok);
+}
+
+.arch-chip.chip-stale {
+  background: #4a3b20;
+  color: #e0af68;
+}
+
+.arch-chip.chip-failed,
+.arch-chip.outcome-failed {
+  background: #4a2028;
+  color: var(--error);
+}
+
+.arch-chip.chip-paused,
+.arch-chip.outcome-paused {
+  background: #352a4a;
+  color: #bb9af7;
+}
+
+.arch-chip.outcome-cancelled {
+  background: #2a2f3a;
+  color: var(--text);
+}
+
+@keyframes arch-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.arch-pause {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.arch-pause.on {
+  color: #bb9af7;
+}
+
+.arch-pause input {
+  margin: 0;
+  accent-color: #bb9af7;
+}
+
+.arch-stage-head .arch-mini {
+  flex: none;
+}
+
+.arch-stage-head .arch-pause + .arch-mini {
+  margin-left: 0;
+}
+
+.arch-stage-head > .arch-mini:only-of-type {
+  margin-left: auto;
+}
+
+.arch-stage-summary {
+  margin: 3px 0 0;
+  font-size: 12px;
+}
+
+.arch-stage-desc {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.arch-pause-line {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #bb9af7;
+}
+
+.arch-last p {
+  margin: 0 0 6px;
+}
+
+.arch-time {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.arch-error {
+  color: var(--error);
+  font-size: 12px;
+}
+
+.arch-issues ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.arch-issues li {
+  margin-bottom: 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--error);
+}
+
+.arch-issue-stage {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.arch-issue-code {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+}
+
+.arch-issues .arch-mini {
+  margin-left: 6px;
+}
+
+.arch-log {
+  margin-top: 16px;
+}
+
+.arch-log summary {
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.arch-log ol {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.arch-log-stage {
+  color: var(--accent);
+}
