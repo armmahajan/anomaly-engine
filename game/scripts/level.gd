@@ -6,6 +6,10 @@ extends RefCounted
 
 const Terrain := preload("res://scripts/terrain.gd")
 const HAZARD_COLOR := Color("#b0413e")
+## Collision layer of the room's edges for enemies: doorways are for the player, so an
+## enemy charging or patrolling into one meets a wall there (and turns, stops, hit_wall).
+const ENEMY_BOUNDS_LAYER := 8
+const BOUNDS_THICKNESS := 64.0
 
 
 ## Add a body per solid under `parent`, and a "Terrain" node drawing `grid` ({rows}; rebuilt
@@ -28,6 +32,17 @@ static func build(parent: Node2D, solids: Array, color: Color, dressed: bool, gr
 			var rebuilt := Terrain.rows_from_solids(solids)
 			terrain.build(rebuilt.rows, rebuilt.ledge, plain_style(color), rebuilt.origin)
 	return out
+
+
+## Walls just outside the room's left, right and top edges that only enemies collide with
+## (the bottom stays open: an enemy that falls into a pit is sent home, as before).
+static func add_enemy_bounds(parent: Node2D, width: float, height: float) -> void:
+	var t := BOUNDS_THICKNESS
+	for r in [Rect2(-t, -t, t, height + 2.0 * t), Rect2(width, -t, t, height + 2.0 * t), Rect2(0.0, -t, width, t)]:
+		var body := _make_body({"x": r.position.x, "y": r.position.y, "width": r.size.x, "height": r.size.y}, "solid")
+		body.name = "EnemyBounds"
+		body.collision_layer = ENEMY_BOUNDS_LAYER
+		parent.add_child(body)
 
 
 ## The undressed look: flat colors from the platform color.

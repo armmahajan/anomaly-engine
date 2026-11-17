@@ -601,6 +601,7 @@ func _populate_room(parent: Node2D, room: Dictionary, bounds: Dictionary, player
 		dressing_view.build(scene, _textures, Vector2(room.width, room.height) * 1.5)
 		_frame_room(parent, room)
 	var solids: Array = Level.build(parent, room.solids, Color(_project.world.get("platformColor", "#4a5470")), dressing_view != null, room.get("grid"), int(_project.get("world", {}).get("ledgeThickness", 20)))
+	Level.add_enemy_bounds(parent, float(room.width), float(room.height))
 	if player != null:
 		parent.add_child(player)
 	var characters := {}

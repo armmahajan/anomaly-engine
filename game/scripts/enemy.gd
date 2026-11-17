@@ -94,7 +94,7 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 	position = spawn
 
 	collision_layer = 4
-	collision_mask = 1  # world only
+	collision_mask = 1 | preload("res://scripts/level.gd").ENEMY_BOUNDS_LAYER  # world, and the room's edges (doorways are for the player)
 
 	var shape := CollisionShape2D.new()
 	var box := RectangleShape2D.new()
