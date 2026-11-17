@@ -51,7 +51,9 @@ export function layoutStage(project: ProjectSpec, options: StageOptions = {}): S
   const only = options.rooms ? new Set(options.rooms) : undefined;
   // Place, then grow rooms too small for their doors (gates, chutes, many doors on a side) and place again, sides kept.
   let plan = project.architect;
-  let result = layoutPlan(plan, project.world, units, only);
+  const mechanic = new Map(project.progression.abilities.map((a) => [a.id, a.mechanic as string]));
+  const gated = new Set(plan.links.filter((l) => l.requires.some((r) => (mechanic.get(r) ?? "") in MOVEMENT_ABILITIES)).map((l) => l.id));
+  let result = layoutPlan(plan, project.world, units, only, gated);
   const grown = new Set<string>();
   for (let pass = 0; pass < 3; pass++) {
     let grew = false;
@@ -65,7 +67,7 @@ export function layoutStage(project: ProjectSpec, options: StageOptions = {}): S
     });
     if (!grew) break;
     plan = { ...result.plan, rooms };
-    result = layoutPlan(plan, project.world, units, only);
+    result = layoutPlan(plan, project.world, units, only, gated);
   }
   return {
     project: { ...project, architect: result.plan },

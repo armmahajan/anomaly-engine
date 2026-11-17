@@ -239,10 +239,37 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
       cuts.push({ band: k, c0: b.x, c1: b.x + gridCols(b.block.grid) - 1 });
     }
   }
+  // A top or bottom gate goes in a corner when it can (it splits no band there): choose the corner now and keep its
+  // bands on that wall free of side doors, on the wall with fewer of them.
+  const corner = new Map<string, "left" | "right">();
+  const reserved = new Map<string, Set<number>>([
+    ["left", new Set()],
+    ["right", new Set()],
+  ]);
+  for (const s of ["top", "bottom"] as const) {
+    for (const d of side(s).filter(gated)) {
+      const r = edgeTarget.get(d.id);
+      if (r === undefined) continue;
+      const probe = gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both", facing: "left" });
+      const ef = probe.entry.offset + probe.entry.size;
+      const [r0, r1] = s === "top" ? [0, r - ef + gridRows(probe.grid)] : [r - ef, H];
+      const cut = cutBands(r0, r1);
+      const plainOn = (w: "left" | "right") => side(w).filter((x) => !gated(x)).length;
+      const walls = (rng.chance(0.5) ? (["left", "right"] as const) : (["right", "left"] as const)).slice().sort((a, b) => plainOn(a) - plainOn(b));
+      for (const w of walls) {
+        const blocked = new Set([...usedSide.get(w)!, ...reserved.get(w)!, ...cut]);
+        if (bands.length - blocked.size < plainOn(w) || cut.some((k) => usedSide.get(w)!.has(k))) continue;
+        for (const k of cut) reserved.get(w)!.add(k);
+        corner.set(d.id, w);
+        break;
+      }
+    }
+  }
   for (const s of ["left", "right"] as const) {
     for (const d of rng.shuffle(side(s).filter((d) => !gated(d)))) {
       const used = usedSide.get(s)!;
-      const free = bands.map((_, k) => k).filter((k) => !used.has(k));
+      const keep = reserved.get(s)!;
+      const free = bands.map((_, k) => k).filter((k) => !used.has(k) && !keep.has(k));
       if (!free.length) fail(`more doors on the ${s} side than the room has bands`);
       const pick = free.sort((a, b) => Math.abs(bands[a]!.base - (d.prefer ?? bands[a]!.base)) - Math.abs(bands[b]!.base - (d.prefer ?? bands[b]!.base)) || rng.next() - 0.5)[0]!;
       used.add(pick);
@@ -274,7 +301,8 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
       // Then anywhere else along the edge.
       for (const x of rng.shuffle(Array.from({ length: Math.max(0, Math.floor((C - bw - 12) / 3) + 1) }, (_, i) => 6 + i * 3).filter((x) => x + bw <= C - 6))) options.push({ x, facing: x + bw / 2 < C / 2 ? "right" : "left" });
       let done = false;
-      const firstTwo = rng.chance(0.5) ? [options[0]!, options[1]!] : [options[1]!, options[0]!];
+      const want = corner.get(d.id);
+      const firstTwo = want ? (want === "left" ? [options[0]!, options[1]!] : [options[1]!, options[0]!]) : rng.chance(0.5) ? [options[0]!, options[1]!] : [options[1]!, options[0]!];
       for (const o of [...firstTwo, ...options.slice(2)]) {
         if (o.x < 0 || o.x + bw > C) continue;
         if (o.x > 0 && o.x + bw < C) {
