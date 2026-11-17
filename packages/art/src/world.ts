@@ -7,10 +7,13 @@ import {
   PlatformRect,
   RoomComposition,
   snapPlacements,
+  clearPassages,
+  dressingOutOfDate,
   borderedGrid,
   gridPlatforms,
   gridSize,
-  worldRoomFor,
+  DOOR_APPROACH,
+  TILE,
   uniqueId,
   withPlacementIds,
   WorldLayer,
@@ -18,9 +21,11 @@ import {
   type ArtDirection,
   type BiomeAsset,
   type BiomeKit,
+  type DoorOpening,
   type OperationCall,
   type ProjectSpec,
   type WorldPiece,
+  type WorldRoom,
 } from "@anomaly/core";
 import { parseReply } from "./json.ts";
 import type { VisionContent, VisionRequest } from "./models.ts";
@@ -43,7 +48,7 @@ const QUALITY: Record<WorldQuality, Record<KitPart, string>> = {
   final: { backdrop: "medium", structures: "medium", props: "medium", ground: "low" },
 };
 
-const style = (d: ArtDirection) =>
+export const style = (d: ArtDirection) =>
   `Style: ${d.style} Painterly, soft edges. Preferred palette: ${d.palette.join(", ")}. No characters, no creatures, no text, no UI.`;
 
 export function worldPrompts(theme: string, direction: ArtDirection, feedback?: string) {
@@ -71,7 +76,7 @@ const PieceLabels = z.object({
     .max(18),
 });
 
-async function ask<T extends z.ZodType>(ctx: ArtContext, schema: T, request: VisionRequest, label: string): Promise<z.infer<T>> {
+export async function ask<T extends z.ZodType>(ctx: ArtContext, schema: T, request: VisionRequest, label: string): Promise<z.infer<T>> {
   if (ctx.signal?.aborted) throw new StageError("cancelled");
   let reply = await ctx.vision.complete({ ...request, json: true, signal: ctx.signal });
   ctx.spend(reply.usage);
@@ -96,7 +101,7 @@ async function ask<T extends z.ZodType>(ctx: ArtContext, schema: T, request: Vis
   throw new StageError(`${label}: the model's reply was still invalid (${parsed.problems.slice(0, 300)})`);
 }
 
-function findBiome(project: ProjectSpec, biomeId: string): BiomeAsset {
+export function findBiome(project: ProjectSpec, biomeId: string): BiomeAsset {
   const asset = project.art.assets.find((a) => a.id === biomeId);
   if (!asset || asset.kind !== "biome") throw new StageError(`no biome "${biomeId}"`);
   return asset;
@@ -149,8 +154,12 @@ async function piecesFrom(
     },
     "labelling pieces",
   );
-  const sheetOf = (id: string) => (id.startsWith("s") ? "structures" : "props");
-  const out: WorldPiece[] = previous.filter((p) => !which.includes(sheetOf(p.id)));
+  // Pieces from the sheets are s<cell>_ / p<cell>_; others (painted for props) are kept through repaints.
+  const sheetOf = (id: string) => (/^s\d_/.test(id) ? "structures" : /^p\d_/.test(id) ? "props" : null);
+  const out: WorldPiece[] = previous.filter((p) => {
+    const sheet = sheetOf(p.id);
+    return !sheet || !which.includes(sheet);
+  });
   for (const label of labels.pieces) {
     if (!which.includes(label.sheet)) continue;
     const slice = sliced[label.sheet]!.find((p) => p.cell === label.cell);
@@ -258,17 +267,45 @@ export interface WorldComposeInput {
   roomId?: string;
 }
 
+/**
+ * The world room a compose works around, and what happens to its dressing: a new
+ * room dresses `dress`; a recompose makes the dressing of `refresh` current again.
+ * A biome room that dresses several world rooms isn't reshaped for one of them:
+ * that one gets a room of its own.
+ */
+function composeTarget(ctx: ArtContext, project: ProjectSpec, biome: BiomeAsset, input: WorldComposeInput) {
+  const { rooms, playtest } = project.world;
+  const fallback = rooms.find((r) => r.id === playtest?.room) ?? rooms[0];
+  const none = { existing: undefined, dress: undefined, refresh: undefined };
+  if (input.roomId) {
+    const existing = biome.rooms.find((r) => r.id === input.roomId);
+    if (!existing) throw new StageError(`${biome.name} has no room "${input.roomId}"`);
+    const dressed = rooms.filter((r) => r.dressing?.biome === biome.id && r.dressing.room === existing.id);
+    const world: WorldRoom | undefined = dressed.find(dressingOutOfDate) ?? dressed[0] ?? fallback;
+    if (dressed.length > 1 && world && dressingOutOfDate(world)) {
+      ctx.log({ text: `${existing.name} also dresses ${dressed.filter((r) => r !== world).map((r) => r.name).join(", ")}; composing a room of its own for ${world.name}` });
+      return { ...none, world, dress: world.id };
+    }
+    return { ...none, world, existing, refresh: world && dressed.includes(world) ? world.id : undefined };
+  }
+  if (input.dressRoom) {
+    const world = rooms.find((r) => r.id === input.dressRoom);
+    if (!world) throw new StageError(`no world room "${input.dressRoom}" to dress`);
+    return { ...none, world, dress: world.id };
+  }
+  return { ...none, world: fallback };
+}
+
 export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInput): Promise<StageResult & { roomId: string }> {
   const project = ctx.project();
   const biome = findBiome(project, input.biomeId);
   if (!biome.kit) throw new StageError(`paint ${biome.name}'s kit first`);
   const kit = biome.kit;
-  // Composed around a world room's tiles: the one it dresses (recomposing), the one to dress, else the playtest room.
-  const target =
-    (input.roomId ? worldRoomFor(project, biome.id, input.roomId) : project.world.rooms.find((r) => r.id === input.dressRoom)) ??
-    project.world.rooms.find((r) => r.id === project.world.playtest?.room) ??
-    project.world.rooms[0];
+  // Composed around a world room's tiles and doors: the one it dresses (recomposing), the one to dress, else the playtest room.
+  const { world: target, existing, dress, refresh } = composeTarget(ctx, project, biome, input);
   const grid = target?.grid ?? borderedGrid(50, 23);
+  // A suggested layout replaces the tiles, so the doors' places in it are unknown.
+  const doors: DoorOpening[] = input.newLayout ? [] : (target?.doors ?? []);
   const { width, height } = gridSize(grid);
   const arenaPlatforms = gridPlatforms(grid, project.world.ledgeThickness);
   const backdrop = await ctx.files.get(kit.backdrop);
@@ -281,7 +318,7 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
         "You are a level art director for a 2D side-scrolling platformer. You compose beautiful, deep, atmospheric rooms from a kit of sprites by writing scene data. You value negative space, clear silhouettes and a readable play area.",
       content: [
         { type: "image", image: backdrop },
-        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback) },
+        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback, doors) },
       ],
       maxTokens: 12000,
     },
@@ -293,7 +330,7 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
   if (known.length < raw.placements.length) {
     ctx.log({ text: `dropped ${raw.placements.length - known.length} placement(s) of unknown pieces` });
   }
-  // Rest every piece on something, then look at the room and fix what's wrong.
+  // Rest every piece on something, keep doors and passages clear, then look at the room and fix what's wrong.
   const room: SnapRoom = {
     width: Math.max(960, width),
     height: Math.max(360, height),
@@ -302,20 +339,23 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
   };
   const snapped = snapPlacements(withPlacementIds(known), kit.pieces, room);
   if (snapped.moved > 0) ctx.log({ text: `snapped ${snapped.moved} piece(s) onto surfaces` });
-  const reviewed = await reviewRoom(ctx, { theme: biome.brief, kit, composition: { ...raw, placements: snapped.placements }, room, feedback: input.feedback });
-  const composition = reviewed.composition;
-  const placements = composition.placements;
+  const clear = keepPathsClear(ctx, snapped.placements, kit, room, doors);
+  const reviewed = await reviewRoom(ctx, { theme: biome.brief, kit, composition: { ...raw, placements: clear }, room, doors, feedback: input.feedback });
+  // The review's edits are checked again.
+  const composition = { ...reviewed.composition, placements: keepPathsClear(ctx, reviewed.composition.placements, kit, room, doors) };
   const verdict = reviewed.score === null ? "" : ` (reviewed ${reviewed.score}/10${reviewed.fixes ? `, ${reviewed.fixes} fix${reviewed.fixes === 1 ? "" : "es"}` : ""})`;
-  const existing = input.roomId ? biome.rooms.find((r) => r.id === input.roomId) : undefined;
-  if (input.roomId && !existing) throw new StageError(`${biome.name} has no room "${input.roomId}"`);
   if (existing) {
     return {
-      operations: [{ name: "setRoomComposition", input: { assetId: biome.id, roomId: existing.id, composition: { ...composition, placements } } }],
+      operations: [
+        { name: "setRoomComposition", input: { assetId: biome.id, roomId: existing.id, composition } },
+        // Composed around the world room's tiles as they are now: its dressing is current again.
+        ...(refresh ? [{ name: "setDressing", input: { worldRoomId: refresh, biomeId: biome.id, roomId: existing.id } }] : []),
+      ],
       roomId: existing.id,
-      summary: `recomposed ${existing.name} for the new pieces${verdict}`,
+      summary: `recomposed ${existing.name}${target ? ` around ${target.name}` : ""}${verdict}`,
     };
   }
-  const name = input.name?.trim() || `${biome.name} ${biome.rooms.length + 1}`;
+  const name = input.name?.trim() || (dress && target ? target.name : `${biome.name} ${biome.rooms.length + 1}`);
   const roomId = newRoomId(biome, name);
   return {
     operations: [
@@ -323,14 +363,26 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
         name: "addRoom",
         input: {
           assetId: biome.id,
-          dressRoom: input.dressRoom ?? null,
-          room: { id: roomId, name, composition: { ...composition, placements }, layout: platforms ?? null, cost: 0, at: new Date().toISOString() },
+          dressRoom: dress ?? null,
+          room: { id: roomId, name, composition, layout: platforms ?? null, cost: 0, at: new Date().toISOString() },
         },
       },
     ],
     roomId,
     summary: `composed ${name}${platforms ? " with a suggested layout" : ""}${verdict}`,
   };
+}
+
+/** clearPassages, logged. */
+function keepPathsClear<P extends Composition["placements"][number]>(ctx: ArtContext, placements: P[], kit: BiomeKit, room: SnapRoom, doors: DoorOpening[]): P[] {
+  const cleared = clearPassages(placements, kit.pieces, room, doors);
+  const said = [
+    cleared.moved.length ? `moved ${cleared.moved.join(", ")} off doorways` : "",
+    cleared.scaled.length ? `shortened ${cleared.scaled.join(", ")} (hanging into a passage)` : "",
+    cleared.dropped.length ? `dropped ${cleared.dropped.join(", ")} (in a doorway or passage)` : "",
+  ].filter(Boolean);
+  if (said.length) ctx.log({ text: `paths: ${said.join("; ")}` });
+  return cleared.placements;
 }
 
 // --- look and fix ------------------------------------------------------------------
@@ -377,7 +429,19 @@ interface ReviewInput {
   kit: BiomeKit;
   composition: Composition;
   room: SnapRoom;
+  doors: DoorOpening[];
   feedback?: string;
+}
+
+/** The doors' openings, for prompts: where to keep clear. */
+function doorsText(doors: DoorOpening[], room: Pick<SnapRoom, "width" | "height">): string {
+  if (doors.length === 0) return "";
+  const where = doors.map((d) => {
+    const a = d.offset * TILE;
+    const b = (d.offset + d.size) * TILE;
+    return d.side === "left" || d.side === "right" ? `${d.side} wall (x ${d.side === "left" ? 0 : room.width}), y ${a}-${b}` : `${d.side} edge, x ${a}-${b}`;
+  });
+  return `Door openings (the player passes through them; keep them and ${DOOR_APPROACH}px in front of them free of play, front and big back pieces; nothing may hang into them): ${where.join("; ")}.`;
 }
 
 /** Camera x positions that together show the whole room (at most 3 frames). */
@@ -483,6 +547,7 @@ function reviewPrompt(input: ReviewInput, composition: Composition, frames: numb
   return [
     `The image is a composed room of a 2D side-scrolling platformer (biome: ${input.theme}) rendered in the game: ${frames === 1 ? "one camera view" : `${frames} camera views from left to right, stacked top to bottom`}. Each placed piece has its id written over it in yellow (labels are only for this review).`,
     `Room: ${room.width}x${room.height}px (x right, y DOWN). Walkable platforms: ${room.platforms.map((r) => `[x ${r.x}, y ${r.y}, w ${r.width}, h ${r.height}]`).join(", ")}.`,
+    doorsText(input.doors, room),
     "Layers back to front: mid (distant, fogged, scrolls slower), back (just behind play, scrolls a bit slower), play (the walkable layer), front (near-black silhouettes that scroll faster). Because of parallax, mid/back/front pieces line up with the platforms only when the camera is near them.",
     "Each placement's y is its bottom (its top for hanging pieces).",
     `Placements:\n${rows.join("\n")}`,
@@ -508,6 +573,7 @@ function composePrompt(
   pieces: WorldPiece[],
   platforms: { x: number; y: number; width: number; height: number }[] | null,
   feedback?: string,
+  doors: DoorOpening[] = [],
 ): string {
   const list = pieces.map((p) => `- ${p.id}: ${p.name} (${p.kind}, ${p.size}px tall, ${(p.width / p.height).toFixed(2)} w/h${p.glow ? `, glows ${p.glow}` : ""})`);
   const layout = platforms
@@ -517,6 +583,7 @@ function composePrompt(
     `The image is this biome's painted backdrop. Biome: ${theme}.`,
     `Compose one room ${width}px wide and ${height}px tall (x right, y DOWN, 0,0 = top-left). The camera shows about 960px of width at a time and pans across it.`,
     layout,
+    doorsText(doors, { width, height }),
     "Layers, back to front (the runtime draws them with parallax, fog between them, depth tint and lighting):",
     "  far = the backdrop (already set; don't place pieces there); mid = big distant structures, tinted into the fog; back = decor and structures just behind the play layer; play = the walkable layer; front = near-black silhouettes in front of everything.",
     "For a piece's x, give the room x it is seen at. y is its bottom (on a floor or platform top), or its top for 'hanging' pieces (usually 0).",
