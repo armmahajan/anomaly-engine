@@ -21,7 +21,7 @@ interface Props {
   locked: boolean;
 }
 
-const PARTS = ["backdrop", "structures", "props", "ground"] as const;
+const PARTS = ["backgrounds", "backdrop", "structures", "props", "ground"] as const;
 
 export function WorldPanel({ project, art, session, ui, setUi, selected, setSelected, locked }: Props) {
   const biomes = biomesOf(project);
@@ -297,7 +297,7 @@ function Quality({ value, onChange }: { value: "draft" | "final"; onChange: (q: 
   return (
     <div className="quality" role="radiogroup" aria-label="Quality">
       {(["draft", "final"] as const).map((q) => (
-        <label key={q} title={q === "draft" ? "Cheapest images (~$0.017 per biome): good for exploring" : "Medium-quality backdrop and pieces (~$0.05): once you like a biome"}>
+        <label key={q} title={q === "draft" ? "Medium-quality background planes, cheapest pieces (~$0.07 per biome): good for exploring" : "Medium-quality planes and pieces (~$0.08): once you like a biome"}>
           <input type="radio" name="quality" checked={value === q} onChange={() => onChange(q)} /> {q === "draft" ? "Draft" : "Final"}
         </label>
       ))}

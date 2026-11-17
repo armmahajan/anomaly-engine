@@ -6,6 +6,7 @@ import {
   PROTOCOL_VERSION,
   snapPlacement,
   toRuntimeProject,
+  kitFiles,
   type AgentId,
   type ArtJobRequest,
   type Stage,
@@ -151,7 +152,7 @@ export class Session {
     const biomeIds = new Set(project.world.rooms.flatMap((r) => [...(r.dressing ? [r.dressing.biome] : []), ...r.props.flatMap((p) => (p.art ? [p.art.biome] : []))]));
     for (const biome of project.art.assets) {
       if (biome.kind === "biome" && biome.kit && biomeIds.has(biome.id)) {
-        void this.sendImages([biome.kit.backdrop, biome.kit.ground, ...biome.kit.pieces.map((p) => p.file)]);
+        void this.sendImages(kitFiles(biome.kit));
       }
     }
     // Modal images, item icons and cutout rigs' source images too.
@@ -413,7 +414,7 @@ export class Session {
   private async resendStage(): Promise<void> {
     if (this.stage.mode === "world") {
       const s = this.stage.scene;
-      await this.sendImages([s.backdrop, s.ground, ...s.pieces.map((p) => p.file)]);
+      await this.sendImages(kitFiles(s));
     }
     this.bridge.send({ type: "stage", stage: this.stage });
   }

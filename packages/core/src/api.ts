@@ -179,7 +179,7 @@ export const ArtJobRequest = z
     newLayout: z.boolean().optional(),
     /** A world room to dress with the composed room. */
     dressRoom: Id.optional(),
-    part: z.enum(["backdrop", "structures", "props", "ground"]).optional(),
+    part: z.enum(["backdrop", "backgrounds", "structures", "props", "ground"]).optional(),
     /** worldCompose: recompose this biome room (instead of composing a new one). */
     roomId: Id.optional(),
     worldRoomId: Id.optional(),

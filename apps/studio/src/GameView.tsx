@@ -6,6 +6,7 @@ import { CheckSection } from "./CheckSection.tsx";
 import { ItemsPanel } from "./ItemsPanel.tsx";
 import { ModalsPanel } from "./ModalsPanel.tsx";
 import { MapSettings } from "./MapSettings.tsx";
+import { CameraSettings } from "./CameraSettings.tsx";
 
 /**
  * Game mode's sidebar: what belongs to the whole game rather than one room.
@@ -60,6 +61,7 @@ export function GamePanel({ project, session, art, locked }: { project: ProjectS
       <ItemsPanel project={project} session={session} locked={locked} />
       <ModalsPanel project={project} session={session} locked={locked} />
       <MapSettings project={project} session={session} locked={locked} />
+      <CameraSettings project={project} session={session} locked={locked} />
     </section>
   );
 }

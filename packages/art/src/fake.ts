@@ -88,7 +88,11 @@ export class FakeImageModel implements ImageModel {
     this.requests.push(request);
     // Each request gets different pixels (like a real model), unless a fixed image was given.
     const image =
-      this.image !== TINY_PNG ? this.image : isConceptSheet(request.prompt) ? fakeConceptSheet(this.requests.length) : solidPng(64, 64, [this.requests.length % 256, 120, 140]);
+      this.image !== TINY_PNG ? this.image : isConceptSheet(request.prompt)
+          ? fakeConceptSheet(this.requests.length)
+          : request.transparent && request.aspectRatio === "3:2"
+            ? fakeSilhouettes(this.requests.length)
+            : solidPng(64, 64, [this.requests.length % 256, 120, 140]);
     return { image, ext: "png", usage: { cost: 0.002, promptTokens: 100, completionTokens: 272 }, model: this.id };
   }
 }
@@ -126,6 +130,7 @@ export class FakeVisionModel implements VisionModel {
           { sheet: "props", cell: 0, name: "Lantern", kind: "light", size: 48, glow: "#ffcc80" },
           { sheet: "props", cell: 1, name: "Mushrooms", kind: "decor", size: 36 },
         ],
+        ...(prompt.includes("drifts in its air") ? { particles: "spores" } : {}),
       };
     } else if (prompt.includes("Compose one room")) {
       reply = {
@@ -183,4 +188,16 @@ function fakeCutoutPlan(request: VisionRequest): unknown {
   const shown = request.content.find((c) => c.type === "image");
   const { width, height } = shown?.type === "image" ? pngSize(shown.image) : { width: 512, height: 512 };
   return { ...creaturePlan(width, height), notes: "body, head, two legs" };
+}
+
+/** A wide transparent image with a band of "silhouettes" along its bottom (a background plane). */
+function fakeSilhouettes(n: number): Buffer {
+  const width = 96;
+  const height = 64;
+  const data = new Uint8Array(width * height * 4);
+  for (let x = 0; x < width; x++) {
+    const top = Math.round(height * (0.5 + 0.2 * Math.sin((x + n * 7) / 9)));
+    for (let y = top; y < height; y++) data.set([30 + (n % 5) * 20, 40, 60, 255], (y * width + x) * 4);
+  }
+  return encodePng({ width, height, data });
 }
