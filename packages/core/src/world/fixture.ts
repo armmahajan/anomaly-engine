@@ -1,7 +1,7 @@
 import { createDefaultProject } from "../defaultProject.ts";
 import type { ProjectSpec } from "../schema.ts";
 import { borderedGrid, fillTiles, TILE, type TileGrid, type TileKind } from "./tiles.ts";
-import { defaultWorld, type Door, type World, type WorldRoom } from "./world.ts";
+import { defaultWorld, WorldRoom, type Door, type World } from "./world.ts";
 
 /**
  * A small test world for the starter characters: six rooms, start to end.
@@ -22,8 +22,8 @@ function grid(cols: number, rows: number, paint: Paint[]): TileGrid {
 
 const door = (id: string, side: Door["side"], offset: number, size: number, room: string, to: string): Door => ({ id, side, offset, size, to: { room, door: to } });
 
-function room(id: string, name: string, at: [number, number], tiles: TileGrid, doors: Door[], spawns: WorldRoom["spawns"] = []): WorldRoom {
-  return { id, name, grid: tiles, at: { x: at[0], y: at[1] }, doors, spawns, dressing: null };
+function room(id: string, name: string, at: [number, number], tiles: TileGrid, doors: Door[], spawns: { id: string; characterId: string; x: number; y: number }[] = []): WorldRoom {
+  return WorldRoom.parse({ id, name, grid: tiles, at: { x: at[0], y: at[1] }, doors, spawns, dressing: null });
 }
 
 export const FIXTURE_START_ROOM = "entrance";

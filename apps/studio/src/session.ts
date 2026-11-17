@@ -1,6 +1,7 @@
 import {
   ACTION_TYPES,
   CONDITION_TYPES,
+  EFFECT_TYPES,
   MAX_SEED,
   PROTOCOL_VERSION,
   snapPlacement,
@@ -47,19 +48,8 @@ export interface SessionState {
   room: string | null;
 }
 
-export interface RuntimeSnapshot {
-  mode: RuntimeMode;
-  revision: number;
-  seed: number | null;
-  deaths: number;
-  stage: Stage["mode"];
-  dressed: boolean;
-  entities: EntityState[];
-  /** World play: the current room (null when not playing), rooms visited and the respawn point. */
-  room: string | null;
-  visited: string[];
-  entry: { x: number; y: number } | null;
-}
+/** The runtime's state (see protocol.ts "state"). */
+export type RuntimeSnapshot = Omit<Extract<RuntimeToStudio, { type: "state" }>, "type" | "requestId">;
 
 const BOOT_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 5_000;
@@ -234,13 +224,13 @@ export class Session {
   }
 
   /** The runtime's primitives must match the schema's, or behaviors would misbehave silently. */
-  private checkPrimitives(runtime: { actions: string[]; conditions: string[] }): void {
+  private checkPrimitives(runtime: { actions: string[]; conditions: string[]; effects: string[] }): void {
     const diff = (expected: readonly string[], actual: string[]) => {
       const missing = expected.filter((t) => !actual.includes(t));
       const extra = actual.filter((t) => !expected.includes(t));
       return [...missing.map((t) => `missing ${t}`), ...extra.map((t) => `unexpected ${t}`)];
     };
-    const problems = [...diff(ACTION_TYPES, runtime.actions), ...diff(CONDITION_TYPES, runtime.conditions)];
+    const problems = [...diff(ACTION_TYPES, runtime.actions), ...diff(CONDITION_TYPES, runtime.conditions), ...diff(EFFECT_TYPES, runtime.effects)];
     if (problems.length > 0) {
       this.reportProblem(`runtime primitives don't match the schema (${problems.join(", ")}); rebuild the game`);
     }
@@ -470,7 +460,10 @@ export class Session {
   };
 
   getRuntimeState = async (): Promise<RuntimeSnapshot> => {
-    const { mode, revision, seed, deaths, stage, dressed, entities, room, visited, entry } = await this.bridge.requestState();
-    return { mode, revision, seed, deaths, stage, dressed, entities, room, visited, entry };
+    const { type: _type, requestId: _id, ...state } = await this.bridge.requestState();
+    return state;
   };
+
+  /** Edit mode: show a modal of the loaded project over the game (null = close it). */
+  previewModal = (modalId: string | null): boolean => this.bridge.send({ type: "previewModal", modalId });
 }

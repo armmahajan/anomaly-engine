@@ -318,6 +318,36 @@ The rules are thin event handlers over small effects in `world_runtime.gd`
 `fixtureWorld()` (`world/fixture.ts`) is a six-room test world; `game/test/world.test.ts`
 plays doors, rules and a full start-to-end route in the headless runtime.
 
+## Game logic (handlers)
+
+Game logic is data, made of generic primitives (`packages/core/src/events/events.ts`,
+run by `game/scripts/events.gd`). A **handler** is `{ on, when, do }`: when the
+event happens and every condition holds, the effects run in order.
+
+- **Events:** gameStarted, roomEntered, roomSettled (first safe ground in a room),
+  roomCleared, enemyKilled (any, a spawn, or a character), playerDied,
+  hazardTouched, timer, and a prop's touch, interact (Up / W), hit and destroyed.
+- **Conditions:** flag, item (at least n), ability, visited, and all / any / not.
+- **Effects:** setFlag, giveItem, takeItem, grantAbility, heal, damage, respawn
+  (at entry, start or checkpoint), returnToSafeGround, setCheckpoint, saveRun,
+  startTimer; showModal, endGame, revealMap (modal.gd); shake, flash, hitStop,
+  slowMotion (fx.gd).
+- **Where handlers live:** the world (any event), a room (its own events), a prop
+  (its own touch / interact / hit / destroyed, plus room events) or an enemy spawn
+  (its own death). Handlers may only name items, modals, rooms and spawns that exist.
+- **Run state:** flags, items, abilities, the checkpoint and visited rooms. All of it is
+  saved with the run (headless runs save in memory) and reported in the runtime's state.
+- **Rules are presets.** `world.rules` (onDeath, save, hazardDamage) compiles to
+  handlers (`ruleHandlers`) that `toRuntimeProject` sends before the world's own,
+  so the runtime only knows handlers.
+- **No roles in code.** Keys, locked barriers, switches, save spots and boss
+  fights are recipes: props, flags, items, enemies and handlers.
+  `game/test/genericity.test.ts` fails if runtime or gameplay code names a role.
+- **Studio:** the **Game** tab holds the rules, game handlers, items, modals and the
+  map. **Rooms** holds each room's handlers, its props (the ▭ Prop tool) and each
+  enemy spawn's health bar and handlers. All of these are edited with the shared
+  `HandlerEditor`, whose forms come from the core schemas.
+
 ## Characters (art)
 
 **Characters** mode makes a character's look with AI, in stages. The main area

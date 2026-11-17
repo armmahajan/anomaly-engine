@@ -1,6 +1,10 @@
 import type { ProjectSpec } from "./schema.ts";
 import { lintArt, type ArtWarningCode } from "./art/lint.ts";
 import { gridSize, gridToSolids } from "./world/tiles.ts";
+import { lintEvents } from "./events/lint.ts";
+import { lintProps } from "./props/lint.ts";
+import { lintModals } from "./modals/lint.ts";
+import { lintCombat } from "./combat/lint.ts";
 
 /**
  * Semantic checks the schema can't express. A project with warnings is still
@@ -15,7 +19,9 @@ export type WarningCode =
   | "unreachable_state"
   | "endless_state"
   | "movement_mismatch"
-  | ArtWarningCode;
+  | ArtWarningCode
+  // Domain lints (events, props, modals, combat) add their own codes.
+  | (string & {});
 
 export interface ProjectWarning {
   code: WarningCode;
@@ -109,6 +115,6 @@ export function lintProject(project: ProjectSpec): ProjectWarning[] {
     }
   });
 
-  warnings.push(...lintArt(project));
+  warnings.push(...lintArt(project), ...lintEvents(project), ...lintProps(project), ...lintModals(project), ...lintCombat(project));
   return warnings;
 }

@@ -182,7 +182,7 @@ describe("room spawns, start and rules", () => {
   it("adds, moves and removes enemy spawns", () => {
     let p = twoRooms();
     p = ok(op(p, "addRoomSpawn", { roomId: "a", characterId: "crawler", x: 200, y: 288 }));
-    expect(room(p, "a").spawns).toEqual([{ id: "crawler_1", characterId: "crawler", x: 200, y: 288 }]);
+    expect(room(p, "a").spawns).toEqual([{ id: "crawler_1", characterId: "crawler", x: 200, y: 288, healthBar: null, handlers: [] }]);
     p = ok(op(p, "moveRoomSpawn", { roomId: "a", spawnId: "crawler_1", x: 300 }));
     expect(room(p, "a").spawns[0]).toMatchObject({ x: 300, y: 288 });
     expect(err(op(p, "addRoomSpawn", { roomId: "a", characterId: "player", x: 1, y: 1 })).message).toContain("is the player");

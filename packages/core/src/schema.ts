@@ -14,7 +14,7 @@ import { World, worldIssues } from "./world/world.ts";
  * are the character's feet (bottom-centre).
  */
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 
 const Size = z.strictObject({
@@ -128,7 +128,15 @@ export const ProjectSpec = z
         ctx.addIssue({ code: "custom", path: [...path, "room"], message: `biome "${dressing.biome}" has no room "${dressing.room}"` });
       }
     };
-    project.world.rooms.forEach((room, i) => checkDressing(room.dressing, ["world", "rooms", i, "dressing"]));
+    project.world.rooms.forEach((room, i) => {
+      checkDressing(room.dressing, ["world", "rooms", i, "dressing"]);
+      room.props.forEach((prop, j) => {
+        if (!prop.art) return;
+        const biome = project.art.assets.find((a) => a.id === prop.art!.biome);
+        const piece = biome?.kind === "biome" ? biome.kit?.pieces.find((p) => p.id === prop.art!.piece) : undefined;
+        if (!piece) ctx.addIssue({ code: "custom", path: ["world", "rooms", i, "props", j, "art"], message: `no kit piece "${prop.art.piece}" in biome "${prop.art.biome}"` });
+      });
+    });
     project.characters.forEach((c, i) => {
       if (c.appearance !== undefined && !project.art.assets.some((a) => a.id === c.appearance && a.kind === "character")) {
         ctx.addIssue({

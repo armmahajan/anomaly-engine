@@ -21,6 +21,14 @@ export type Snapshot = {
   entities: Entity[];
   room: string | null;
   visited: string[];
+  flags: string[];
+  items: Record<string, number>;
+  abilities: string[];
+  checkpoint: { room: string; x: number; y: number } | null;
+  modal: string | null;
+  mapOpen: boolean;
+  healthBars: string[];
+  props: { id: string; visible: boolean; solid: boolean }[];
 };
 
 export const runtimeState = (page: Page) =>

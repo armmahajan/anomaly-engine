@@ -3,7 +3,7 @@ extends Node2D
 ## shows the playtest room (edit mode) or plays the world (rooms and doors) from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 11
+const PROTOCOL_VERSION := 12
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -19,6 +19,9 @@ const WorldView := preload("res://scripts/art/world_view.gd")
 const StageView := preload("res://scripts/art/stage_view.gd")
 const WorldStage := preload("res://scripts/art/world_stage.gd")
 const Level := preload("res://scripts/level.gd")
+const PropsScript := preload("res://scripts/props.gd")
+const ModalLayer := preload("res://scripts/modal.gd")
+const FxScript := preload("res://scripts/fx.gd")
 
 var _project: Dictionary = {}
 var _mode := "edit"
@@ -32,6 +35,10 @@ var _world: Node2D = null
 var _player: Node = null
 var _edit_camera: Camera2D
 var _render_service: Node
+## The current room's props (props.gd), modals and the map (modal.gd), feedback effects (fx.gd).
+var _props: Node = null
+var _modals: CanvasLayer = null
+var _fx: Node = null
 ## Clip forced on a character in edit mode ("characterId" -> clip), for previews.
 var _preview_clips := {}
 
@@ -58,6 +65,15 @@ func _ready() -> void:
 	_run = WorldRuntime.new()
 	_run.main = self
 	add_child(_run)
+	_run.events.changed.connect(func(): if _props != null and is_instance_valid(_props): _props.refresh())
+	_modals = ModalLayer.new()
+	add_child(_modals)
+	_modals.setup(self)
+	_modals.register(_run.events)
+	_fx = FxScript.new()
+	add_child(_fx)
+	_fx.setup(self)
+	_fx.register(_run.events)
 
 	if OS.has_feature("web"):
 		_window = JavaScriptBridge.get_interface("window")
@@ -70,7 +86,7 @@ func _ready() -> void:
 	_send({
 		"type": "ready",
 		"protocolVersion": PROTOCOL_VERSION,
-		"primitives": {"actions": Registry.ACTIONS.keys(), "conditions": Registry.CONDITIONS.keys()},
+		"primitives": {"actions": Registry.ACTIONS.keys(), "conditions": Registry.CONDITIONS.keys(), "effects": _run.events.effect_types()},
 	})
 
 
@@ -128,6 +144,8 @@ func handle_message(message: Dictionary) -> void:
 			_send({"type": "modeChanged", "mode": _mode})
 		"stop":
 			_run.stop()
+			_modals.reset()
+			_fx.reset()
 			_build_world()  # back to spawn state = reset
 			_seed = null
 			_deaths = 0
@@ -135,20 +153,12 @@ func handle_message(message: Dictionary) -> void:
 			_apply_stage()
 			_send({"type": "modeChanged", "mode": _mode})
 		"getState":
-			_send({
-				"type": "state",
-				"requestId": str(message.get("requestId", "")),
-				"mode": _mode,
-				"revision": int(_project.get("revision", -1)),
-				"seed": _seed,
-				"deaths": _deaths,
-				"stage": str(_stage.get("mode", "game")),
-				"dressed": _dressing_view != null,
-				"entities": _entity_states(),
-				"room": _run.room_id if _run.active else _shown_room().get("id"),
-				"visited": _run.visited if _run.active else [],
-				"entry": {"x": _run.entry.x, "y": _run.entry.y} if _run.active else null,
-			})
+			var state := run_state()
+			state.merge({"type": "state", "requestId": str(message.get("requestId", ""))})
+			_send(state)
+		"previewModal":
+			if _mode != "play":
+				_modals.preview(message.get("modalId"))
 		"renderRig", "renderWorld":
 			_render_service.render(message, _send)
 		"images":
@@ -177,6 +187,39 @@ func handle_message(message: Dictionary) -> void:
 			_apply_preview_clips()
 		var other:
 			_error("unknown_message", "unknown message type '%s'" % other)
+
+
+## Everything the studio (and the headless simulator) can read about the runtime (protocol "state").
+func run_state() -> Dictionary:
+	var events = _run.events
+	var playing: bool = _run.active
+	return {
+		"mode": _mode,
+		"revision": int(_project.get("revision", -1)),
+		"seed": _seed,
+		"deaths": _deaths,
+		"stage": str(_stage.get("mode", "game")),
+		"dressed": _dressing_view != null,
+		"entities": _entity_states(),
+		"room": _run.room_id if playing else _shown_room().get("id"),
+		"visited": _run.visited.duplicate() if playing else [],
+		"entry": {"x": _run.entry.x, "y": _run.entry.y} if playing else null,
+		"flags": events.flags.keys() if playing else [],
+		"items": events.items.duplicate() if playing else {},
+		"abilities": _run.abilities.duplicate() if playing else [],
+		"checkpoint": events.checkpoint.duplicate() if playing and not events.checkpoint.is_empty() else null,
+		"modal": _modals.current(),
+		"mapOpen": _modals.map_open(),
+		"healthBars": _hud.health_bars(),
+		"props": _props.state() if _props != null and is_instance_valid(_props) else [],
+	}
+
+
+## Pause or resume gameplay (a modal is open): the room stops, doors and timers wait.
+func set_paused(paused: bool) -> void:
+	_run.paused = paused
+	if _world != null and _mode == "play":
+		_world.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
 
 
 func _send(message: Dictionary) -> void:
@@ -264,7 +307,7 @@ func _hit_stop() -> void:
 func _physics_process(_delta: float) -> void:
 	if _freeze > 0:
 		_freeze -= 1
-		if _freeze == 0 and _mode == "play" and _world != null:
+		if _freeze == 0 and _mode == "play" and _world != null and not _run.paused:
 			_world.process_mode = Node.PROCESS_MODE_INHERIT
 
 
@@ -342,6 +385,8 @@ func _setup_input() -> void:
 	_add_action("aim_up", [KEY_W, KEY_UP])
 	_add_action("aim_down", [KEY_S, KEY_DOWN])
 	_add_action("dash", [KEY_C, KEY_SHIFT, KEY_K])
+	_add_action("interact", [KEY_W, KEY_UP])
+	_add_action("map", [KEY_M, KEY_TAB])
 
 
 func _add_action(action: String, keys: Array) -> void:
@@ -507,6 +552,7 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 		player.touched_hazard.connect(_run.on_hazard_touched)
 	var level := _populate_room(_world, room, bounds, player)
 	_dressing_view = level.dressing
+	_props = level.props
 	player._spawn = at
 	player._kill_y = float(room.height) + 400.0
 	player.camera.limit_right = int(room.width)
@@ -561,9 +607,15 @@ func _populate_room(parent: Node2D, room: Dictionary, bounds: Dictionary, player
 		var body: CharacterBody2D = EnemyScript.new()
 		body.setup(character, bounds, Vector2(spawn.x, spawn.y), _project.get("art", {}))
 		body.spawn_id = spawn.id
+		if player != null:
+			body.killed.connect(_run.on_enemy_killed.bind(str(spawn.id), str(spawn.characterId)))
 		parent.add_child(body)
 		enemies.append(body)
-	return {"solids": solids, "enemies": enemies, "dressing": dressing_view}
+	var props: Node = PropsScript.new()
+	props.name = "Props"
+	parent.add_child(props)
+	props.setup(self, room, solids, player)
+	return {"solids": solids, "enemies": enemies, "dressing": dressing_view, "props": props}
 
 
 ## Cover everything outside a dressed room: its backdrop, fog and glows reach past the walls.

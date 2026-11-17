@@ -2,10 +2,11 @@ import { z } from "zod";
 import { Id } from "../common.ts";
 import { MovementAbility } from "../movement/params.ts";
 import { slugify, uniqueId } from "../ids.ts";
-import type { OperationError, OperationResult } from "../operations.ts";
-import { ProjectSpec } from "../schema.ts";
+import type { OperationResult } from "../operations.ts";
+import type { ProjectSpec } from "../schema.ts";
+import { checkInside, commit, fail, findRoom, known, parse, withRoom, withWorld, type Fail } from "./opHelpers.ts";
 import { Dressing } from "../art/world.ts";
-import { DoorSide, GameRules, OPPOSITE, World, type Door, type WorldRoom } from "./world.ts";
+import { DoorSide, GameRules, OPPOSITE, RoomSpawn, World, type Door, type WorldRoom } from "./world.ts";
 import { borderedGrid, gridCols, gridRows, TILE, TILE_CHAR, TILE_KINDS, TileGrid, type TileKind } from "./tiles.ts";
 
 /**
@@ -13,43 +14,6 @@ import { borderedGrid, gridCols, gridRows, TILE, TILE_CHAR, TILE_KINDS, TileGrid
  * rules. Same contract as ../operations.ts (pure, untrusted input, whole-
  * project check). Named apart from the art "rooms" of biomes (addRoom etc.).
  */
-
-type Fail = { ok: false; error: OperationError };
-
-const fail = (code: OperationError["code"], message: string, issues: OperationError["issues"] = []): Fail => ({
-  ok: false,
-  error: { code, message, issues },
-});
-const issuesOf = (error: z.ZodError, prefix = "") => error.issues.map((i) => ({ path: prefix + i.path.join("."), message: i.message }));
-const known = (ids: string[]) => (ids.length > 0 ? ` (known: ${ids.join(", ")})` : " (none exist)");
-
-function parse<T extends z.ZodType>(schema: T, input: unknown, op: string): { ok: true; data: z.infer<T> } | Fail {
-  const parsed = schema.safeParse(input);
-  return parsed.success ? { ok: true, data: parsed.data } : fail("invalid_input", `${op} input is malformed`, issuesOf(parsed.error));
-}
-
-function commit(next: ProjectSpec): OperationResult {
-  const parsed = ProjectSpec.safeParse({ ...next, revision: next.revision + 1 });
-  if (!parsed.success) {
-    const issues = issuesOf(parsed.error);
-    return fail("invalid_result", `operation would leave the project invalid: ${issues.map((i) => i.message).join("; ")}`, issues);
-  }
-  return { ok: true, project: parsed.data };
-}
-
-const withWorld = (project: ProjectSpec, world: Partial<World>): OperationResult => commit({ ...project, world: { ...project.world, ...world } });
-
-function findRoom(project: ProjectSpec, roomId: string): { ok: true; index: number; room: WorldRoom } | Fail {
-  const index = project.world.rooms.findIndex((r) => r.id === roomId);
-  if (index < 0) return fail("not_found", `no room "${roomId}"${known(project.world.rooms.map((r) => r.id))}`);
-  return { ok: true, index, room: project.world.rooms[index]! };
-}
-
-function withRoom(project: ProjectSpec, index: number, room: WorldRoom): OperationResult {
-  const rooms = project.world.rooms.slice();
-  rooms[index] = room;
-  return withWorld(project, { rooms });
-}
 
 function findDoor(room: WorldRoom, doorId: string): { ok: true; index: number; door: Door } | Fail {
   const index = room.doors.findIndex((d) => d.id === doorId);
@@ -63,13 +27,6 @@ function unlink(rooms: WorldRoom[], targets: { room: string; door?: string }[]):
   return rooms.map((room) =>
     room.doors.some((d) => hit(d.to)) ? { ...room, doors: room.doors.map((d) => (hit(d.to) ? { ...d, to: null } : d)) } : room,
   );
-}
-
-const roomSize = (room: WorldRoom) => ({ width: gridCols(room.grid) * TILE, height: gridRows(room.grid) * TILE });
-
-function checkInside(room: WorldRoom, x: number, y: number, what: string): Fail | null {
-  const { width, height } = roomSize(room);
-  return x < 0 || x > width || y < 0 || y > height ? fail("invalid_input", `${what} (${x}, ${y}) is outside room "${room.id}" (${width}x${height} px)`) : null;
 }
 
 // --- rooms -------------------------------------------------------------------
@@ -101,6 +58,8 @@ export function createWorldRoom(project: ProjectSpec, input: unknown): Operation
     doors: [],
     spawns: [],
     dressing: null,
+    props: [],
+    handlers: [],
     ...(regionId !== undefined && { regionId }),
   };
   return withWorld(project, { rooms: [...rooms, room] });
@@ -377,7 +336,7 @@ export function addRoomSpawn(project: ProjectSpec, input: unknown): OperationRes
   let n = 1;
   while (taken.includes(`${characterId}_${n}`)) n++;
   const id = p.data.spawnId ?? `${characterId}_${n}`;
-  return withRoom(project, found.index, { ...found.room, spawns: [...found.room.spawns, { id, characterId, x, y }] });
+  return withRoom(project, found.index, { ...found.room, spawns: [...found.room.spawns, RoomSpawn.parse({ id, characterId, x, y })] });
 }
 
 export const MoveRoomSpawnInput = z.strictObject({ roomId: Id, spawnId: Id, x: z.number().optional(), y: z.number().optional() });

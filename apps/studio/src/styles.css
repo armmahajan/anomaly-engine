@@ -1794,3 +1794,17 @@ body.resizing iframe {
 .muted {
   color: var(--muted);
 }
+
+/* Handlers (HandlerEditor): on / when / do rows, compact. */
+.handlers { display: flex; flex-direction: column; gap: 6px; }
+.handler { border: 1px solid var(--border); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.handler-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.handler-row select, .handler-row input { max-width: 9rem; }
+.handler-list { display: flex; flex-direction: column; gap: 3px; padding-left: 8px; }
+.handler-nested { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 2px 4px; border-left: 2px solid var(--border); }
+.handler-text { width: 7rem; }
+.link-button { background: none; border: none; padding: 0 2px; color: var(--accent); cursor: pointer; align-self: flex-start; }
+.inline-check { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; }
+
+/* Over the room painter: the props overlay (PropsOverlay.tsx) covers the room exactly. */
+.props-overlay { position: absolute; }

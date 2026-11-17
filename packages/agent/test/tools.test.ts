@@ -22,7 +22,7 @@ describe("tool definitions", () => {
 
   it("are plain JSON a provider can accept", () => {
     expect(JSON.parse(JSON.stringify(definitions))).toEqual(definitions);
-    expect(JSON.stringify(definitions).length).toBeLessThan(48_000); // 40k before the game-world tools (+7.6k)
+    expect(JSON.stringify(definitions).length).toBeLessThan(58_000); // 40k before the game-world tools (+7.6k), handlers (+1.7k); about 2.5k left per domain (props, modals, combat)
     expect(JSON.stringify(toolDefinitions(NARRATIVE_TOOLS)).length).toBeLessThan(40_000);
   });
 

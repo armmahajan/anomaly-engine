@@ -14,7 +14,7 @@ describe("validateProject", () => {
 
   it("rejects spawns of unknown characters", () => {
     const project = createDefaultProject();
-    project.world.rooms[0]!.spawns.push({ id: "ghost_1", characterId: "ghost", x: 0, y: 0 });
+    project.world.rooms[0]!.spawns.push({ id: "ghost_1", characterId: "ghost", x: 0, y: 0, healthBar: null, handlers: [] });
     const result = validateProject(project);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.issues[0]?.path).toBe("world.rooms.0.spawns.2.characterId");
@@ -29,7 +29,7 @@ describe("validateProject", () => {
   it("requires exactly one player character, never spawned in a room", () => {
     const project = createDefaultProject();
     expect(validateProject({ ...project, characters: project.characters.slice(1) }).ok).toBe(false);
-    project.world.rooms[0]!.spawns.push({ id: "player_1", characterId: "player", x: 100, y: 672 });
+    project.world.rooms[0]!.spawns.push({ id: "player_1", characterId: "player", x: 100, y: 672, healthBar: null, handlers: [] });
     expect(validateProject(project).ok).toBe(false);
   });
 

@@ -5,29 +5,38 @@ extends Node
 ## (`_build_room`). Runs after the world each physics frame
 ## (process_physics_priority), so it sees where the player ended up.
 ##
-## Split in three: events (player died, room entered, hazard touched, ...),
-## the game's rules (which today decide what each event does, from
-## world.rules), and effects: small, independent actions (respawn at a point,
-## restore health, apply damage, return to safe ground, save the run) that
-## rules call and, later, event bindings can call directly.
+## Game logic is handlers (events.gd): this file fires the run's events
+## (gameStarted, roomEntered, roomSettled, playerDied, hazardTouched,
+## enemyKilled, roomCleared) and implements the run's effects (respawn, heal,
+## damage, back to safe ground, saving) for events.gd. The game rules arrive
+## as handlers too (core events/rules.ts), so nothing here decides what an
+## event does.
 
+const EventsScript := preload("res://scripts/events.gd")
 const TILE := 32.0
 const OPPOSITE := {"left": "right", "right": "left", "top": "bottom", "bottom": "top"}
 ## Going up through a top door: at least this rise (px) in the room above, to clear its floor.
 const UP_CARRY := 3.0 * TILE  # core world.ts DOOR_UP_CARRY: the traversal checker assumes the same
 const SAVE_PREFIX := "anomaly-save:"
 
+## Saves when there is no browser storage (headless runs), for the whole process.
+static var _memory_store := {}
+
 var main: Node = null
+var events = null
 var active := false
+## Set while gameplay is paused (a modal is open): no doors, no timers.
+var paused := false
 var room_id := ""
-## Where the player comes back on death (onDeath "room"): where they entered the
+## Where the player comes back on respawn at "entry": where they entered the
 ## room, moved to the first ground they stood on there (entering mid-air or from below).
 var entry := Vector2.ZERO
 var abilities: Array = []
 var visited: Array = []
 
 var _rooms := {}
-var _rules := {}
+var _world_handlers: Array = []
+var _start := {}
 var _origin := {}
 var _settled := false
 var _safe := Vector2.ZERO
@@ -37,6 +46,7 @@ var _save_key := ""
 
 func _init() -> void:
 	process_physics_priority = 100
+	events = EventsScript.new(self)
 
 
 ## Start a run from a play message's `world` ({room, x, y, abilities, continue}). Returns a problem or "".
@@ -45,27 +55,35 @@ func start(project: Dictionary, start: Dictionary) -> String:
 	_rooms = {}
 	for room in world.get("rooms", []):
 		_rooms[room.id] = room
-	_rules = world.get("rules", {})
+	_world_handlers = world.get("handlers", [])
+	_start = world.get("start") if typeof(world.get("start")) == TYPE_DICTIONARY else {}
 	_save_key = SAVE_PREFIX + str(project.get("id", ""))
 	var problem := _check_start(start)
 	if problem != "":
 		return problem
+	events.reset()
 	abilities = start.get("abilities", []).duplicate()
 	visited = []
 	_origin = {"room": str(start.room), "at": Vector2(start.x, start.y)}
 	var from := _origin
-	if start.get("continue", false) and _rule("save") == "room":
+	if start.get("continue", false):
 		var saved := load_run()
 		if not saved.is_empty():
 			from = saved
 	active = true
+	paused = false
+	room_id = from.room
+	events.fire({"type": "gameStarted"})
 	_enter(from.room, from.at, null)
+	events.flush()
 	return ""
 
 
 func stop() -> void:
 	active = false
+	paused = false
 	room_id = ""
+	events.reset()
 
 
 func _check_start(start: Dictionary) -> String:
@@ -80,23 +98,38 @@ func _check_start(start: Dictionary) -> String:
 	return ""
 
 
-func _rule(key: String) -> String:
-	return str(_rules.get(key, {"onDeath": "room", "save": "room"}.get(key, "")))
+# --- what events.gd reads ------------------------------------------------------------
+
+func current_room() -> Dictionary:
+	return _rooms.get(room_id, {})
 
 
-# --- events: the game's rules decide what they do ----------------------------------
+func world_handlers() -> Array:
+	return _world_handlers
 
-## The player died (main.gd, deferred): rules.onDeath picks where they come back.
+
+## A prop takes part (drawn, solid, fires and answers events) unless hidden or destroyed.
+func prop_present(prop: Dictionary) -> bool:
+	var props = main._props
+	if props != null and is_instance_valid(props):
+		return props.is_present(prop)
+	return events.holds(prop.get("visible", true))
+
+
+func player_feet() -> Vector2:
+	return main._player.position if _player_ok() else entry
+
+
+func _player_ok() -> bool:
+	return main._player != null and is_instance_valid(main._player)
+
+
+# --- events ----------------------------------------------------------------------------
+
+## The player died (main.gd, deferred, so the room can be rebuilt).
 func on_player_died() -> void:
-	if _rule("onDeath") == "start":
-		var start = main._project.get("world", {}).get("start")
-		if typeof(start) == TYPE_DICTIONARY and _rooms.has(start.get("room")):
-			respawn_at(str(start.room), Vector2(start.x, start.y))
-		else:
-			respawn_at(_origin.room, _origin.at)
-	else:
-		respawn_at(room_id, entry)
-	restore_health()
+	events.fire({"type": "playerDied"})
+	events.flush()
 
 
 ## The player touched a hazard tile (player.gd signal; handled after the frame's movement).
@@ -104,70 +137,98 @@ func on_hazard_touched() -> void:
 	_hazard = true
 
 
-func _on_hazard(player: Node) -> void:
-	apply_damage(int(_rules.get("hazardDamage", 1)))
-	if player.health > 0:  # else died: main restarts the run
-		return_to_safe_ground()
+## An enemy died (enemy.gd signal, mid-frame: handled after the frame's movement).
+func on_enemy_killed(spawn_id: String, character_id: String) -> void:
+	events.fire({"type": "enemyKilled", "spawn": spawn_id, "character": character_id})
+	var alive: bool = main._world != null and main._world.get_children().any(func(c): return c is CharacterBody2D and "dead" in c and not c.dead and c != main._player)
+	if not alive:
+		events.fire({"type": "roomCleared"})
 
 
-func _on_room_entered() -> void:
-	if _rule("save") == "room":
-		save_run()
+# --- effects (called by events.gd) ------------------------------------------------------
 
+## Back at "entry" (where they entered this room), "start" (the game's start) or "checkpoint" (else the start).
+func respawn(at: String) -> void:
+	var target := {"room": room_id, "at": entry}
+	if at == "checkpoint" and not events.checkpoint.is_empty() and _rooms.has(events.checkpoint.room):
+		target = {"room": str(events.checkpoint.room), "at": Vector2(events.checkpoint.x, events.checkpoint.y)}
+	elif at in ["start", "checkpoint"]:
+		target = {"room": str(_start.room), "at": Vector2(_start.x, _start.y)} if _rooms.has(_start.get("room")) else _origin
+	respawn_at(target.room, target.at)
 
-## The player first stood on safe ground in this room: that becomes its respawn point.
-func _on_entry_settled() -> void:
-	if _rule("save") == "room":
-		save_run()
-
-
-# --- effects -------------------------------------------------------------------------
 
 ## Rebuild a room (its enemies respawn) with a fresh player at `at`, keeping the player's health.
 func respawn_at(id: String, at: Vector2) -> void:
-	var health: int = main._player.health if main._player != null and is_instance_valid(main._player) else -1
+	var health: int = main._player.health if _player_ok() else -1
 	_enter(id, at, null)
 	if health >= 0:
 		main._player.health = health
 
 
-func restore_health() -> void:
-	main._player.health = main._player.max_health
+## Restore `amount` health (null = all of it).
+func heal(amount) -> void:
+	if not _player_ok():
+		return
+	var player: Node = main._player
+	player.health = player.max_health if amount == null else mini(player.max_health, player.health + int(amount))
 
 
 ## Hurt the player (no knockback); ignored while invulnerable. At 0 health they die.
 func apply_damage(amount: int) -> void:
-	if amount > 0:
+	if amount > 0 and _player_ok():
 		main._player.hit(0.0, 0.0, amount)
 
 
-## Put the player back, standing still, on the last ground they stood safely on.
+## Put the player back, standing still, on the last ground they stood safely on (if alive).
 func return_to_safe_ground() -> void:
+	if not _player_ok() or main._player.health <= 0:
+		return
 	var player: Node = main._player
 	player._dash_frames = 0
 	player._pounding = false
 	_place(player, _safe, Vector2.ZERO)
 
 
-## Save the run (room, respawn point, abilities, visited) in this browser. No-op headless.
+func grant_ability(ability: String) -> void:
+	if not ability in abilities:
+		abilities.append(ability)
+	if _player_ok():
+		main._player.grant_ability(ability)
+
+
+## Save the run (room, respawn point, abilities, visited, flags, items, checkpoint) in this browser
+## (headless: in memory, for this process).
 func save_run() -> void:
+	var data := JSON.stringify({
+		"room": room_id, "entry": {"x": entry.x, "y": entry.y}, "abilities": abilities, "visited": visited,
+		"flags": events.flags.keys(), "items": events.items, "checkpoint": events.checkpoint,
+	})
 	var storage = _storage()
 	if storage != null:
-		storage.setItem(_save_key, JSON.stringify({"room": room_id, "entry": {"x": entry.x, "y": entry.y}, "abilities": abilities, "visited": visited}))
+		storage.setItem(_save_key, data)
+	else:
+		_memory_store[_save_key] = data
 
 
-## The saved run as {room, at}, restoring abilities and visited; {} if none (or its room is gone).
+## The saved run as {room, at}, restoring the rest; {} if none (or its room is gone).
 func load_run() -> Dictionary:
 	var storage = _storage()
-	if storage == null:
-		return {}
-	var data = JSON.parse_string(str(storage.getItem(_save_key)))
+	var raw = storage.getItem(_save_key) if storage != null else _memory_store.get(_save_key)
+	var data = JSON.parse_string(str(raw)) if raw != null else null
 	if typeof(data) != TYPE_DICTIONARY or not _rooms.has(data.get("room")) or typeof(data.get("entry")) != TYPE_DICTIONARY:
 		return {}
 	if typeof(data.get("abilities")) == TYPE_ARRAY:
 		abilities = data.abilities
 	if typeof(data.get("visited")) == TYPE_ARRAY:
 		visited = data.visited
+	if typeof(data.get("flags")) == TYPE_ARRAY:
+		for flag in data.flags:
+			events.flags[str(flag)] = true
+	if typeof(data.get("items")) == TYPE_DICTIONARY:
+		for item in data.items:
+			events.items[str(item)] = int(data.items[item])
+	if typeof(data.get("checkpoint")) == TYPE_DICTIONARY:
+		events.checkpoint = data.checkpoint
 	return {"room": str(data.room), "at": Vector2(float(data.entry.x), float(data.entry.y))}
 
 
@@ -188,24 +249,26 @@ func _enter(id: String, at: Vector2, carried: Node) -> void:
 		visited.append(id)
 	main._build_room(_rooms[id], at, carried, abilities)
 	main._send({"type": "roomEntered", "room": id})
-	_on_room_entered()
+	events.fire({"type": "roomEntered"})
 
 
-func _physics_process(_delta: float) -> void:
-	if not active or main._mode != "play" or main._player == null or not is_instance_valid(main._player):
+func _physics_process(delta: float) -> void:
+	if not active or paused or main._mode != "play" or not _player_ok():
 		return
 	var player: Node = main._player
 	if _hazard:
 		_hazard = false
-		_on_hazard(player)
-		return
-	if _on_safe_ground(player):
-		_safe = player.position
-		if not _settled:
-			_settled = true
-			entry = player.position
-			_on_entry_settled()
-	_check_doors(player)
+		events.fire({"type": "hazardTouched"})
+	else:
+		if _on_safe_ground(player):
+			_safe = player.position
+			if not _settled:
+				_settled = true
+				entry = player.position
+				events.fire({"type": "roomSettled"})
+		_check_doors(player)
+	events.tick(delta)
+	events.flush()
 
 
 ## Standing with both feet on ground that can't hurt or vanish.

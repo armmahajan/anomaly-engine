@@ -5,7 +5,7 @@ const wrap = (message: unknown) => JSON.stringify({ source: RUNTIME_SOURCE, mess
 
 describe("decodeRuntimeMessage", () => {
   it("decodes a valid runtime message", () => {
-    const ready = { type: "ready", protocolVersion: 6, primitives: { actions: ["wait"], conditions: ["after"] } };
+    const ready = { type: "ready", protocolVersion: 6, primitives: { actions: ["wait"], conditions: ["after"], effects: ["setFlag"] } };
     expect(decodeRuntimeMessage(wrap(ready))).toEqual({ kind: "message", message: ready });
   });
 
@@ -20,6 +20,11 @@ describe("decodeRuntimeMessage", () => {
     expect(decodeRuntimeMessage(wrap(state))).toMatchObject({ message: { stage: "game", room: null, visited: [], entry: null } });
     const inWorld = { ...state, stage: "game", room: "hall", visited: ["entrance", "hall"], entry: { x: 15, y: 384 } };
     expect(decodeRuntimeMessage(wrap(inWorld))).toMatchObject({ message: { room: "hall", visited: ["entrance", "hall"], entry: { x: 15, y: 384 } } });
+  });
+
+  it("reads the run's state, empty by default", () => {
+    const state = { type: "state", requestId: "r", mode: "edit", revision: 3, seed: null, deaths: 0, entities: [] };
+    expect(decodeRuntimeMessage(wrap(state))).toMatchObject({ message: { flags: [], items: {}, abilities: [], checkpoint: null, modal: null, mapOpen: false, healthBars: [], props: [] } });
   });
 
   it("flags malformed runtime messages", () => {

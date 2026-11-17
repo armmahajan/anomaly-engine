@@ -7,6 +7,10 @@ import { progressionOperations, withoutEnemy } from "./progression/operations.ts
 import { artOperations } from "./art/operations.ts";
 import { worldOperations } from "./art/worldOperations.ts";
 import { withoutRoomSpawns, worldRoomOperations } from "./world/operations.ts";
+import { handlerOperations } from "./events/operations.ts";
+import { propOperations } from "./props/operations.ts";
+import { modalOperations } from "./modals/operations.ts";
+import { combatOperations } from "./combat/operations.ts";
 
 /**
  * Project operations: pure functions (project, untrusted input) -> result.
@@ -381,6 +385,10 @@ const operations = {
   ...artOperations,
   ...worldOperations,
   ...worldRoomOperations,
+  ...handlerOperations,
+  ...propOperations,
+  ...modalOperations,
+  ...combatOperations,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;
 
 export type OperationName = keyof typeof operations;

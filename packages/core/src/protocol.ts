@@ -17,7 +17,7 @@ import type { RuntimeProject } from "./world/runtime.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -41,7 +41,9 @@ export type StudioToRuntime =
   /** What the runtime shows (studio modes). Ignored while playing; `game` is the playtest room. */
   | { type: "stage"; stage: Stage }
   /** Images (base64 by file ref) for worlds; the runtime keeps them, so each is sent once. */
-  | { type: "images"; images: Record<string, string> };
+  | { type: "images"; images: Record<string, string> }
+  /** Edit mode: show a modal of the loaded project over the game (null = close it). */
+  | { type: "previewModal"; modalId: string | null };
 
 /** Where a world run begins. */
 export interface WorldStart {
@@ -138,8 +140,8 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("ready"),
     protocolVersion: z.number(),
-    /** Primitive types the runtime implements; must match core ACTION_TYPES / CONDITION_TYPES. */
-    primitives: z.object({ actions: z.array(z.string()), conditions: z.array(z.string()) }),
+    /** Primitive types the runtime implements; must match core ACTION_TYPES / CONDITION_TYPES / EFFECT_TYPES. */
+    primitives: z.object({ actions: z.array(z.string()), conditions: z.array(z.string()), effects: z.array(z.string()).default([]) }),
   }),
   z.object({ type: z.literal("loaded"), revision: z.number() }),
   z.object({ type: z.literal("modeChanged"), mode: RuntimeMode }),
@@ -161,6 +163,18 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     room: z.string().nullable().default(null),
     visited: z.array(z.string()).default([]),
     entry: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
+    /** The run's state (empty in edit mode): flags set, items held, abilities, the checkpoint. */
+    flags: z.array(z.string()).default([]),
+    items: z.record(z.string(), z.number()).default({}),
+    abilities: z.array(z.string()).default([]),
+    checkpoint: z.object({ room: z.string(), x: z.number(), y: z.number() }).nullable().default(null),
+    /** The open modal (or the one previewed in edit mode), and whether the map is open. */
+    modal: z.string().nullable().default(null),
+    mapOpen: z.boolean().default(false),
+    /** Spawns whose health bars are on screen, top first. */
+    healthBars: z.array(z.string()).default([]),
+    /** Props in the current room as the run sees them (id, visible, solid). */
+    props: z.array(z.object({ id: z.string(), visible: z.boolean(), solid: z.boolean() })).default([]),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
   /** Play: the player entered a room (at the start of the run, through a door, or on respawn). */

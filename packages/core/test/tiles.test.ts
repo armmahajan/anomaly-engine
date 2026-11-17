@@ -116,7 +116,7 @@ describe("the arena on a grid", () => {
     };
     const migrated = ProjectSpec.parse(migrateProject(old));
     expect(migrated.world.rooms[0]!.grid).toEqual(defaultArenaGrid());
-    expect(migrated.world.rooms[0]!.spawns).toEqual([{ id: "crawler_1", characterId: "crawler", x: 48, y: 672 }]); // out of the wall and the floor
+    expect(migrated.world.rooms[0]!.spawns).toMatchObject([{ id: "crawler_1", characterId: "crawler", x: 48, y: 672 }]); // out of the wall and the floor
     expect(migrated.world.playtest).toEqual({ room: "arena", x: 160, y: 660, abilities: [] });
   });
 

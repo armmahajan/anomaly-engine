@@ -9,13 +9,14 @@ import { ArtPanel } from "./ArtPanel.tsx";
 import { CharacterBench } from "./CharacterBench.tsx";
 import { currentWorld, WorldBench, type WorldUi } from "./WorldBench.tsx";
 import { WorldPanel } from "./WorldPanel.tsx";
+import { GamePanel } from "./GameView.tsx";
 import { initialRoomsUi, RoomPainter, RoomsBench, RoomsPanel, type RoomsUi } from "./RoomsView.tsx";
 import { fileUrl } from "./api.ts";
 import { useChatOpen, useSidebarWidth } from "./layout.ts";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
-type Tab = "playtest" | "characters" | "worlds" | "rooms" | "wiki" | "progression";
-const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Worlds", rooms: "Rooms", wiki: "Wiki", progression: "Progression" };
+type Tab = "playtest" | "characters" | "worlds" | "rooms" | "game" | "wiki" | "progression";
+const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Worlds", rooms: "Rooms", game: "Game", wiki: "Wiki", progression: "Progression" };
 /** Design documents (the director's tabs): the game is hidden and the chat is the director's. */
 const DESIGN_TABS: readonly Tab[] = ["wiki", "progression"];
 
@@ -126,7 +127,7 @@ export function App({ session }: { session: Session }) {
 
   // Tell the runtime what to show for this mode (workbenches drive their own stage).
   useEffect(() => {
-    if (tab === "playtest" || tab === "wiki") session.setStage({ mode: "game" });
+    if (tab === "playtest" || tab === "game" || tab === "wiki") session.setStage({ mode: "game" });
   }, [session, tab, state.runtimeStatus]);
 
   // While playing the world, the Rooms sidebar follows the player from room to room.
@@ -165,6 +166,7 @@ export function App({ session }: { session: Session }) {
     characters: 0,
     worlds: 0,
     rooms: 0,
+    game: 0,
     wiki: project.wiki.pages.filter((p) => p.status === "draft").length,
     progression: [...progression.regions, ...progression.abilities, ...progression.connections, ...progression.beats].filter((i) => i.status === "draft").length,
   };
@@ -336,6 +338,12 @@ export function App({ session }: { session: Session }) {
         <aside className="sidebar">
           <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
           <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} />
+          {problem}
+        </aside>
+      ) : tab === "game" ? (
+        <aside className="sidebar">
+          <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
+          <GamePanel project={project} session={session} locked={locked} />
           {problem}
         </aside>
       ) : checks ? (

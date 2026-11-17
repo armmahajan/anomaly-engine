@@ -1,5 +1,5 @@
 extends Node2D
-## Play-mode HUD: the player's health as a row of pips.
+## Play-mode HUD: the player's health as a row of pips, and enemy health bars (agent F).
 
 var player: Node2D = null
 
@@ -17,3 +17,8 @@ func _draw() -> void:
 			draw_circle(at, 9.0, Color("#e8e3d3"))
 		else:
 			draw_arc(at, 9.0, 0.0, TAU, 24, Color("#e8e3d3", 0.45), 2.0)
+
+
+## Spawn ids of the enemy health bars on screen, top first (agent F).
+func health_bars() -> Array:
+	return []

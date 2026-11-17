@@ -158,6 +158,9 @@ const steps: Record<number, (project: Json) => Json> = {
       },
     };
   },
+
+  /** v6 -> v7: props, items, modals and handlers arrive empty (schema defaults); nothing to convert. */
+  6: (project) => ({ ...project, schemaVersion: 7 }),
 };
 
 export function migrateProject(raw: unknown): unknown {

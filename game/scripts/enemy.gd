@@ -6,6 +6,9 @@ extends CharacterBody2D
 const Registry := preload("res://primitives/registry.gd")
 const CharacterArt := preload("res://scripts/art/character_art.gd")
 
+## The sword (or anything else) brought its health to 0.
+signal killed
+
 var character_id := ""
 var spawn_id := ""
 ## Current behavior state id (reported to the studio).
@@ -179,6 +182,7 @@ func take_hit(damage: int, push: Vector2) -> void:
 		visible = false
 		collision_layer = 0
 		set_physics_process(false)
+		killed.emit()
 
 
 # --- actor API ---

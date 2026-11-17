@@ -6,6 +6,9 @@ import {
   CharacterRef,
   Condition,
   DuplicateCharacterInput,
+  Effect,
+  GameCondition,
+  GameEvent,
   EnemyCharacter,
   Id,
   MovementAbility,
@@ -31,6 +34,13 @@ import {
 } from "@anomaly/core";
 import { describeCharacter, describeRoom, summarizeProject } from "./summary.ts";
 import type { ToolDefinition } from "./messages.ts";
+import { handlerTools } from "./domains/handlers.ts";
+import { propTools } from "./domains/props.ts";
+import { modalTools } from "./domains/modals.ts";
+import { combatTools } from "./domains/combat.ts";
+
+/** Game-logic domains, each in its own file (operations, tool text, schemas, summary). */
+export const DOMAIN_TOOLS = [handlerTools, propTools, modalTools, combatTools] as const;
 
 /**
  * The agent's tools. Write tools are exactly the core operations (same names,
@@ -115,8 +125,12 @@ const writeDescriptions: Record<BuildOperation, string> = {
   removeRoomSpawn: "Remove an enemy spawn from a room.",
   setWorldStart: "Set where the game begins (room, player's feet); roomId null clears it.",
   setPlaytest: "Set what ▶ Play tests: the room (with x, y: where the player starts) and/or the movement abilities the player has (dash, double_jump, wall_jump, glide, ground_pound).",
-  setGameRules: "Game rules: onDeath room (back to the room's entry) | start, save room | never, hazardDamage.",
+  setGameRules: "Game rules (presets of handlers): onDeath room (back to the room's entry) | start | checkpoint, save room | never, hazardDamage.",
   setLedgeThickness: "Thickness (px) of ledge and one-way tiles everywhere.",
+  ...handlerTools.descriptions,
+  ...propTools.descriptions,
+  ...modalTools.descriptions,
+  ...combatTools.descriptions,
 };
 
 const int = z.number().int();
@@ -208,6 +222,10 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   setPlaytest: z.strictObject({ roomId: z.string().optional(), x: z.number().optional(), y: z.number().optional(), abilities: z.array(MovementAbility).optional() }),
   setGameRules: z.strictObject({ onDeath: GameRules.shape.onDeath.unwrap().optional(), save: GameRules.shape.save.unwrap().optional(), hazardDamage: int.optional() }),
   setLedgeThickness: z.strictObject({ thickness: int }),
+  ...handlerTools.schemas,
+  ...propTools.schemas,
+  ...modalTools.schemas,
+  ...combatTools.schemas,
 };
 
 /** Apply an operation to the draft and stage it for the end-of-turn commit. */
@@ -280,6 +298,12 @@ const readTools: ToolSpec[] = [
     description: "The behavior building blocks: action primitives (what a state does) and condition primitives (when to leave it), with parameters.",
     schema: z.strictObject({}),
     run: () => ({ ok: true, actions: jsonSchema(Action), conditions: jsonSchema(Condition) }),
+  },
+  {
+    name: "listGameLogic",
+    description: "The game-logic building blocks for handlers: events (on), conditions (when) and effects (do), with parameters.",
+    schema: z.strictObject({}),
+    run: () => ({ ok: true, events: jsonSchema(GameEvent), conditions: jsonSchema(GameCondition), effects: jsonSchema(Effect) }),
   },
 ];
 

@@ -15,16 +15,21 @@ import {
   type WorldStart,
 } from "@anomaly/core";
 import type { Session } from "./session.ts";
+import { HandlerEditor } from "./HandlerEditor.tsx";
+import { PropsOverlay } from "./PropsOverlay.tsx";
+import { PropsSection } from "./PropsSection.tsx";
+import { SpawnDetails } from "./SpawnDetails.tsx";
 
 /**
  * Rooms mode: the game world's rooms. The runtime shows the selected room
  * (stage "room"); a painter over it paints tiles (one stroke = one edit) or
  * drops the spot that "Set start here", "+ Enemy here" and "Play from here"
- * use. The sidebar lists rooms on a small world map, with doors, enemies,
- * the start and the game's rules.
+ * use; the Prop tool hands the pointer to the props overlay. The sidebar
+ * lists rooms on a small world map, with doors, enemies, props, the start
+ * and the room's handlers (the game's rules are in the Game tab).
  */
 
-export type RoomTool = TileKind | "spot";
+export type RoomTool = TileKind | "spot" | "prop";
 
 export interface RoomsUi {
   roomId: string | null;
@@ -32,9 +37,11 @@ export interface RoomsUi {
   /** A point in the selected room (feet, px), or null for its default. */
   spot: { x: number; y: number } | null;
   abilities: MovementAbility[];
+  /** The selected prop in the room, if any. */
+  propId: string | null;
 }
 
-export const initialRoomsUi: RoomsUi = { roomId: null, tool: "solid", spot: null, abilities: [] };
+export const initialRoomsUi: RoomsUi = { roomId: null, tool: "solid", spot: null, abilities: [], propId: null };
 
 const TOOLS: { tool: RoomTool; label: string }[] = [
   { tool: "empty", label: "Empty" },
@@ -44,7 +51,9 @@ const TOOLS: { tool: RoomTool; label: string }[] = [
   { tool: "hazard", label: "Hazard" },
   { tool: "breakable", label: "Breakable" },
   { tool: "spot", label: "📍 Spot" },
+  { tool: "prop", label: "▭ Prop" },
 ];
+const isTile = (tool: RoomTool): tool is TileKind => tool !== "spot" && tool !== "prop";
 
 const TILE_COLOR: Record<TileKind, string> = {
   empty: "#0c0e13",
@@ -118,7 +127,7 @@ export function RoomsBench({ project, session, ui, setUi, playing, ready, onPlay
                 data-testid={`tool-${tool}`}
                 onClick={() => setUi({ ...ui, tool })}
               >
-                {tool !== "spot" && <span className="swatch" style={{ background: TILE_COLOR[tool] }} />}
+                {isTile(tool) && <span className="swatch" style={{ background: TILE_COLOR[tool] }} />}
                 {label}
               </button>
             ))}
@@ -209,7 +218,7 @@ export function RoomPainter({ project, session, ui, setUi, locked }: PainterProp
     for (let c = 1; c < cols; c++) g.moveTo(c * TILE, 0), g.lineTo(c * TILE, rows * TILE);
     for (let r = 1; r < rows; r++) g.moveTo(0, r * TILE), g.lineTo(cols * TILE, r * TILE);
     g.stroke();
-    if (ui.tool !== "spot") {
+    if (isTile(ui.tool)) {
       g.fillStyle = TILE_COLOR[ui.tool];
       g.globalAlpha = 0.75;
       for (const [c, r] of stroke.current.values()) g.fillRect(c * TILE, r * TILE, TILE, TILE);
@@ -251,7 +260,7 @@ export function RoomPainter({ project, session, ui, setUi, locked }: PainterProp
   };
 
   const onDown = (e: ReactPointerEvent) => {
-    if (locked || e.button !== 0) return;
+    if (locked || e.button !== 0 || ui.tool === "prop") return;
     const cell = cellAt(e);
     if (!cell) return;
     if (ui.tool === "spot") {
@@ -272,7 +281,7 @@ export function RoomPainter({ project, session, ui, setUi, locked }: PainterProp
     drawing.current.last = cell;
   };
   const onUp = async () => {
-    if (!drawing.current || ui.tool === "spot") return;
+    if (!drawing.current || !isTile(ui.tool)) return;
     drawing.current = null;
     const kind = ui.tool;
     const cells = [...stroke.current.values()].filter(([c, r]) => tileAt(room.grid, c, r) !== kind);
@@ -298,6 +307,9 @@ export function RoomPainter({ project, session, ui, setUi, locked }: PainterProp
         onPointerUp={() => void onUp()}
         onPointerLeave={() => setHover(null)}
       />
+      <div className="props-overlay" style={{ left: (view.width - size.width) / 2, top: (view.height - size.height) / 2, width: size.width, height: size.height, pointerEvents: ui.tool === "prop" ? "auto" : "none" }}>
+        <PropsOverlay project={project} session={session} room={room} ui={ui} setUi={setUi} locked={locked} scale={scale} active={ui.tool === "prop"} />
+      </div>
     </div>
   );
 }
@@ -323,7 +335,6 @@ export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) 
   };
   const edit = async (op: string, input: unknown) => report(await session.applyOperation(op, input));
   const select = (roomId: string) => setUi({ ...ui, roomId, spot: null });
-  const { rules } = project.world;
   const spot = room ? roomSpot(project, room, ui) : null;
 
   const addRoom = async () => {
@@ -423,13 +434,16 @@ export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) 
 
           <h3>Enemies</h3>
           {room.spawns.map((s) => (
-            <div key={s.id} className="spawn">
-              <span className="spawn-id">
-                {s.id} ({Math.round(s.x)}, {Math.round(s.y)})
-              </span>
-              <button type="button" className="icon-button" aria-label={`remove ${s.id}`} disabled={locked} onClick={() => void edit("removeRoomSpawn", { roomId: room.id, spawnId: s.id })}>
-                ✕
-              </button>
+            <div key={s.id}>
+              <div className="spawn">
+                <span className="spawn-id">
+                  {s.id} ({Math.round(s.x)}, {Math.round(s.y)})
+                </span>
+                <button type="button" className="icon-button" aria-label={`remove ${s.id}`} disabled={locked} onClick={() => void edit("removeRoomSpawn", { roomId: room.id, spawnId: s.id })}>
+                  ✕
+                </button>
+              </div>
+              <SpawnDetails project={project} session={session} room={room} spawn={s} locked={locked} />
             </div>
           ))}
           <div className="spawn">
@@ -444,6 +458,19 @@ export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) 
               + Enemy at spot
             </button>
           </div>
+
+          <PropsSection project={project} session={session} room={room} ui={ui} setUi={setUi} locked={locked} />
+
+          <h3>Room handlers</h3>
+          <HandlerEditor
+            handlers={room.handlers}
+            scope="room"
+            project={project}
+            room={room}
+            locked={locked}
+            label={`room ${room.id}`}
+            onChange={(handlers) => void edit("setHandlers", { roomId: room.id, handlers })}
+          />
 
           <h3>Start</h3>
           <p className="hint">
@@ -468,32 +495,6 @@ export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) 
         </>
       )}
 
-      <h3>Rules</h3>
-      <div className="field">
-        <label htmlFor="rule-death">On death, back to</label>
-        <select id="rule-death" value={rules.onDeath} disabled={locked} onChange={(e) => void edit("setGameRules", { onDeath: e.target.value })}>
-          <option value="room">where you entered the room</option>
-          <option value="start">the start</option>
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor="rule-save">Saving</label>
-        <select id="rule-save" value={rules.save} disabled={locked} onChange={(e) => void edit("setGameRules", { save: e.target.value })}>
-          <option value="room">on entering each room</option>
-          <option value="never">never</option>
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor="rule-hazard">Hazard damage</label>
-        <input
-          id="rule-hazard"
-          type="number"
-          key={rules.hazardDamage}
-          defaultValue={rules.hazardDamage}
-          disabled={locked}
-          onKeyDown={(e) => e.key === "Enter" && void edit("setGameRules", { hazardDamage: Number(e.currentTarget.value) })}
-        />
-      </div>
     </section>
   );
 }

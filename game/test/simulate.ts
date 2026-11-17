@@ -20,7 +20,7 @@ export interface Scenario {
   input?: { action: Input; from: number; to: number }[];
 }
 
-export type Input = "move_left" | "move_right" | "jump" | "attack" | "aim_up" | "aim_down" | "dash";
+export type Input = "move_left" | "move_right" | "jump" | "attack" | "aim_up" | "aim_down" | "dash" | "interact" | "map";
 
 export interface Sample {
   frame: number;
@@ -30,6 +30,15 @@ export interface Sample {
   entry: [number, number] | null;
   visited: string[];
   entities: EntityState[];
+  /** The run's state (see protocol.ts "state"). */
+  flags: string[];
+  items: Record<string, number>;
+  abilities: string[];
+  checkpoint: { room: string; x: number; y: number } | null;
+  modal: string | null;
+  mapOpen: boolean;
+  healthBars: string[];
+  props: { id: string; visible: boolean; solid: boolean }[];
 }
 
 /** Run scenarios in one headless Godot process, 1/60 s per frame. */

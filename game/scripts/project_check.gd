@@ -50,21 +50,51 @@ static func _check_world(world: Variant, ids: Dictionary) -> String:
 		return ""
 	if typeof(world) != TYPE_DICTIONARY or typeof(world.get("rooms", [])) != TYPE_ARRAY:
 		return "world.rooms must be an array"
+	var problem := _check_handlers(world.get("handlers", []), "world")
+	if problem != "":
+		return problem
 	for room in world.get("rooms", []):
 		if typeof(room) != TYPE_DICTIONARY or typeof(room.get("id")) != TYPE_STRING or not _all_num(room, ["width", "height"]):
 			return "every world room needs an id and numeric width, height (send core toRuntimeProject)"
 		for key in ["solids", "doors", "spawns"]:
 			if typeof(room.get(key)) != TYPE_ARRAY:
 				return "room '%s' needs a %s array" % [room.id, key]
-		var problem := check_solids(room.solids)
+		problem = check_solids(room.solids)
 		if problem != "":
 			return problem
+		problem = _check_handlers(room.get("handlers", []), "room '%s'" % room.id)
+		if problem != "":
+			return problem
+		for prop in room.get("props", []):
+			if typeof(prop) != TYPE_DICTIONARY or typeof(prop.get("id")) != TYPE_STRING or not _all_num(prop, ["x", "y", "width", "height"]):
+				return "room '%s' has a malformed prop" % room.id
+			problem = _check_handlers(prop.get("handlers", []), "prop '%s'" % prop.id)
+			if problem != "":
+				return problem
 		for door in room.doors:
 			if typeof(door) != TYPE_DICTIONARY or not door.get("side") in ["left", "right", "top", "bottom"] or not _all_num(door, ["offset", "size"]):
 				return "room '%s' has a malformed door" % room.id
 		for spawn in room.spawns:
 			if typeof(spawn) != TYPE_DICTIONARY or not _all_num(spawn, ["x", "y"]) or ids.get(spawn.get("characterId")) != "enemy":
 				return "room '%s' spawns must be enemies with numeric x, y" % room.id
+			problem = _check_handlers(spawn.get("handlers", []), "spawn '%s'" % spawn.get("id"))
+			if problem != "":
+				return problem
+	return ""
+
+
+## Handlers: {on: {type}, when: [...], do: [{type, ...}]} (core events/events.ts validates the details).
+static func _check_handlers(handlers: Variant, where: String) -> String:
+	if typeof(handlers) != TYPE_ARRAY:
+		return "%s handlers must be an array" % where
+	for h in handlers:
+		if typeof(h) != TYPE_DICTIONARY or typeof(h.get("on")) != TYPE_DICTIONARY or typeof(h.on.get("type")) != TYPE_STRING:
+			return "%s has a handler without an event" % where
+		if typeof(h.get("when", [])) != TYPE_ARRAY or typeof(h.get("do")) != TYPE_ARRAY:
+			return "%s handler for %s needs when and do lists" % [where, h.on.type]
+		for effect in h.do:
+			if typeof(effect) != TYPE_DICTIONARY or typeof(effect.get("type")) != TYPE_STRING:
+				return "%s handler for %s has an effect without a type" % [where, h.on.type]
 	return ""
 
 

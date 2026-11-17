@@ -19,6 +19,9 @@ var health := 0
 var max_health := 0
 ## Set by main.gd: everything the sword can hit.
 var enemies: Array = []
+## Other things the sword can strike (props): each has rect() and struck(damage, push) -> bool
+## (true = a landed hit: a downward strike bounces, a forward one recoils).
+var targets: Array = []
 
 const INVULNERABLE_TIME := 0.7
 const STUN_TIME := 0.25
@@ -476,6 +479,13 @@ func _strike() -> void:
 			push = Vector2.DOWN
 		enemy.take_hit(_attack_damage, push)
 		landed = true
+	for target in targets:
+		if target in _slash_hits or not is_instance_valid(target) or not area.intersects(target.rect()):
+			continue
+		_slash_hits.append(target)
+		var push := Vector2(_facing, 0.0) if _slash == "forward" else (Vector2.UP if _slash == "up" else Vector2.DOWN)
+		if target.struck(_attack_damage, push):
+			landed = true
 	if not landed:
 		return
 	match _slash:
@@ -496,6 +506,13 @@ func slash_rect() -> Rect2:
 			return Rect2(position.x - wide / 2.0, position.y, wide, _attack_reach)
 	var x := position.x + _size.x / 2.0 if _facing > 0.0 else position.x - _size.x / 2.0 - _attack_reach
 	return Rect2(x, position.y - _size.y, _attack_reach, _size.y)
+
+
+## Give the player a movement ability mid-run (an effect).
+func grant_ability(ability: String) -> void:
+	_has[ability] = true
+	if ability == "double_jump":
+		_air_jump_count = int(_tune("doubleJump", "jumps", 1))
 
 
 ## Called by enemies on contact. Ignored while invulnerable.

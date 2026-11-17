@@ -3,7 +3,7 @@ extends SceneTree
 ##   godot --headless --fixed-fps 60 --path game --script res://tests/simulate.gd -- in.json out.json
 ## in.json:  {"scenarios": [{"project", "seed", "world"?, "frames", "samples": [frame...], "input": [{"action", "from", "to"}]}]}
 ##            (`world`: start in the game world, as the play message's `world`; else the arena)
-## out.json: {"results": [{"error", "samples": [{"frame", "deaths", "room", "entry", "visited", "entities"}]}]}
+## out.json: {"results": [{"error", "samples": [{"frame", "deaths", "room", "entry", "visited", "entities", ...the rest of main.run_state()}]}]}
 
 
 func _initialize() -> void:
@@ -38,16 +38,16 @@ func _simulate(scenario: Dictionary) -> Dictionary:
 				_send_action(press.action, false)
 		if float(frame) in wanted or frame in wanted:
 			var run: Node = main._run
-			samples.append({
+			var sample: Dictionary = main.run_state()
+			sample.merge({
 				"frame": frame,
-				"deaths": main._deaths,
 				"room": run.room_id if run.active else null,
 				"entry": [run.entry.x, run.entry.y] if run.active else null,
 				"visited": run.visited.duplicate(),
-				"entities": main._entity_states(),
-			})
+			}, true)
+			samples.append(sample)
 		await physics_frame
-	for action in ["move_left", "move_right", "jump", "attack", "aim_up", "aim_down", "dash"]:
+	for action in ["move_left", "move_right", "jump", "attack", "aim_up", "aim_down", "dash", "interact", "map"]:
 		Input.action_release(action)
 	Input.flush_buffered_events()
 	var error: String = main.last_error
