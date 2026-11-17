@@ -80,6 +80,8 @@ export const Item = z.strictObject({
   name: z.string().min(1).max(80),
   description: z.string().max(400).default(""),
   color: Color.default("#e8c547"),
+  /** A small picture of it (HUD, screens); drawn as its color when absent. */
+  icon: FileRef.optional(),
 });
 export type Item = z.infer<typeof Item>;
 
@@ -257,3 +259,14 @@ function handlerRefs(world: World, rooms: Map<string, WorldRoom>, enemyIds: Set<
     });
   return { conditions, effects, handlers };
 }
+
+/** A short hash of a room's tiles and doors: what a dressing was composed around. */
+export function roomFingerprint(room: Pick<WorldRoom, "grid" | "doors">): string {
+  const text = JSON.stringify([room.grid.rows, room.doors.map((d) => [d.side, d.offset, d.size])]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return h.toString(36);
+}
+
+/** A dressed room whose tiles or doors changed since it was composed. */
+export const dressingOutOfDate = (room: WorldRoom): boolean => !!room.dressing?.tiles && room.dressing.tiles !== roomFingerprint(room);

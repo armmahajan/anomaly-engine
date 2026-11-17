@@ -5,3 +5,5 @@ export * from "./stages.ts";
 export * from "./fake.ts";
 export * from "./frame.ts";
 export * from "./world.ts";
+export * from "./gameStages.ts";
+export * from "./match.ts";

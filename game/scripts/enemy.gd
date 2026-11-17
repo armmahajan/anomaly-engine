@@ -12,6 +12,9 @@ signal killed
 
 var character_id := ""
 var spawn_id := ""
+## The current attack action's phase ("windup", "active", "recovery"; "" otherwise): attack
+## primitives set it, and the art picks clips by it (character_art.gd).
+var phase := ""
 ## Current behavior state id (reported to the studio).
 var behavior_state := ""
 
@@ -168,6 +171,7 @@ func _enter(state_id: String) -> void:
 	state_time = 0.0
 	_entered = true
 	memory = {}
+	phase = ""
 	was_hit = false
 	action_done = false
 	shaking = false
@@ -384,7 +388,7 @@ func _update_rig() -> void:
 		return
 	var state = _states.get(behavior_state)
 	var action_type: String = str(state.action.type) if state != null else ""
-	_rig.play(CharacterArt.clip_for_state(_asset, _rig, behavior_state, action_type, flying))
+	_rig.play(CharacterArt.clip_for_state(_asset, _rig, behavior_state, action_type, flying, phase))
 
 
 func _draw() -> void:

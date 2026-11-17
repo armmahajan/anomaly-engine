@@ -33,7 +33,7 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   await expect.poll(async () => (await runtimeState(page)).stage, { timeout: 90_000 }).toBe("world"); // after the room is composed and reviewed (two headless renders)
   const first = (await biome(page))!;
   expect(first.rooms).toHaveLength(1);
-  expect((await project(page)).world.rooms[0]!.dressing).toEqual({ biome: first.id, room: first.rooms[0]!.id });
+  expect((await project(page)).world.rooms[0]!.dressing).toMatchObject({ biome: first.id, room: first.rooms[0]!.id });
 
   // Layer, fog and exploded toggles just change the view.
   await page.getByLabel("Front layer").uncheck();

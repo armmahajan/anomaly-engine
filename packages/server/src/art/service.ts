@@ -19,6 +19,9 @@ import {
   worldComposeStage,
   worldKitStage,
   worldRepaintStage,
+  propArtStage,
+  modalArtStage,
+  itemArtStage,
   StageError,
   type ArtContext,
   type ArtRenderer,
@@ -301,6 +304,18 @@ export class ArtService {
         break;
       case "animate":
         stages.push(animStep);
+        break;
+      case "propArt":
+        stages.push({ stage: "propArt", run: () => propArtStage(ctx, { worldRoomId: request.worldRoomId! }) });
+        break;
+      case "modalArt":
+        stages.push({ stage: "modalArt", run: () => modalArtStage(ctx, { modalId: request.modalId! }) });
+        break;
+      case "itemArt":
+        stages.push({ stage: "itemArt", run: () => itemArtStage(ctx) });
+        break;
+      case "gameArt":
+        stages.push({ stage: "gameArt", run: async () => { throw new StageError("gameArt is not implemented yet"); } });
         break;
       case "auto": {
         // Auto takes the AI's picks; feedback and sheet/cell choices apply to the first stage only.

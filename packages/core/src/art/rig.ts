@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
+import { FileRef } from "./fileRef.ts";
 
 /**
  * A rig is a character drawn as data: shapes attached to bones. The runtime
@@ -13,6 +14,11 @@ import { Color, Id } from "../common.ts";
  * Everything is authored in the rest pose, in one shared coordinate frame:
  * draw the character, then say which bone moves each part and where the
  * bones pivot. Animations rotate/move/scale bones about their pivots.
+ *
+ * Two modes. A vector rig (default) draws flat shapes with outlines. A cutout
+ * rig draws pieces of an image (`source`, the concept with its background
+ * removed): each "image" part shows the source inside its polygon, so the
+ * character looks exactly like its concept and still animates on bones.
  */
 
 const Coord = z.number().min(-1000).max(1000);
@@ -65,6 +71,12 @@ export const Shape = z
         smooth: Smooth,
       })
       .describe("Open tapered line: legs, antennae, tails, whiskers, horns, cracks and detail lines."),
+    z
+      .strictObject({
+        type: z.literal("image"),
+        points: z.array(Point).min(3).max(128).describe("Polygon (rig space) cut out of the rig's source image."),
+      })
+      .describe("Cutout rigs: the rig's source image shown inside this polygon (no fill or outline drawn)."),
   ])
   .describe("Geometry of a part, in rest-pose rig space.");
 export type Shape = z.infer<typeof Shape>;
@@ -99,8 +111,23 @@ export type Part = z.infer<typeof Part>;
 export const MAX_BONES = 24;
 export const MAX_PARTS = 64;
 
+/** A cutout rig's image: where it sits in rig space (rig = (image px - anchor) * scale). */
+export const RigSource = z.strictObject({
+  file: FileRef.describe("PNG with transparency (the concept, background removed)."),
+  scale: z.number().positive(),
+  anchor: z.tuple([z.number(), z.number()]).describe("Image px that lands on the rig origin (the feet)."),
+});
+export type RigSource = z.infer<typeof RigSource>;
+
+export const RIG_MODES = ["vector", "cutout"] as const;
+export type RigMode = (typeof RIG_MODES)[number];
+
 export const Rig = z
   .strictObject({
+    /** Absent = vector. */
+    mode: z.enum(RIG_MODES).optional(),
+    /** Cutout rigs: the image their "image" parts show. */
+    source: RigSource.optional(),
     bones: z.array(Bone).min(1).max(MAX_BONES).describe("Skeleton. Exactly one root (parent null), usually at the feet/body."),
     parts: z.array(Part).min(1).max(MAX_PARTS),
   })
@@ -132,8 +159,10 @@ export const Rig = z
         at = parentOf.get(at) ?? null;
       }
     }
+    if (rig.mode === "cutout" && !rig.source) ctx.addIssue({ code: "custom", path: ["source"], message: "a cutout rig needs a source image" });
     const partIds = new Set<string>();
     rig.parts.forEach((p, i) => {
+      if (p.shape.type === "image" && !rig.source) ctx.addIssue({ code: "custom", path: ["parts", i, "shape"], message: `image part "${p.id}" needs the rig's source image` });
       if (partIds.has(p.id)) ctx.addIssue({ code: "custom", path: ["parts", i, "id"], message: `duplicate part id "${p.id}"` });
       partIds.add(p.id);
       for (const key of ["bone", "bendTo"] as const) {

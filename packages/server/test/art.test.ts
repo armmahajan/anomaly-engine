@@ -154,7 +154,7 @@ describe("world jobs over HTTP", () => {
     const biome = project.art.assets.find((a) => a.kind === "biome")!;
     expect(biome.kind === "biome" && biome.kit?.pieces.length).toBeGreaterThan(0);
     expect(biome.kind === "biome" && biome.rooms).toHaveLength(1);
-    expect(project.world.rooms[0]!.dressing).toEqual({ biome: biome.id, room: biome.kind === "biome" ? biome.rooms[0]!.id : "" });
+    expect(project.world.rooms[0]!.dressing).toMatchObject({ biome: biome.id, room: biome.kind === "biome" ? biome.rooms[0]!.id : "" });
 
     // More rooms are one cheap call each; a repaint redoes one part of the kit.
     expect(await post("/api/art/jobs", { stage: "worldCompose", biomeId: biome.id, newLayout: true })).toMatchObject({ ok: true });

@@ -1,9 +1,10 @@
 import type { ProjectSpec } from "../schema.ts";
 import { rigBounds } from "./rig.ts";
+import { dressingOutOfDate } from "../world/world.ts";
 
 /** Art checks the schema can't express (see ../lint.ts). */
 
-export type ArtWarningCode = "clip_unknown_bone" | "clip_unknown_part" | "rig_size_mismatch" | "clips_without_idle";
+export type ArtWarningCode = "clip_unknown_bone" | "clip_unknown_part" | "rig_size_mismatch" | "clips_without_idle" | "dressing_out_of_date";
 
 export interface ArtWarning {
   code: ArtWarningCode;
@@ -16,6 +17,15 @@ const SIZE_TOLERANCE = 1.8;
 
 export function lintArt(project: ProjectSpec): ArtWarning[] {
   const warnings: ArtWarning[] = [];
+  project.world.rooms.forEach((room, i) => {
+    if (dressingOutOfDate(room)) {
+      warnings.push({
+        code: "dressing_out_of_date",
+        path: `world.rooms.${i}.dressing`,
+        message: `room "${room.id}" changed since its art was composed; recompose it (worldCompose) so pieces sit on its new tiles`,
+      });
+    }
+  });
   project.art.assets.forEach((asset, i) => {
     if (asset.kind !== "character") return;
     const path = `art.assets.${i}`;

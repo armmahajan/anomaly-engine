@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import { Clip } from "./clip.ts";
-import { Rig } from "./rig.ts";
+import { Rig, RIG_MODES } from "./rig.ts";
 import { FileRef } from "./fileRef.ts";
 import { BiomeKit, Room } from "./world.ts";
 
@@ -54,6 +54,11 @@ export const Preview = z.strictObject({
    * Lets the studio draw the design behind the rig, exactly aligned (onion skin).
    */
   frame: z.strictObject({ scale: z.number().positive(), anchor: z.tuple([z.number(), z.number()]) }).optional(),
+  /**
+   * Measured likeness to the chosen concept (0-1, higher is better): how much the rest-pose
+   * silhouettes overlap (intersection over union) and how close the colors are where they do.
+   */
+  match: z.strictObject({ silhouette: z.number().min(0).max(1), color: z.number().min(0).max(1) }).optional(),
 });
 
 const assetBase = {
@@ -106,6 +111,7 @@ export const ArtDirection = z.strictObject({
   ink: Color.describe("Outline color."),
   inkWidth: z.number().min(0).max(12).describe("Base outline width in px."),
   boil: z.number().min(0).max(1).describe("Hand-drawn line wobble, 0 = none (re-drawn ~8 times a second)."),
+  rigMode: z.enum(RIG_MODES).optional().describe("How characters are rigged: vector (flat shapes, default) or cutout (pieces of the concept image)."),
 });
 export type ArtDirection = z.infer<typeof ArtDirection>;
 

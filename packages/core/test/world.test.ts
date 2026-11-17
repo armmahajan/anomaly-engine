@@ -58,7 +58,7 @@ describe("world data", () => {
   it("gives rooms placement ids and dresses the arena", () => {
     const project = withBiome();
     expect(biome(project).rooms[0]!.composition.placements.map((p) => p.id)).toEqual(["pl_1", "pl_2"]);
-    expect(project.world.rooms[0]!.dressing).toEqual({ biome: "cathedral", room: "hall" });
+    expect(project.world.rooms[0]!.dressing).toMatchObject({ biome: "cathedral", room: "hall" });
   });
 
   it("gives the room's scene the arena's tiles, with breakables left out of its shapes (they keep their own look)", () => {

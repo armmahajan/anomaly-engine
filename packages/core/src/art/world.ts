@@ -135,5 +135,10 @@ export const Room = z.strictObject({
 export type Room = z.infer<typeof Room>;
 
 /** A world room dressed with a biome room. */
-export const Dressing = z.strictObject({ biome: Id, room: Id });
+export const Dressing = z.strictObject({
+  biome: Id,
+  room: Id,
+  /** roomFingerprint of the tiles and doors it was composed around; when they change, the dressing is out of date. */
+  tiles: z.string().optional(),
+});
 export type Dressing = z.infer<typeof Dressing>;

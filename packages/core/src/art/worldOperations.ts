@@ -1,3 +1,4 @@
+import { roomFingerprint } from "../world/world.ts";
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import { uniqueId } from "../ids.ts";
@@ -251,7 +252,8 @@ const worldRoomIndex = (project: ProjectSpec, id: string) => project.world.rooms
 
 function dressWorldRoom(world: ProjectSpec["world"], index: number, dressing: Dressing | null, grid?: TileGrid): ProjectSpec["world"] {
   const rooms = world.rooms.slice();
-  rooms[index] = { ...rooms[index]!, dressing, ...(grid && { grid }) };
+  const room = { ...rooms[index]!, ...(grid && { grid }) };
+  rooms[index] = { ...room, dressing: dressing && { ...dressing, tiles: roomFingerprint(room) } };
   return { ...world, rooms };
 }
 

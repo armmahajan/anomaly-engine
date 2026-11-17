@@ -91,6 +91,12 @@ export const CLIP_SLOTS = {
   jump: "Rising in the air.",
   fall: "Falling.",
   fly: "Airborne movement for flying characters.",
+  strike: "A melee hit landing (the strike action's active part).",
+  shoot: "Firing projectiles.",
+  leap: "Airborne in an attack leap.",
+  slam: "Crashing down onto the ground.",
+  cast: "Calling up something (summon) or vanishing and reappearing (teleport).",
+  recover: "Recovering after an attack: the opening to hit back.",
 } as const;
 export type ClipSlot = keyof typeof CLIP_SLOTS;
 
@@ -99,6 +105,12 @@ export type ClipSlot = keyof typeof CLIP_SLOTS;
  * wins, then idle). Flying characters use "fly" instead of walk/run.
  */
 export const ACTION_CLIP_SLOTS: Record<string, readonly ClipSlot[]> = {
+  strike: ["attack"],
+  shoot: ["attack"],
+  leap: ["jump"],
+  slam: ["attack"],
+  summon: ["windup"],
+  teleport: ["idle"],
   patrol: ["walk", "run"],
   wait: ["idle"],
   chase: ["run", "walk"],
@@ -109,6 +121,28 @@ export const ACTION_CLIP_SLOTS: Record<string, readonly ClipSlot[]> = {
   jump: ["jump"],
   hover: ["fly"],
 };
+
+/** The phases of an attack action (reported by the runtime, which picks clips by phase). */
+export const ATTACK_PHASES = ["windup", "active", "recovery"] as const;
+export type AttackPhase = (typeof ATTACK_PHASES)[number];
+
+/** Attack actions: slots by phase, with fallbacks (then the action's ACTION_CLIP_SLOTS, then idle). */
+export const ACTION_PHASE_SLOTS: Record<string, Record<AttackPhase, readonly ClipSlot[]>> = {
+  strike: { windup: ["windup"], active: ["strike", "attack"], recovery: ["recover", "idle"] },
+  shoot: { windup: ["windup"], active: ["shoot", "attack"], recovery: ["recover", "idle"] },
+  leap: { windup: ["windup"], active: ["leap", "jump"], recovery: ["recover", "idle"] },
+  slam: { windup: ["windup"], active: ["slam", "attack"], recovery: ["recover", "idle"] },
+  summon: { windup: ["cast", "windup"], active: ["cast"], recovery: ["recover", "idle"] },
+  teleport: { windup: ["cast", "windup"], active: ["cast"], recovery: ["recover", "idle"] },
+};
+
+/** The slots to try for an action in a phase (first existing clip wins, then idle). Flyers fly instead of walk/run. */
+export function clipSlotsFor(actionType: string, phase: string | null = null, flying = false): ClipSlot[] {
+  const phased = phase ? ACTION_PHASE_SLOTS[actionType]?.[phase as AttackPhase] : undefined;
+  let slots = [...new Set([...(phased ?? []), ...(ACTION_CLIP_SLOTS[actionType] ?? [])])];
+  if (flying && (slots.includes("walk") || slots.includes("run"))) slots = ["fly", ...slots];
+  return slots;
+}
 
 /** Clip slots the player uses. */
 export const PLAYER_CLIP_SLOTS: readonly ClipSlot[] = ["idle", "run", "jump", "fall", "attack", "hurt"];

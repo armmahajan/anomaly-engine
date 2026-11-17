@@ -135,17 +135,37 @@ export type ChatEvent = z.infer<typeof ChatEvent>;
  * animate:  write the clips the character needs
  * auto:     all of the above in order, taking the AI's recommendations
  */
-export const ArtStage = z.enum(["concepts", "choose", "rig", "animate", "auto", "worldKit", "worldCompose", "worldRepaint"]);
+export const ArtStage = z.enum([
+  "concepts",
+  "choose",
+  "rig",
+  "animate",
+  "auto",
+  "worldKit",
+  "worldCompose",
+  "worldRepaint",
+  "propArt",
+  "modalArt",
+  "itemArt",
+  "gameArt",
+]);
 export type ArtStage = z.infer<typeof ArtStage>;
 
-/** Stages that work on a biome (the rest work on a character). */
+/** Stages that work on a biome. */
 export const WORLD_STAGES: readonly ArtStage[] = ["worldKit", "worldCompose", "worldRepaint"];
+/** Stages that work on a character. */
+export const CHARACTER_STAGES: readonly ArtStage[] = ["concepts", "choose", "rig", "animate", "auto"];
 
 /**
  * Character stages need `characterId`. World stages:
  *   worldKit:     paint a biome's kit (new biome from `brief` = theme, or `biomeId` to repaint all of it); `quality`
  *   worldCompose: compose a room for `biomeId` around a world room's tiles (`newLayout` also suggests platforms; `dressRoom` dresses that world room)
  *   worldRepaint: repaint one `part` of `biomeId`'s kit
+ * Game stages:
+ *   propArt:  draw the props of world room `worldRoomId` with its biome's kit (picking or painting pieces)
+ *   modalArt: illustrate modal `modalId`
+ *   itemArt:  draw icons for the items that have none
+ *   gameArt:  everything the game still needs (core gameArtPlan), step by step; `steps` limits it to those step ids
  */
 export const ArtJobRequest = z
   .strictObject({
@@ -159,6 +179,14 @@ export const ArtJobRequest = z
     /** A world room to dress with the composed room. */
     dressRoom: Id.optional(),
     part: z.enum(["backdrop", "structures", "props", "ground"]).optional(),
+    /** worldCompose: recompose this biome room (instead of composing a new one). */
+    roomId: Id.optional(),
+    worldRoomId: Id.optional(),
+    modalId: Id.optional(),
+    /** gameArt: only these plan steps. */
+    steps: z.array(z.string().max(120)).max(500).optional(),
+    /** rig: vector or cutout (default: the art direction's rigMode, else vector). */
+    rigMode: z.enum(["vector", "cutout"]).optional(),
     brief: z.string().trim().max(2000).optional(),
   feedback: z.string().trim().max(1000).optional(),
   /** concepts: variations on the chosen design (it is sent as a reference image). */
@@ -168,7 +196,9 @@ export const ArtJobRequest = z
   })
   .superRefine((r, ctx) => {
     const world = WORLD_STAGES.includes(r.stage);
-    if (!world && !r.characterId) ctx.addIssue({ code: "custom", path: ["characterId"], message: `${r.stage} needs a characterId` });
+    if (CHARACTER_STAGES.includes(r.stage) && !r.characterId) ctx.addIssue({ code: "custom", path: ["characterId"], message: `${r.stage} needs a characterId` });
+    if (r.stage === "propArt" && !r.worldRoomId) ctx.addIssue({ code: "custom", path: ["worldRoomId"], message: "propArt needs a worldRoomId" });
+    if (r.stage === "modalArt" && !r.modalId) ctx.addIssue({ code: "custom", path: ["modalId"], message: "modalArt needs a modalId" });
     if (world && r.stage !== "worldKit" && !r.biomeId) ctx.addIssue({ code: "custom", path: ["biomeId"], message: `${r.stage} needs a biomeId` });
     if (r.stage === "worldKit" && !r.biomeId && !r.brief) ctx.addIssue({ code: "custom", path: ["brief"], message: "a new biome needs a brief (its theme)" });
     if (r.stage === "worldRepaint" && !r.part) ctx.addIssue({ code: "custom", path: ["part"], message: "worldRepaint needs a part" });

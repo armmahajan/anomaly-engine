@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  ACTION_CLIP_SLOTS,
+  wantedClipSlots,
   Clip,
   Id,
   PLAYER_CLIP_SLOTS,
@@ -441,23 +441,8 @@ export interface AnimateInput {
 }
 
 /** Clip slots needed by every character drawn with this asset. */
-export function slotsFor(project: ProjectSpec, assetId: string): ClipSlot[] {
-  const slots = new Set<ClipSlot>(["idle"]);
-  for (const c of project.characters) {
-    if (c.appearance !== assetId) continue;
-    if (c.kind === "player") {
-      PLAYER_CLIP_SLOTS.forEach((s) => slots.add(s));
-      continue;
-    }
-    slots.add("hurt"); // enemies flash and recoil when the sword hits them
-    const flying = (c as { movement?: string }).movement === "flying";
-    for (const state of Object.values(c.behavior.states)) {
-      const slot = ACTION_CLIP_SLOTS[state.action.type]?.[0];
-      if (slot) slots.add(flying && (slot === "walk" || slot === "run") ? "fly" : slot);
-    }
-  }
-  return [...slots];
-}
+/** The clip slots an asset needs (core wantedClipSlots). */
+export const slotsFor = wantedClipSlots;
 
 const ClipsReply = z.object({ clips: z.record(Id, Clip) });
 const AnimCritique = z.object({ score: z.number().min(0).max(10), issues: z.array(z.string()).default([]), clips: z.unknown() });

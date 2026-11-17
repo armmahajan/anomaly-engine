@@ -78,7 +78,7 @@ describe("world stages", () => {
     const compose = h.vision.requests.find((r) => r.content.some((c) => asked(c, "Compose one room")))!;
     expect(compose.content.some((c) => asked(c, "FIXED"))).toBe(true);
     h.commit(room.operations);
-    expect(h.project().world.rooms[0]!.dressing).toEqual({ biome: h.biome().id, room: room.roomId });
+    expect(h.project().world.rooms[0]!.dressing).toMatchObject({ biome: h.biome().id, room: room.roomId });
     const added = h.biome().rooms[0]!;
     expect(added.layout).toBeNull();
     expect(added.composition.placements.every((p) => p.id?.startsWith("pl_"))).toBe(true);

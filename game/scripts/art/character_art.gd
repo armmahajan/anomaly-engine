@@ -6,6 +6,12 @@ extends RefCounted
 const RigView := preload("res://scripts/art/rig_view.gd")
 
 const ACTION_CLIP_SLOTS := {
+	"strike": ["attack"],
+	"shoot": ["attack"],
+	"leap": ["jump"],
+	"slam": ["attack"],
+	"summon": ["windup"],
+	"teleport": ["idle"],
 	"patrol": ["walk", "run"],
 	"wait": ["idle"],
 	"chase": ["run", "walk"],
@@ -38,13 +44,30 @@ static func make_view(asset: Dictionary, art: Dictionary) -> Node2D:
 	return view
 
 
-## First existing clip for a behavior state: explicit mapping, then the action's slots, then idle.
-## Flying characters use "fly" for moving actions.
-static func clip_for_state(asset: Dictionary, view: Node2D, state_id: String, action_type: String, flying := false) -> String:
+## Attack actions: slots by phase (windup / active / recovery), tried before the action's own slots.
+## Mirrors ACTION_PHASE_SLOTS in packages/core/src/art/clip.ts.
+const ACTION_PHASE_SLOTS := {
+	"strike": {"windup": ["windup"], "active": ["strike", "attack"], "recovery": ["recover", "idle"]},
+	"shoot": {"windup": ["windup"], "active": ["shoot", "attack"], "recovery": ["recover", "idle"]},
+	"leap": {"windup": ["windup"], "active": ["leap", "jump"], "recovery": ["recover", "idle"]},
+	"slam": {"windup": ["windup"], "active": ["slam", "attack"], "recovery": ["recover", "idle"]},
+	"summon": {"windup": ["cast", "windup"], "active": ["cast"], "recovery": ["recover", "idle"]},
+	"teleport": {"windup": ["cast", "windup"], "active": ["cast"], "recovery": ["recover", "idle"]},
+}
+
+
+## First existing clip for a behavior state: explicit mapping, then the action's slots for its
+## current phase (attacks), then the action's slots, then idle. Flyers use "fly" for moving actions.
+static func clip_for_state(asset: Dictionary, view: Node2D, state_id: String, action_type: String, flying := false, phase := "") -> String:
 	var mapped = asset.get("stateClips", {}).get(state_id)
 	if mapped != null and view.has_clip(str(mapped)):
 		return str(mapped)
-	var slots: Array = ACTION_CLIP_SLOTS.get(action_type, [])
+	var slots: Array = []
+	if phase != "":
+		slots.append_array(ACTION_PHASE_SLOTS.get(action_type, {}).get(phase, []))
+	for slot in ACTION_CLIP_SLOTS.get(action_type, []):
+		if not slot in slots:
+			slots.append(slot)
 	if flying and ("walk" in slots or "run" in slots):
 		slots = ["fly"] + slots
 	return first_clip(view, slots)

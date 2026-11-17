@@ -148,9 +148,13 @@ export class Session {
         void this.sendImages([biome.kit.backdrop, biome.kit.ground, ...biome.kit.pieces.map((p) => p.file)]);
       }
     }
-    // Modal images too (shown over the game).
-    const modalImages = project.world.modals.flatMap((m) => (m.image ? [m.image] : []));
-    if (modalImages.length > 0) void this.sendImages(modalImages);
+    // Modal images, item icons and cutout rigs' source images too.
+    const images = [
+      ...project.world.modals.flatMap((m) => (m.image ? [m.image] : [])),
+      ...project.world.items.flatMap((i) => (i.icon ? [i.icon] : [])),
+      ...project.art.assets.flatMap((a) => (a.kind === "character" && a.rig?.source ? [a.rig.source.file] : [])),
+    ];
+    if (images.length > 0) void this.sendImages(images);
   }
 
   // --- runtime lifecycle ---

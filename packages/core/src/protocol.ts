@@ -17,7 +17,7 @@ import type { RuntimeProject } from "./world/runtime.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -115,6 +115,8 @@ export interface RenderRigRequest {
   background: string | null;
   /** Scale and centre the rig in each cell (default). false = rig coordinates are cell pixels. */
   fit?: boolean;
+  /** Images the rig draws (a cutout rig's source), base64 by file ref. */
+  images?: Record<string, string>;
 }
 
 const EntityState = z.object({
@@ -133,6 +135,8 @@ const EntityState = z.object({
   behaviorState: z.string().nullable(),
   /** Remaining hit points; 0 = dead (a dead enemy stays listed but is gone from play). */
   health: z.number(),
+  /** Enemies running an attack action: "windup" | "active" | "recovery" (the art picks clips by it). */
+  phase: z.string().nullable().default(null),
 });
 export type EntityState = z.infer<typeof EntityState>;
 

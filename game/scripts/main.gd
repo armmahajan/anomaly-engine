@@ -3,7 +3,7 @@ extends Node2D
 ## shows the playtest room (edit mode) or plays the world (rooms and doors) from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 12
+const PROTOCOL_VERSION := 13
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -376,6 +376,7 @@ func _entity_states() -> Array:
 				"velocityX": child.velocity.x,
 				"velocityY": child.velocity.y,
 				"behaviorState": child.behavior_state if child.behavior_state != "" else null,
+				"phase": child.phase if "phase" in child and child.phase != "" else null,
 				"health": child.health,
 			})
 	return out
