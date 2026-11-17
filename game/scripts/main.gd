@@ -635,6 +635,10 @@ func _frame_room(parent: Node2D, room: Dictionary) -> void:
 	frame.layer = 1
 	frame.follow_viewport_enabled = true
 	parent.add_child(frame)
+	# A CanvasLayer doesn't inherit visibility: hide it with its room (e.g. the playtest room behind the Rooms stage).
+	var follow := func(): frame.visible = parent.is_visible_in_tree()
+	parent.visibility_changed.connect(follow)
+	follow.call()
 	var w := float(room.width)
 	var h := float(room.height)
 	var m := 100000.0
