@@ -26,6 +26,8 @@ const CONTACT_SINK_MIN := 4.0
 const CONTACT_SINK_MAX := 12.0
 ## Fog never gets thicker than this per layer, whatever the scene asks (too much hides the backdrop).
 const FOG_MAX := {"mid": 0.42, "back": 0.32, "play": 0.22}
+## With layered planes (which carry their own haze and mist), less fog in front of them, so their depth shows.
+const FOG_MAX_LAYERED := {"mid": 0.2, "back": 0.24, "play": 0.18}
 ## Far and mid layers live on their own canvas, untouched by the scene's darkness (they are distant and hazy).
 const DISTANT := ["far", "mid"]
 ## A kit without planes: its one backdrop, drawn as before (sharp, the view's height, scrolling with the far layer).
@@ -276,7 +278,8 @@ func build(scene: Dictionary, textures: Dictionary, view_size: Vector2) -> void:
 		parent.add_child(node)
 		_layers[layer] = node
 		if layer != "far" and layer != "front":
-			_add_fog(node, layer, fog, minf(float(scene.get("fog", {}).get(layer, 0.3)), FOG_MAX[layer]), width, height, view_size)
+			var cap: float = (FOG_MAX_LAYERED if typeof(scene.get("backgrounds")) == TYPE_ARRAY and not scene.backgrounds.is_empty() else FOG_MAX)[layer]
+			_add_fog(node, layer, fog, minf(float(scene.get("fog", {}).get(layer, 0.3)), cap), width, height, view_size)
 
 	_build_planes(fog)
 	_build_ground(palette)

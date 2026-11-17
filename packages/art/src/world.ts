@@ -407,7 +407,7 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
         "You are a level art director for a 2D side-scrolling platformer. You compose beautiful, deep, atmospheric rooms from a kit of sprites by writing scene data. You value negative space, clear silhouettes and a readable play area.",
       content: [
         { type: "image", image: backdrop },
-        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback, doors) },
+        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback, doors, project.world.camera.rows * TILE) },
       ],
       maxTokens: 12000,
     },
@@ -663,14 +663,17 @@ function composePrompt(
   platforms: { x: number; y: number; width: number; height: number }[] | null,
   feedback?: string,
   doors: DoorOpening[] = [],
+  /** Height (px) of the play camera's view. */
+  view = 14 * TILE,
 ): string {
+  const viewWidth = Math.round((view * 16) / 9);
   const list = pieces.map((p) => `- ${p.id}: ${p.name} (${p.kind}, ${p.size}px tall, ${(p.width / p.height).toFixed(2)} w/h${p.glow ? `, glows ${p.glow}` : ""})`);
   const layout = platforms
     ? `The walkable layout is FIXED (do not output platforms): ${platforms.map((r) => `[x ${r.x}, y ${r.y}, w ${r.width}, h ${r.height}]`).join(", ")}. Platforms outside 0..${width} are walls and can be ignored. Dress around it: props sit ON these surfaces.`
     : `Also design the walkable layout ("platforms"): a floor spanning the whole width (y around ${height - 110}, height 110+) plus 3-5 floating ledges or steps a 40px character could jump between (jumps ~150px high), inside the room and away from the ceiling.`;
   return [
     `The image is this biome's painted backdrop. Biome: ${theme}.`,
-    `Compose one room ${width}px wide and ${height}px tall (x right, y DOWN, 0,0 = top-left). The camera shows about 960px of width at a time and pans across it.`,
+    `Compose one room ${width}px wide and ${height}px tall (x right, y DOWN, 0,0 = top-left). The play camera shows about ${viewWidth}x${view}px of it at a time and follows the player both ways${width > viewWidth * 1.2 || height > view * 1.2 ? " (this room is bigger than one view: dress all of it, not just one screen)" : ""}.`,
     layout,
     doorsText(doors, { width, height }),
     "Layers, back to front (the runtime draws them with parallax, fog between them, depth tint and lighting):",
@@ -679,7 +682,7 @@ function composePrompt(
     "'span' pieces (beams, lintels, logs) rest across two supports: put one between two structures of the same layer (x midway between them, y at their tops, scaled so its ends reach them) or across a gap between two ledges. Pieces are snapped onto their supports afterwards. Use each span piece at least once (in the mid or back layer between two structures, or in the play layer over a gap).",
     `Kit pieces:\n${list.join("\n")}`,
     "Budget per layer (this matters most; crowding kills depth):",
-    "  mid: 5-8 big structures (scale 1.2-2.5), spaced 300-600px apart, standing on the floor line, some flipped;",
+    `  mid: 5-8 big structures (scale 1.2-2.5, but none taller than about ${Math.round(view * 1.1)}px once scaled: the view's height), spaced 300-600px apart, standing on the floor line, some flipped;`,
     "  back: at most 4 structures (scale 0.5-1.0, only at the room's ends or between ledges, never behind a ledge) plus 6-12 small decor pieces on the floor;",
     "  play: 12-25 props sitting ON surfaces (floor or ledge tops): lights on ledges and along the path, plants clustered at bases, a few hanging pieces from the ceiling;",
     "  front: 5-9 silhouettes: hanging pieces at y 0 near the room's ends and every ~700px, and tall structures standing at the bottom edge (cut off by it), scale 1.2-2.",
