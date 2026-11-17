@@ -6,7 +6,7 @@ extends Node
 const RigView := preload("res://scripts/art/rig_view.gd")
 const WorldView := preload("res://scripts/art/world_view.gd")
 
-const MAX_FRAMES := 48
+const MAX_FRAMES := 96  # every clip slot (15) x 6 filmstrip frames fits
 const MAX_CELL := 512
 
 ## Renders run one at a time; requests queue up.
