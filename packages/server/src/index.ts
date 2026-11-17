@@ -15,7 +15,7 @@ export { createApiHandler, type ArtApi, type Chats, type Middleware } from "./ht
 export { ArtService, type ArtModels, type ArtServiceOptions } from "./art/service.ts";
 export { FileStore } from "./art/files.ts";
 export { modelStageRunners } from "./architect/modelStages.ts";
-export { ArchitectService, defaultStageRunners, repairFor, reseed, withStatus, type StageRunContext, type StageRunner, type StageRunners, type StageRunResult } from "./architect/service.ts";
+export { ArchitectService, defaultStageRunners, clearSides, repairFor, reseed, withStatus, type StageRunContext, type StageRunner, type StageRunners, type StageRunResult } from "./architect/service.ts";
 export { BrowserRenderer, type Renderer } from "./art/renderer.ts";
 export { createAuthMiddleware, generateToken, loadOrCreateToken, TOKEN_COOKIE, TOKEN_HEADER } from "./auth.ts";
 

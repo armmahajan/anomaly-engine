@@ -200,7 +200,7 @@ export class ArchitectService {
           signal,
           log: (text) => this.note(stage, text),
         });
-        const blocking = outcome.blocking ?? (stage === "verify" && outcome.issues.length > 0);
+        const blocking = outcome.blocking ?? (stage === "verify" ? outcome.issues.length > 0 : outcome.issues.some((x) => BLOCKING_CODES.has(x.code)));
         // Repairs: a failed verify goes back to the stage that caused it; a game off its play-time target goes back to the plan.
         const repair = blocking ? repairFor(before, outcome.issues) : stage === "pacing" && this.repairPacing && outcome.issues.length > 0 ? { from: "plan" as const, reseed: [], rooms: undefined } : null;
         const canRepair = repair !== null && repairs < this.maxRepairs;
@@ -208,6 +208,7 @@ export class ArchitectService {
         const committed = await this.store.commitStage(stage, (current) => {
           let next = withStatus(current === before ? outcome.project : { ...current, architect: outcome.project.architect }, stage, status);
           if (canRepair && repair!.reseed.length) next = reseed(next, repair!.reseed);
+          if (canRepair && repair!.clearSides?.length) next = clearSides(next, repair!.clearSides);
           return { project: next, summary: outcome.summary };
         });
         if (!committed.ok) throw new Error(committed.error.message);
@@ -271,9 +272,20 @@ export function withStatus(project: ProjectSpec, stage: ArchitectStage, status: 
  * issues tied to rooms rebuild just those rooms with new seeds (the rooms of a
  * leaking gate's link included); anything else reruns its stage for every room.
  */
-export function repairFor(project: ProjectSpec, issues: StageIssue[]): { from: ArchitectStage; rooms: string[] | undefined; reseed: string[] } | null {
+export function repairFor(
+  project: ProjectSpec,
+  issues: StageIssue[],
+): { from: ArchitectStage; rooms: string[] | undefined; reseed: string[]; clearSides?: string[] } | null {
   const fixable = issues.filter((i) => i.stage !== "verify" && i.stage !== "art");
   if (fixable.length === 0) return null;
+  // A room geometry couldn't build (or a door it couldn't join) needs a new layout around it: its links'
+  // sides chosen again and a new seed; the room and its neighbours are rebuilt.
+  const unbuildable = fixable.filter((i) => UNBUILDABLE.has(i.code) && i.roomId).map((i) => i.roomId!);
+  if (unbuildable.length > 0) {
+    const links = project.architect.links.filter((l) => unbuildable.includes(l.a.room) || unbuildable.includes(l.b.room));
+    const rooms = [...new Set([...unbuildable, ...links.flatMap((l) => [l.a.room, l.b.room])])].filter((id) => project.architect.rooms.some((r) => r.id === id && !r.pinned));
+    return { from: "layout", rooms, reseed: unbuildable, clearSides: links.map((l) => l.id) };
+  }
   const from = ARCHITECT_STAGES.find((s) => fixable.some((i) => i.stage === s))!;
   const roomOf = (i: StageIssue) => i.roomId ?? (i.linkId ? project.architect.links.find((l) => l.id === i.linkId)?.a.room : undefined);
   const atFrom = fixable.filter((i) => i.stage === from);
@@ -281,6 +293,18 @@ export function repairFor(project: ProjectSpec, issues: StageIssue[]): { from: A
   const rooms = from !== "plan" && atFrom.every((i) => roomOf(i)) ? [...new Set(atFrom.map((i) => roomOf(i)!))].filter((id) => project.architect.rooms.some((r) => r.id === id && !r.pinned)) : undefined;
   const reseed = from === "geometry" ? (rooms ?? project.architect.rooms.filter((r) => !r.pinned).map((r) => r.id)) : [];
   return { from, rooms: rooms?.length ? rooms : undefined, reseed };
+}
+
+/** Geometry issues that stop the run at once (a room missing or unproven can't make a working game). */
+const BLOCKING_CODES = new Set(["room-unbuilt", "room-unproven", "door-unlinked", "door-sides", "invalid-result", "no-player", "no-side"]);
+const UNBUILDABLE = new Set(["room-unbuilt", "room-unproven", "door-unlinked", "door-sides"]);
+
+/** Let layout choose these links' sides again (on both ends). */
+export function clearSides(project: ProjectSpec, links: string[]): ProjectSpec {
+  return {
+    ...project,
+    architect: { ...project.architect, links: project.architect.links.map((l) => (links.includes(l.id) ? { ...l, a: { room: l.a.room }, b: { room: l.b.room } } : l)) },
+  };
 }
 
 /** New geometry seeds for these plan rooms (deterministic: the next seed). */
