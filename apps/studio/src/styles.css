@@ -1860,3 +1860,8 @@ body.resizing iframe {
 .art-rig-mode { display: flex; gap: 12px; margin: 4px 0 6px; font-size: 12px; }
 .art-rig-mode label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .bench-match { color: var(--accent); }
+
+/* Design connections */
+.region-picker select { font: inherit; font-size: 12px; color: var(--text); background: #11141a; border: 1px solid var(--border); border-radius: 4px; }
+.region-picker .hint { display: block; margin: 4px 0 0; font-size: 12px; }
+.region-swatch { display: inline-block; width: 10px; height: 10px; margin-left: 4px; border: 1px solid var(--border); border-radius: 2px; vertical-align: middle; }

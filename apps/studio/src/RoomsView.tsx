@@ -19,7 +19,7 @@ import { HandlerEditor } from "./HandlerEditor.tsx";
 import { PropsOverlay } from "./PropsOverlay.tsx";
 import { PropsSection } from "./PropsSection.tsx";
 import { SpawnDetails } from "./SpawnDetails.tsx";
-import { RegionPicker } from "./RegionPicker.tsx";
+import { RegionPicker, regionColor } from "./RegionPicker.tsx";
 
 /**
  * Rooms mode: the game world's rooms. The runtime shows the selected room
@@ -531,7 +531,7 @@ function SizeEditor({ room, locked, onResize }: { room: WorldRoom; locked: boole
   );
 }
 
-/** Rooms where they sit on the world map (`at`, in tiles), with lines for connected doors. */
+/** Rooms where they sit on the world map (`at`, in tiles), colored by region, with lines for connected doors. */
 function WorldMap({ project, selected, onSelect }: { project: ProjectSpec; selected: string | null; onSelect: (id: string) => void }) {
   const rooms = project.world.rooms;
   if (rooms.length === 0) return null;
@@ -558,9 +558,12 @@ function WorldMap({ project, selected, onSelect }: { project: ProjectSpec; selec
     <svg className="world-map" viewBox={`${minX - pad} ${minY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`} aria-label="World map">
       {rooms.map((r) => {
         const b = box(r);
+        const fill = regionColor(project, r.regionId);
+        const region = project.progression.regions.find((g) => g.id === r.regionId);
         return (
-          <g key={r.id} onClick={() => onSelect(r.id)} className={r.id === selected ? "selected" : ""}>
-            <rect x={b.x} y={b.y} width={b.w} height={b.h} />
+          <g key={r.id} onClick={() => onSelect(r.id)} className={r.id === selected ? "selected" : ""} data-testid={`map-room-${r.id}`} data-region={r.regionId ?? ""}>
+            <title>{region ? `${r.name} · ${region.name}` : r.name}</title>
+            <rect x={b.x} y={b.y} width={b.w} height={b.h} style={fill ? { fill } : undefined} />
             <text x={b.x + 1.5} y={b.y + 5}>
               {r.name}
             </text>
