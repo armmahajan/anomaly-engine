@@ -28,7 +28,7 @@ test("Build game plans the world from the progression and runs every stage on th
   await page.getByTestId("architect-sidebar").getByRole("button", { name: /Build game/ }).click();
   await expect.poll(async () => (await project(page)).architect.stages.verify?.status, { timeout: 60_000 }).toMatch(/done|failed/);
   const built = await project(page);
-  expect(Object.keys(built.architect.stages)).toEqual(["plan", "layout", "geometry", "population", "cast", "screens", "verify"]);
+  expect(Object.keys(built.architect.stages)).toEqual(["plan", "layout", "geometry", "cast", "population", "screens", "verify"]);
   expect(built.architect.stages.plan!.status).toBe("done");
   expect([...new Set(built.architect.rooms.map((r) => r.regionId))]).toEqual(["gate", "city", "tower", "deep"]);
   expect(built.architect.rooms.filter((r) => r.contents.some((c) => c.kind === "start")).map((r) => r.regionId)).toEqual(["gate"]);

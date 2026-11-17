@@ -68,8 +68,13 @@ export function defaultStageRunners(options: { art?: ArtService | null; override
           })(),
     layout: sync(layoutStage),
     geometry: sync(geometryStage),
-    population: sync(populationStage),
-    cast: sync((p) => difficultyStage(p)),
+    // Difficulty scales enemies by the regions they're placed in, so it follows population.
+    population: sync((p, options) => {
+      const placed = populationStage(p, options);
+      const scaled = difficultyStage(placed.project);
+      return { project: scaled.project, issues: [...placed.issues, ...scaled.issues], summary: `${placed.summary}; ${scaled.summary}` };
+    }),
+    cast: async ({ project }) => ({ project, issues: [], summary: "no model: the plan's enemies must exist already" }),
     screens: sync(screensStage),
     verify: sync((p) => verifyStage(p)),
     pacing: sync((p) => pacingStage(p)),

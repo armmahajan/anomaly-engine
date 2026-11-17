@@ -34,7 +34,7 @@ describe("the Architect run", () => {
     expect(await architect.start({})).toEqual({ ok: true });
     await expect(architect.start({}).then((r) => r.ok)).resolves.toBe(false); // one run at a time
     await architect.idle();
-    expect(seen).toEqual(["plan", "layout", "geometry", "population", "cast", "screens", "verify", "pacing", "art"]);
+    expect(seen).toEqual(["plan", "layout", "geometry", "cast", "population", "screens", "verify", "pacing", "art"]);
     expect(architect.getState().last).toMatchObject({ outcome: "finished", stage: "art" });
     expect(project().revision).toBe(start + 9);
     expect(project().architect.rooms.length).toBeGreaterThan(0);

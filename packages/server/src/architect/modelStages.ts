@@ -1,4 +1,4 @@
-import { applyOperation, difficultyStage, planIssues, seedPlan, type OperationCall, type ProjectSpec } from "@anomaly/core";
+import { applyOperation, planIssues, seedPlan, type OperationCall, type ProjectSpec } from "@anomaly/core";
 import { architectAgent, buildAgent, type AgentProfile, type TurnRunner } from "@anomaly/agent";
 import type { StageRunContext, StageRunners, StageRunResult } from "./service.ts";
 
@@ -6,7 +6,7 @@ import type { StageRunContext, StageRunners, StageRunResult } from "./service.ts
  * The Architect's model stages: the plan (the Architect agent shapes the plan from
  * the design and the creator's notes, starting from the plan seeded from the
  * progression) and the cast (the build assistant creates the enemy characters the
- * plan names, then difficulty scales them by region). Each runs one agent turn on
+ * plan names; difficulty scales them after population). Each runs one agent turn on
  * a private copy of the project; the run commits the result as one revision.
  */
 export function modelStageRunners(runner: TurnRunner): Pick<StageRunners, "plan" | "cast"> {
@@ -43,12 +43,11 @@ export function modelStageRunners(runner: TurnRunner): Pick<StageRunners, "plan"
         reply = after.reply;
       }
       const missing = planIssues(project).toCast;
-      const scaled = difficultyStage(project);
       return {
-        project: scaled.project,
-        issues: [...missing.map((id) => ({ stage: "cast" as const, code: "uncast", message: `enemy "${id}" wasn't created` })), ...scaled.issues],
+        project,
+        issues: missing.map((id) => ({ stage: "cast" as const, code: "uncast", message: `enemy "${id}" wasn't created` })),
         blocking: missing.length > 0,
-        summary: `${toCast.length ? `created ${toCast.length - missing.length} of ${toCast.length} enemies${reply ? ` — ${reply.slice(0, 200)}` : ""}; ` : ""}${scaled.summary}`,
+        summary: toCast.length ? `created ${toCast.length - missing.length} of ${toCast.length} enemies${reply ? ` — ${reply.slice(0, 200)}` : ""}` : "every enemy the plan names exists",
       };
     },
   };

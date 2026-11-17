@@ -13,7 +13,7 @@ import { DoorSide } from "../world/world.ts";
  * Pinned rooms are the creator's: no stage ever rewrites them.
  */
 
-export const ARCHITECT_STAGES = ["plan", "layout", "geometry", "population", "cast", "screens", "verify", "pacing", "art"] as const;
+export const ARCHITECT_STAGES = ["plan", "layout", "geometry", "cast", "population", "screens", "verify", "pacing", "art"] as const;
 export const ArchitectStage = z.enum(ARCHITECT_STAGES);
 export type ArchitectStage = z.infer<typeof ArchitectStage>;
 
@@ -21,8 +21,8 @@ export const STAGE_DESCRIPTIONS: Record<ArchitectStage, string> = {
   plan: "Decide the rooms of each region, how they link, what gates each link and what each room holds (the model, with the creator's notes).",
   layout: "Place the rooms on the world map and choose which side of each room every link leaves from.",
   geometry: "Build each room's tiles and doors from proven chunks, to its size, links and the abilities it needs.",
-  population: "Put enemies, pickups, save points, the start and the ending on reachable spots; lock rooms until their guardians fall.",
-  cast: "Create the enemy characters the plan uses, with behaviors from the wiki and stats that rise region by region.",
+  cast: "Create the enemy characters the plan uses, with behaviors from the wiki.",
+  population: "Put enemies, pickups, save points, the start and the ending on reachable spots; lock rooms until their guardians fall; enemies get tougher region by region.",
   screens: "Title and ending screens, a message for every ability or item the player gets, and the map.",
   verify: "Lint, prove the game beatable with no dead states, check every gate and ability; send each failure back to its stage.",
   pacing: "Estimate the play time from the proven route and the fights, and adjust toward the target.",
