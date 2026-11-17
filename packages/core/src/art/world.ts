@@ -24,14 +24,16 @@ export const WORLD_LAYERS = {
 export const WorldLayer = z.enum(["far", "mid", "back", "play", "front"]);
 export type WorldLayer = z.infer<typeof WorldLayer>;
 
-export const PieceKind = z.enum(["structure", "decor", "light", "hanging"]);
+export const PieceKind = z.enum(["structure", "decor", "light", "hanging", "span"]);
 
 /** One sliced image from a kit sheet. */
 export const WorldPiece = z.strictObject({
   id: Id,
   file: FileRef,
   name: z.string().max(80),
-  kind: PieceKind.describe("structure: big architecture; decor: small things on the ground; light: emits light; hanging: hangs from the ceiling."),
+  kind: PieceKind.describe(
+    "structure: big architecture; decor: small things on the ground; light: emits light; hanging: hangs from the ceiling; span: wide and flat (beam, lintel, log, bridge), rests across two supports.",
+  ),
   /** Image size in px. */
   width: z.number().int().min(1),
   height: z.number().int().min(1),

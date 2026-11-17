@@ -316,8 +316,11 @@ player is behind them.
   paints kits, repaints one part (or the whole kit at the other quality; the
   biome's rooms are recomposed to fit new pieces), composes rooms, edits the
   room's atmosphere and the selected piece.
-- **Look and fix:** a composed room's pieces are snapped onto surfaces
-  (`packages/core/src/art/worldSnap.ts`), then the room is rendered with each
+- **Snapping** (`packages/core/src/art/worldSnap.ts`): standing pieces rest on
+  the surface under them, hanging ones on the ceiling or a ledge's underside,
+  and *spans* (beams, lintels, logs: a piece kind of their own) across two
+  supports: structures in their layer, ledges, or walls they're set into.
+- **Look and fix:** a composed room's pieces are snapped, then the room is rendered with each
   piece's id written on it and the vision model scores it and names small edits
   (move, rescale, re-layer, remove, add), which are snapped again. Both renders
   are in the job log. A fix that scores worse is undone with more rounds

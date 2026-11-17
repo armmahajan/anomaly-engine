@@ -143,7 +143,8 @@ export function App({ session }: { session: Session }) {
     const x = Math.round(state.worldCameraX ?? scene.width / 2);
     const piece = scene.pieces.find((p) => p.id === pieceId);
     // Dropped from the middle of the view's height: standing pieces fall onto the surface below, hanging ones rise.
-    const placement = snapPlacement({ piece: pieceId, layer: "play" as const, x, y: scene.height / 2, scale: 1, flip: false }, piece, scene).placement;
+    const dropped = { piece: pieceId, layer: "play" as const, x, y: scene.height / 2, scale: 1, flip: false };
+    const placement = snapPlacement(dropped, piece, scene, { placements: scene.placements, pieces: scene.pieces }).placement;
     const result = await session.applyOperation("addPlacement", { assetId: biome.id, roomId: room.id, placement });
     if (!result.ok) session.reportProblem(result.error.message);
   };

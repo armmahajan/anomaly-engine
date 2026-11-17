@@ -46,7 +46,7 @@ export function worldPrompts(theme: string, direction: ArtDirection, feedback?: 
   const extra = feedback?.trim() ? ` Creator's direction: ${feedback.trim()}.` : "";
   return {
     backdrop: `Farthest parallax background layer for a 2D side-scrolling platformer: ${theme}. Distant architecture and shapes fading into thick atmospheric haze, soft light from above, low contrast, wide horizontal composition with no strong focal point at the left or right edge, nothing in the immediate foreground, no ground plane in front.${extra} ${style(direction)}`,
-    structures: `Sprite sheet: a 3x3 grid of nine separate LARGE background structures for a 2D side-view platformer set in ${theme}: tall pillars, broken arches, ruined walls, hanging root curtains, stalactite clusters, giant plant stalks and similar big shapes. Each one isolated, upright, side view, filling most of its cell, with empty space around it, on a fully transparent background.${extra} ${style(direction)}`,
+    structures: `Sprite sheet: a 3x3 grid of nine separate LARGE background structures for a 2D side-view platformer set in ${theme}: tall pillars, broken arches, ruined walls, hanging root curtains, stalactite clusters, giant plant stalks and similar big shapes, plus one long horizontal beam, lintel or fallen log. Each one isolated, upright (the beam lying flat), side view, filling most of its cell, with empty space around it, on a fully transparent background.${extra} ${style(direction)}`,
     props: `Sprite sheet: a 3x3 grid of nine separate small props for a 2D side-view platformer set in ${theme}: a light source (lantern or glowing thing), glowing plants or mushrooms, rubble, a hanging chain or vine, signs of past inhabitants, and other details that sit on the ground. Each prop isolated and centered in its cell with empty space around it, side view, on a fully transparent background.${extra} ${style(direction)}`,
     ground: `Seamless tileable square texture for the solid ground of a 2D platformer set in ${theme}: packed stone or earth with subtle cracks and moss, flat even lighting, no perspective, no objects, no lanterns, no light sources, no edges or borders.${extra} ${style(direction)}`,
   };
@@ -131,7 +131,7 @@ async function piecesFrom(
     text: [
       `Image${which.length > 1 ? "s" : ""}: ${which.map((s, i) => `${i + 1} = the '${s}' sheet`).join(", ")}; each is a 3x3 grid, cells 0-8 in reading order.`,
       `Non-empty cells: ${which.map((s) => `${s} ${sliced[s]!.map((p) => p.cell).join(", ")}`).join("; ")}.`,
-      "For every non-empty cell give: a short name; kind (structure = big architecture or plant mass, decor = small thing on the ground, light = gives off light, hanging = hangs down from the ceiling); size = its natural on-screen height in px (characters are 40px tall, the room is 720px tall: pillars ~300-600, lanterns ~40-60, mushrooms ~20-60); glow = '#rrggbb' light color for anything that glows.",
+      "For every non-empty cell give: a short name; kind (structure = big architecture or plant mass, decor = small thing on the ground, light = gives off light, hanging = hangs down from the ceiling, span = wide and flat, like a beam, lintel, log or bridge, that rests across two supports); size = its natural on-screen height in px (characters are 40px tall, the room is 720px tall: pillars ~300-600, lanterns ~40-60, mushrooms ~20-60); glow = '#rrggbb' light color for anything that glows.",
       'Reply with JSON only: {"pieces": [{"sheet": "structures"|"props", "cell": 0-8, "name", "kind", "size", "glow"?}]}',
     ].join("\n"),
   });
@@ -480,7 +480,7 @@ function reviewPrompt(input: ReviewInput, composition: Composition, frames: numb
     "2. pieces cluttering the walkable path or hiding platform edges; front silhouettes covering the middle of a view;",
     "3. scale mistakes (a small prop as big as a pillar, a pillar tiny beside a lantern) and pieces cut off in ugly ways;",
     "4. crowding and even rows (depth needs clusters and gaps), or dull empty stretches.",
-    "Score 1-10 how good it looks as a finished game room. If it's below 8, fix the worst problems with small edits by id: move (x, y), rescale, change layer, flip, or remove; or add up to 6 placements from the kit. Don't rewrite what works. After your edits, standing play pieces drop onto the surface under their x and hanging ones rise to the ceiling, so x alone moves a piece onto a ledge.",
+    "Score 1-10 how good it looks as a finished game room. If it's below 8, fix the worst problems with small edits by id: move (x, y), rescale, change layer, flip, or remove; or add up to 6 placements from the kit. Don't rewrite what works. After your edits, standing play pieces drop onto the surface under their x, hanging ones rise to the ceiling, and spans rest on supports under both ends (structures in their layer or ledges), so x alone moves a piece onto a ledge.",
     `Kit pieces: ${kit.pieces.map((p) => `${p.id} (${p.name}, ${p.kind}, ${p.size}px)`).join(", ")}.`,
     input.feedback?.trim() ? `Creator's direction for this room: ${input.feedback.trim()}` : "",
     'Reply with JSON only: {"score", "issues": ["..."], "fixes": [{"id", "x"?, "y"?, "scale"?, "layer"?, "flip"?, "remove"?}], "add": [{"piece","layer","x","y","scale","flip"}]}',
@@ -508,6 +508,7 @@ function composePrompt(
     "Layers, back to front (the runtime draws them with parallax, fog between them, depth tint and lighting):",
     "  far = the backdrop (already set; don't place pieces there); mid = big distant structures, tinted into the fog; back = decor and structures just behind the play layer; play = the walkable layer; front = near-black silhouettes in front of everything.",
     "For a piece's x, give the room x it is seen at. y is its bottom (on a floor or platform top), or its top for 'hanging' pieces (usually 0).",
+    "'span' pieces (beams, lintels, logs) rest across two supports: put one between two structures of the same layer (x midway between them, y at their tops, scaled so its ends reach them) or across a gap between two ledges. Pieces are snapped onto their supports afterwards.",
     `Kit pieces:\n${list.join("\n")}`,
     "Budget per layer (this matters most; crowding kills depth):",
     "  mid: 5-8 big structures (scale 1.2-2.5), spaced 300-600px apart, standing on the floor line, some flipped;",

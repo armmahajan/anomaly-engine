@@ -404,10 +404,14 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 		# Foreground silhouettes frame the view: they hang from the top or rise from below the bottom edge, never float.
 		if hanging:
 			y = minf(y, 0.0)
+		elif str(piece.kind) == "span":
+			pass  # set below, once its scale is capped: a beam overhead, across the top edge
 		else:
 			y = maxf(y, float(_scene.get("height", 720)) + 40.0)
 		s = minf(s, float(_scene.get("height", 720)) * 0.42 / float(piece.height))
 		sprite.scale = Vector2(-s if bool(placement.get("flip", false)) else s, s)
+		if str(piece.kind) == "span":
+			y = minf(y, tex.get_height() * s)
 	sprite.position = Vector2(_local_x(layer, float(placement.x)), y)
 	sprite.set_meta("placement", str(placement.get("id", "")))
 	sprite.set_meta("layer", layer)

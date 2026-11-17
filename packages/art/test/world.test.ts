@@ -59,7 +59,8 @@ describe("world stages", () => {
     expect(h.image.requests.every((r) => r.quality === "low")).toBe(true);
     const biome = h.biome();
     expect(biome).toMatchObject({ id: "a_fungal_cathedral", brief: "a fungal cathedral" });
-    expect(biome.kit?.pieces.map((p) => p.id)).toEqual(["s0_tall_pillar", "s1_root_curtain", "p0_lantern", "p1_mushrooms"]);
+    expect(biome.kit?.pieces.map((p) => p.id)).toEqual(["s0_tall_pillar", "s1_root_curtain", "s2_fallen_beam", "p0_lantern", "p1_mushrooms"]);
+    expect(biome.kit?.pieces.find((p) => p.id === "s2_fallen_beam")?.kind).toBe("span");
     for (const ref of [biome.kit!.backdrop, biome.kit!.ground, ...biome.kit!.pieces.map((p) => p.file)]) expect(h.files.has(ref)).toBe(true);
   });
 

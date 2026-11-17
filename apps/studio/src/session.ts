@@ -393,7 +393,8 @@ export class Session {
     const placement = scene.placements.find((p) => p.id === placementId);
     if (!placement) return;
     const dropped = { ...placement, x, y };
-    const target = free ? dropped : snapPlacement(dropped, scene.pieces.find((p) => p.id === placement.piece), scene).placement;
+    const piece = scene.pieces.find((p) => p.id === placement.piece);
+    const target = free ? dropped : snapPlacement(dropped, piece, scene, { placements: scene.placements, pieces: scene.pieces }).placement;
     if (target.x === placement.x && target.y === placement.y) {
       this.bridge.send({ type: "stage", stage: this.stage }); // snapped back to where it was
       return;

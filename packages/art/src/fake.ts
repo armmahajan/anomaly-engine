@@ -116,6 +116,7 @@ export class FakeVisionModel implements VisionModel {
         pieces: [
           { sheet: "structures", cell: 0, name: "Tall Pillar", kind: "structure", size: 420 },
           { sheet: "structures", cell: 1, name: "Root Curtain", kind: "hanging", size: 260 },
+          { sheet: "structures", cell: 2, name: "Fallen Beam", kind: "span", size: 50 },
           { sheet: "props", cell: 0, name: "Lantern", kind: "light", size: 48, glow: "#ffcc80" },
           { sheet: "props", cell: 1, name: "Mushrooms", kind: "decor", size: 36 },
         ],
