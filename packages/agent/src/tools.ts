@@ -119,9 +119,10 @@ const writeDescriptions: Record<BuildOperation, string> = {
   removePlacement: "Remove one placed piece from a world room, by placement id.",
   setDressing: "Dress a world room (default: the playtest room) with a biome room (art only), or biomeId null for plain tiles.",
   applyRoomLayout: "Accept a biome room's suggested layout: a world room's tiles (default: the playtest room's) become it.",
-  createWorldRoom: "Create a game-world room: a grid of 32 px tiles, empty with a solid border. Rooms join through doors.",
+  createWorldRoom:
+    "Create a game-world room: a grid of 32 px tiles, empty with a solid border. Rooms join through doors. Size it for its role, not always one screen (the view is world.camera.rows tall, ~16:9): e.g. 60-90 cols for a long hall, 30-45 rows for a shaft; the camera scrolls.",
   createChunkRoom:
-    "Create a room from the chunk library: proven geometry sized from the player's movement, with doors entry/exit (connect them). A gate chunk is a passage only its ability gets through: use it for every gate the progression puts on a movement ability.",
+    "Create a room from the chunk library: proven geometry sized from the player's movement, with doors entry/exit (connect them). A gate chunk is a passage only its ability gets through: use it for every gate the progression puts on a movement ability. Chunks are compact; resizeWorldRoom one to give it space around the proven part.",
   updateWorldRoom: "Rename a game-world room, move it on the world map (tiles), dress it with a biome room or set its region.",
   deleteWorldRoom: "Delete a game-world room; doors to it become unconnected.",
   resizeWorldRoom: "Resize a room's grid; shiftX/shiftY move the content right/down. New cells: empty, solid outer edge.",
@@ -137,6 +138,7 @@ const writeDescriptions: Record<BuildOperation, string> = {
   setPlaytest: "Set what ▶ Play tests: the room (with x, y: where the player starts) and/or the movement abilities the player has (dash, double_jump, wall_jump, glide, ground_pound).",
   setGameRules: "Game rules (presets of handlers): onDeath room (back to the room's entry) | start | checkpoint, save room | never, hazardDamage.",
   setLedgeThickness: "Thickness (px) of ledge and one-way tiles everywhere.",
+  setCamera: "The play view's zoom: rows = tiles it shows top to bottom (default 14; width follows the window). Bigger rooms scroll.",
   ...handlerTools.descriptions,
   ...propTools.descriptions,
   ...modalTools.descriptions,
@@ -246,6 +248,7 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   setPlaytest: z.strictObject({ roomId: z.string().optional(), x: z.number().optional(), y: z.number().optional(), abilities: z.array(MovementAbility).optional() }),
   setGameRules: z.strictObject({ onDeath: GameRules.shape.onDeath.unwrap().optional(), save: GameRules.shape.save.unwrap().optional(), hazardDamage: int.optional() }),
   setLedgeThickness: z.strictObject({ thickness: int }),
+  setCamera: z.strictObject({ rows: int }),
   ...handlerTools.schemas,
   ...propTools.schemas,
   ...modalTools.schemas,

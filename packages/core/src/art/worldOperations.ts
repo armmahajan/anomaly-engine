@@ -373,6 +373,8 @@ export function worldSceneFor(project: ProjectSpec, biomeId: string, roomId: str
     height: Math.max(360, size.height),
     terrain: { grid, ledgeThickness },
     backdrop: biome.kit.backdrop,
+    ...(biome.kit.backgrounds ? { backgrounds: biome.kit.backgrounds } : {}),
+    ...(biome.kit.atmosphere ? { atmosphere: biome.kit.atmosphere } : {}),
     ground: biome.kit.ground,
     pieces: biome.kit.pieces,
     // Breakable tiles keep their own look in play (they can disappear), so the room's shapes leave them out.
