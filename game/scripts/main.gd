@@ -243,10 +243,16 @@ func _build_world() -> void:
 		_player.enemies = enemies
 		_player.landed_hit.connect(_hit_stop)
 		_player.died.connect(_restart_run, CONNECT_DEFERRED)
+		_player.smashed.connect(_on_smashed)
 	_hud.player = _player
 	_apply_preview_clips()
 
 	_fit_edit_camera()
+
+
+func _on_smashed(rect: Rect2) -> void:
+	if _dressing_view != null and is_instance_valid(_dressing_view):
+		_dressing_view.remove_resting_on(rect)
 
 
 ## Every enemy gets its own RNG derived from the run seed and its spawn id.

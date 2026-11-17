@@ -13,7 +13,7 @@ import { Dressing } from "./art/world.ts";
  * are the character's feet (bottom-centre).
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 
 const Size = z.strictObject({

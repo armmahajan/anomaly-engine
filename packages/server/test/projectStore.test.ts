@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createDefaultProject, type ChangeResult, type ProjectSpec } from "@anomaly/core";
+import { createDefaultProject, SCHEMA_VERSION, type ChangeResult, type ProjectSpec } from "@anomaly/core";
 import { ProjectStore } from "../src/index.ts";
 
 let dir: string;
@@ -184,11 +184,11 @@ describe("ProjectStore migrations", () => {
 
     const store = await open();
     const crawler = store.getState().project.characters[1];
-    expect(store.getState().project.schemaVersion).toBe(3);
+    expect(store.getState().project.schemaVersion).toBe(SCHEMA_VERSION);
     expect(crawler).toMatchObject({ behavior: { states: { patrol: { action: { speed: 99 } } } } });
 
     const undone = expectOk(await store.undo({ baseRevision: 1 }));
-    expect(undone.schemaVersion).toBe(3);
+    expect(undone.schemaVersion).toBe(SCHEMA_VERSION);
     expect(undone.revision).toBe(2);
   });
 });

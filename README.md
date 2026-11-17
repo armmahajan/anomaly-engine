@@ -320,13 +320,16 @@ player is behind them.
   the surface under them, hanging ones on the ceiling or a ledge's underside,
   and *spans* (beams, lintels, logs: a piece kind of their own) across two
   supports: structures in their layer, ledges, or walls they're set into.
+  Projects saved before snapping (schema < 4) get pieces that sit wholly
+  outside their room snapped back in when loaded; the rest stay put.
 - **Look and fix:** a composed room's pieces are snapped, then the room is rendered with each
   piece's id written on it and the vision model scores it and names small edits
   (move, rescale, re-layer, remove, add), which are snapped again. Both renders
   are in the job log. A fix that scores worse is undone with more rounds
   (`roomRounds`, default 1).
 - **The arena:** a room *dresses* the arena (`sandbox.dressing`): Play happens
-  inside it, with the arena's own platforms textured. Rooms never change
+  inside it, with the arena's own platforms textured (breakable ones keep their
+  cracked look; smashing one also clears the pieces and lights standing on it). Rooms never change
   collision; **Suggest layout** stores new platforms on the room, which you can
   preview and accept (`applyRoomLayout`, one undo step).
 - **Chat:** the build assistant can queue `generateCharacterArt`,

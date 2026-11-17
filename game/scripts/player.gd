@@ -5,6 +5,8 @@ extends CharacterBody2D
 ## A sword hit connected (main.gd freezes the world briefly: hit-stop).
 signal landed_hit
 signal died
+## A ground pound smashed a breakable platform (main.gd clears what stood on it).
+signal smashed(rect: Rect2)
 
 var character_id := ""
 var spawn_id := ""
@@ -334,6 +336,7 @@ func _smash_floor() -> bool:
 	if _floor_solid == null or not _floor_solid.breakable:
 		return false
 	solids.erase(_floor_solid)
+	smashed.emit(Rect2(_floor_solid.x, _floor_solid.y, _floor_solid.w, _floor_solid.h))
 	_floor_solid.body.queue_free()
 	_floor_solid = null
 	return true

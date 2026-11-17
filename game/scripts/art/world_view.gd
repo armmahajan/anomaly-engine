@@ -89,6 +89,8 @@ var _ambient_node: CanvasModulate = null
 var _sprites: Array[Sprite2D] = []
 var _fogs: Array[CanvasItem] = []
 var _glows: Array[Node] = []
+## The scene's own lights (play layer): {at: Vector2, nodes: [light, halo]}.
+var _scene_lights: Array = []
 var _explode := {}  # layer -> vertical offset while exploded
 var _alpha_cache := {}  # texture rid -> Image
 var _highlight: Line2D = null
@@ -274,6 +276,32 @@ func room_position(sprite: Sprite2D) -> Vector2:
 	return Vector2(sprite.position.x / f, sprite.position.y)
 
 
+## Lights set on a platform this far (px) above its top belong to what stands there.
+const LIGHT_ABOVE := 120.0
+
+## A breakable platform was smashed: standing play pieces resting on its top go with it, and so
+## do their glows and any scene light set on the platform for them.
+func remove_resting_on(rect: Rect2) -> void:
+	var gone := func(nodes: Array) -> void:
+		for node in nodes:
+			_glows.erase(node)
+			node.queue_free()
+	for light in _scene_lights.duplicate():
+		var at: Vector2 = light.at
+		if at.x >= rect.position.x and at.x <= rect.end.x and at.y <= rect.position.y and at.y >= rect.position.y - LIGHT_ABOVE:
+			gone.call(light.nodes)
+			_scene_lights.erase(light)
+	for sprite in _sprites.duplicate():
+		if str(sprite.get_meta("layer")) != "play" or sprite.offset.y == 0.0:
+			continue  # other layers, and hanging pieces (anchored at their top)
+		var at := room_position(sprite)
+		if absf(at.y - rect.position.y) > 2.0 or at.x < rect.position.x or at.x > rect.end.x:
+			continue
+		gone.call(sprite.get_meta("glow", []))
+		_sprites.erase(sprite)
+		sprite.queue_free()
+
+
 func layer_node(layer: String) -> Node2D:
 	return _layers[layer]
 
@@ -434,7 +462,8 @@ func _place(placement: Dictionary, fog: Color, palette: Dictionary) -> void:
 	# Pieces that glow get a light, unless the scene placed one nearby.
 	if (str(piece.kind) == "light" or piece.has("glow")) and layer != "front":
 		var center := sprite.position + Vector2(0, (tex.get_height() * s * 0.5) if hanging else -tex.get_height() * s * 0.6)
-		_add_light_at(_layers[layer], center, Color(str(piece.get("glow", palette.get("light", "#ffcc80")))), 0.9, maxf(140.0, piece.size * s * 2.6))
+		var glow := _add_light_at(_layers[layer], center, Color(str(piece.get("glow", palette.get("light", "#ffcc80")))), 0.9, maxf(140.0, piece.size * s * 2.6))
+		sprite.set_meta("glow", glow)
 
 
 ## The placement id over the middle of its piece (kept inside the frame for edge silhouettes).
@@ -456,10 +485,12 @@ func _add_label(sprite: Sprite2D, text: String, hanging: bool, layer: String) ->
 
 
 func _add_light(light: Dictionary) -> void:
-	_add_light_at(_layers["play"], Vector2(light.x, light.y), Color(str(light.color)), float(light.get("energy", 1.0)), float(light.get("radius", 220)))
+	var at := Vector2(light.x, light.y)
+	var nodes := _add_light_at(_layers["play"], at, Color(str(light.color)), float(light.get("energy", 1.0)), float(light.get("radius", 220)))
+	_scene_lights.append({"at": at, "nodes": nodes})
 
 
-func _add_light_at(parent: Node2D, at: Vector2, color: Color, energy: float, radius: float) -> void:
+func _add_light_at(parent: Node2D, at: Vector2, color: Color, energy: float, radius: float) -> Array:
 	var tex := _radial_texture()
 	var light := PointLight2D.new()
 	light.texture = tex
@@ -481,6 +512,7 @@ func _add_light_at(parent: Node2D, at: Vector2, color: Color, energy: float, rad
 	halo.material = mat
 	parent.add_child(halo)
 	_glows.append(halo)
+	return [light, halo]
 
 
 var _radial: GradientTexture2D = null

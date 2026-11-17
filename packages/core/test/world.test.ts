@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyBatch, applyOperation, createDefaultProject, lintProject, ProjectSpec, worldSceneFor, type BiomeAsset, type OperationResult, type ProjectSpec as Project } from "../src/index.ts";
+import { applyBatch, applyOperation, createDefaultProject, lintProject, migrateProject, ProjectSpec, worldSceneFor, type BiomeAsset, type OperationResult, type ProjectSpec as Project } from "../src/index.ts";
 
 const REF = (n: number) => `${String(n).repeat(16)}.png`;
 
@@ -104,5 +104,19 @@ describe("world data", () => {
     const bare = ok(applyOperation(createDefaultProject(), "createAsset", { asset: { id: "b", name: "B", kind: "biome", brief: "x" } }));
     expect(applyOperation(bare, "addRoom", { assetId: "b", room: {} }).ok).toBe(false);
     expect(lintProject(withBiome()).filter((w) => w.path.startsWith("art"))).toEqual([]);
+  });
+});
+
+describe("loading older projects", () => {
+  it("snaps world pieces stranded outside their room back in, and leaves the rest alone", () => {
+    const project = withBiome();
+    const old = JSON.parse(JSON.stringify({ ...project, schemaVersion: 3 }));
+    const placements = old.art.assets.find((a: { id: string }) => a.id === "cathedral").rooms[0].composition.placements;
+    placements[0].y = 0; // the mid pillar, wholly above the room's top
+    const migrated = ProjectSpec.parse(migrateProject(old));
+    expect(migrated.schemaVersion).toBe(4);
+    const [pillar, lantern] = biome(migrated).rooms[0]!.composition.placements;
+    expect(pillar).toMatchObject({ id: "pl_1", x: 300, y: 660 });
+    expect(lantern).toEqual(biome(project).rooms[0]!.composition.placements[1]);
   });
 });
