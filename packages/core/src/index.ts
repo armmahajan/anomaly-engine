@@ -35,6 +35,7 @@ export * from "./world/traversal.ts";
 export * from "./world/chunks.ts";
 export * from "./world/operations.ts";
 export * from "./world/fixture.ts";
+export * from "./world/fixtureSlice.ts";
 export * from "./events/events.ts";
 export * from "./events/rules.ts";
 export * from "./events/lint.ts";
