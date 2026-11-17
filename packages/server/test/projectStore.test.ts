@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDefaultProject, SCHEMA_VERSION, type ChangeResult, type ProjectSpec } from "@anomaly/core";
 import { ProjectStore } from "../src/index.ts";
+import { legacy } from "../../core/test/legacy.ts";
 
 let dir: string;
 beforeEach(async () => {
@@ -166,14 +167,13 @@ describe("ProjectStore", () => {
 describe("ProjectStore migrations", () => {
   it("upgrades a v1 project on open and can undo into migrated snapshots", async () => {
     const v1 = {
-      ...createDefaultProject(),
-      schemaVersion: 1,
+      ...legacy(createDefaultProject(), 1),
+      sandbox: { ...legacy().sandbox, spawns: legacy().sandbox.spawns.slice(0, 2) },
       revision: 1,
       characters: [
         createDefaultProject().characters[0],
         { id: "crawler", kind: "enemy", name: "Crawler", color: "#c0504d", size: { width: 40, height: 28 }, stats: { patrolSpeed: 99, patrolDistance: 300 } },
       ],
-      sandbox: { ...createDefaultProject().sandbox, spawns: createDefaultProject().sandbox.spawns.slice(0, 2) },
     };
     const v1Before = { ...v1, revision: 0 };
     await writeFile(join(dir, "project.json"), JSON.stringify(v1));
@@ -199,7 +199,7 @@ describe("ProjectStore batches", () => {
     author: "ai",
     operations: [
       { name: "duplicateCharacter", input: { characterId: "charger", newId: "charger_b" } },
-      { name: "addSpawn", input: { characterId: "charger_b", x, y: 660 } },
+      { name: "addRoomSpawn", input: { roomId: "arena", characterId: "charger_b", x, y: 660 } },
     ],
   });
 
@@ -207,12 +207,12 @@ describe("ProjectStore batches", () => {
     const store = await open();
     const project = expectOk(await store.applyBatch(batch(0)));
     expect(project.revision).toBe(1);
-    expect(project.sandbox.spawns.map((s) => s.id)).toContain("charger_b_1");
-    expect(store.getHistory()).toMatchObject([{ revision: 1, author: "ai", summary: "batch: duplicateCharacter, addSpawn" }]);
+    expect(project.world.rooms[0]!.spawns.map((s) => s.id)).toContain("charger_b_1");
+    expect(store.getHistory()).toMatchObject([{ revision: 1, author: "ai", summary: "batch: duplicateCharacter, addRoomSpawn" }]);
 
     const undone = expectOk(await store.undo({ baseRevision: 1 }));
     expect(undone.characters.map((c) => c.id)).not.toContain("charger_b");
-    expect(undone.sandbox.spawns.map((s) => s.id)).not.toContain("charger_b_1");
+    expect(undone.world.rooms[0]!.spawns.map((s) => s.id)).not.toContain("charger_b_1");
   });
 
   it("writes nothing when any step fails", async () => {

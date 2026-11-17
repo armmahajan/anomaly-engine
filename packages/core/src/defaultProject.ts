@@ -6,7 +6,7 @@ import { borderedGrid, fillTiles, TILE, type TileGrid } from "./world/tiles.ts";
 import { defaultWorld } from "./world/world.ts";
 import { defaultArtSection } from "./art/asset.ts";
 
-/** Starter project: a sandbox arena with a player, a patroller and a charger. */
+/** Starter project: one room, the arena, with a patroller and a charger; ▶ Play tests there. */
 export function createDefaultProject(): ProjectSpec {
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -85,23 +85,28 @@ export function createDefaultProject(): ProjectSpec {
         },
       },
     ],
-    sandbox: {
-      gravity: 1800,
-      backgroundColor: "#1b2030",
-      platformColor: "#4a5470",
-      playerAbilities: [],
-      grid: defaultArenaGrid(),
-      spawns: [
-        { id: "player_1", characterId: "player", x: 160, y: ARENA_FLOOR },
-        { id: "crawler_1", characterId: "crawler", x: 1150, y: ARENA_FLOOR },
-        { id: "charger_1", characterId: "charger", x: 640, y: ARENA_FLOOR },
-      ],
-      dressing: null,
-    },
     wiki: defaultWiki(),
     progression: defaultProgression(),
     art: defaultArtSection(),
-    world: defaultWorld(),
+    world: {
+      ...defaultWorld(),
+      rooms: [
+        {
+          id: "arena",
+          name: "Arena",
+          grid: defaultArenaGrid(),
+          at: { x: 0, y: 0 },
+          doors: [],
+          spawns: [
+            { id: "crawler_1", characterId: "crawler", x: 1150, y: ARENA_FLOOR },
+            { id: "charger_1", characterId: "charger", x: 640, y: ARENA_FLOOR },
+          ],
+          dressing: null,
+        },
+      ],
+      start: { room: "arena", x: 160, y: ARENA_FLOOR },
+      playtest: { room: "arena", x: 160, y: ARENA_FLOOR, abilities: [] },
+    },
   };
 }
 

@@ -5,6 +5,7 @@ import { ProjectSpec } from "../schema.ts";
 import { ArtDirection, Asset, ConceptSheet, FileRef, Preview, type CharacterAsset } from "./asset.ts";
 import { Clip } from "./clip.ts";
 import { Part, Rig } from "./rig.ts";
+import { undress } from "./worldOperations.ts";
 
 /**
  * Art operations: same contract as ../operations.ts (pure, untrusted input,
@@ -134,11 +135,10 @@ export function deleteAsset(project: ProjectSpec, input: unknown): OperationResu
     const { appearance: _removed, ...rest } = c;
     return rest;
   });
-  const dressing = project.sandbox.dressing?.biome === p.data.assetId ? null : project.sandbox.dressing;
   return commit({
     ...project,
     characters,
-    sandbox: { ...project.sandbox, dressing },
+    world: undress(project.world, (d) => d.biome === p.data.assetId),
     art: { ...project.art, assets: project.art.assets.filter((a) => a.id !== p.data.assetId) },
   });
 }

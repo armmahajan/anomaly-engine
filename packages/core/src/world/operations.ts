@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Id } from "../common.ts";
+import { MovementAbility } from "../movement/params.ts";
 import { slugify, uniqueId } from "../ids.ts";
 import type { OperationError, OperationResult } from "../operations.ts";
 import { ProjectSpec } from "../schema.ts";
@@ -133,7 +134,7 @@ export function updateWorldRoom(project: ProjectSpec, input: unknown): Operation
 
 export const RoomRef = z.strictObject({ roomId: Id });
 
-/** Delete a room; doors that led to it become unconnected, and the start is cleared if it was there. */
+/** Delete a room; doors that led to it become unconnected, and the start and playtest are cleared if they were there. */
 export function deleteWorldRoom(project: ProjectSpec, input: unknown): OperationResult {
   const p = parse(RoomRef, input, "deleteWorldRoom");
   if (!p.ok) return p;
@@ -143,7 +144,8 @@ export function deleteWorldRoom(project: ProjectSpec, input: unknown): Operation
     project.world.rooms.filter((r) => r.id !== found.room.id),
     [{ room: found.room.id }],
   );
-  return withWorld(project, { rooms, start: project.world.start?.room === found.room.id ? null : project.world.start });
+  const { start, playtest } = project.world;
+  return withWorld(project, { rooms, start: start?.room === found.room.id ? null : start, playtest: playtest?.room === found.room.id ? null : playtest });
 }
 
 export const ResizeWorldRoomInput = z.strictObject({
@@ -155,7 +157,7 @@ export const ResizeWorldRoomInput = z.strictObject({
 });
 
 /**
- * Resize a room's grid. Existing tiles, doors, spawns and the start move by
+ * Resize a room's grid. Existing tiles, doors, spawns, the start and the playtest spot move by
  * the shift; new cells are empty, with solid tiles along the new outer edge.
  */
 export function resizeWorldRoom(project: ProjectSpec, input: unknown): OperationResult {
@@ -187,10 +189,14 @@ export function resizeWorldRoom(project: ProjectSpec, input: unknown): Operation
   for (const door of room.doors) {
     if (door.offset < 0) return fail("invalid_input", `door "${door.id}" would be cropped off the room; move or remove it first`);
   }
-  const start = project.world.start;
+  const { start, playtest } = project.world;
   const rooms = project.world.rooms.slice();
   rooms[found.index] = room;
-  return withWorld(project, { rooms, start: start?.room === old.id ? { ...start, x: start.x + dx, y: start.y + dy } : start });
+  return withWorld(project, {
+    rooms,
+    start: start?.room === old.id ? { ...start, x: start.x + dx, y: start.y + dy } : start,
+    playtest: playtest?.room === old.id ? { ...playtest, x: playtest.x + dx, y: playtest.y + dy } : playtest,
+  });
 }
 
 // --- tiles -------------------------------------------------------------------
@@ -199,7 +205,7 @@ const KIND_NAMES = Object.values(TILE_KINDS) as [TileKind, ...TileKind[]];
 
 export const PaintTilesInput = z
   .strictObject({
-    roomId: Id.optional().describe("The room to paint; omit to paint the arena."),
+    roomId: Id.describe("The room to paint."),
     kind: z.enum(KIND_NAMES).describe("empty, solid, ledge (thin solid), oneway (jump up through it), hazard (hurts), breakable (ground pound smashes it)."),
     area: z
       .strictObject({ col: z.number().int().min(0), row: z.number().int().min(0), cols: z.number().int().min(1), rows: z.number().int().min(1) })
@@ -209,21 +215,17 @@ export const PaintTilesInput = z
   })
   .refine((v) => (v.area === undefined) !== (v.cells === undefined), { message: "give either area or cells" });
 
-/** Set a rectangle or a list of cells of a room's (or the arena's) grid to one tile kind. */
+/** Set a rectangle or a list of cells of a room's grid to one tile kind. */
 export function paintTiles(project: ProjectSpec, input: unknown): OperationResult {
   const p = parse(PaintTilesInput, input, "paintTiles");
   if (!p.ok) return p;
   const { roomId, kind, area, cells } = p.data;
-  let found: { index: number; room: WorldRoom } | null = null;
-  if (roomId !== undefined) {
-    const r = findRoom(project, roomId);
-    if (!r.ok) return r;
-    found = r;
-  }
-  const grid = found ? found.room.grid : project.sandbox.grid;
+  const found = findRoom(project, roomId);
+  if (!found.ok) return found;
+  const grid = found.room.grid;
   const cols = gridCols(grid);
   const rows = gridRows(grid);
-  const where = found ? `room "${found.room.id}"` : "the arena";
+  const where = `room "${found.room.id}"`;
   const list = cells ?? [];
   if (area) {
     if (area.col + area.cols > cols || area.row + area.rows > rows) {
@@ -236,7 +238,6 @@ export function paintTiles(project: ProjectSpec, input: unknown): OperationResul
   const chars = grid.rows.map((row) => row.split(""));
   for (const [c, r] of list) chars[r]![c] = TILE_CHAR[kind];
   const painted = { rows: chars.map((row) => row.join("")) };
-  if (!found) return commit({ ...project, sandbox: { ...project.sandbox, grid: painted } });
   return withRoom(project, found.index, { ...found.room, grid: painted });
 }
 
@@ -435,6 +436,31 @@ export function setWorldStart(project: ProjectSpec, input: unknown): OperationRe
   return withWorld(project, { start: { room: roomId, x, y } });
 }
 
+export const SetPlaytestInput = z.strictObject({
+  roomId: Id.optional().describe("The room ▶ Play tests in (give x and y with it)."),
+  x: z.number().optional().describe("Where the player starts: feet x, px from the room's left."),
+  y: z.number().optional().describe("Feet y, px from the room's top."),
+  abilities: z.array(MovementAbility).optional().describe("Every movement ability the player has when playtesting (replaces the list)."),
+});
+
+/** What ▶ Play tests: its room, where the player starts, and their abilities. Only the named fields change. */
+export function setPlaytest(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(SetPlaytestInput, input, "setPlaytest");
+  if (!p.ok) return p;
+  const current = project.world.playtest;
+  const roomId = p.data.roomId ?? current?.room;
+  if (!roomId) return fail("invalid_input", `there is no playtest yet: give roomId, x and y${known(project.world.rooms.map((r) => r.id))}`);
+  const found = findRoom(project, roomId);
+  if (!found.ok) return found;
+  const moved = roomId !== current?.room;
+  const x = p.data.x ?? (moved ? undefined : current?.x);
+  const y = p.data.y ?? (moved ? undefined : current?.y);
+  if (x === undefined || y === undefined) return fail("invalid_input", "give x and y for the player's start in that room (feet, px from its top-left)");
+  const outside = checkInside(found.room, x, y, "playtest spot");
+  if (outside) return outside;
+  return withWorld(project, { playtest: { room: roomId, x, y, abilities: [...new Set(p.data.abilities ?? current?.abilities ?? [])] } });
+}
+
 export const SetGameRulesInput = GameRules.partial();
 
 export function setGameRules(project: ProjectSpec, input: unknown): OperationResult {
@@ -472,6 +498,7 @@ export const worldRoomOperations = {
   moveRoomSpawn,
   removeRoomSpawn,
   setWorldStart,
+  setPlaytest,
   setGameRules,
   setLedgeThickness,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;

@@ -14,10 +14,10 @@ describe("validateProject", () => {
 
   it("rejects spawns of unknown characters", () => {
     const project = createDefaultProject();
-    project.sandbox.spawns.push({ id: "ghost_1", characterId: "ghost", x: 0, y: 0 });
+    project.world.rooms[0]!.spawns.push({ id: "ghost_1", characterId: "ghost", x: 0, y: 0 });
     const result = validateProject(project);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.issues[0]?.path).toBe("sandbox.spawns.3.characterId");
+    if (!result.ok) expect(result.issues[0]?.path).toBe("world.rooms.0.spawns.2.characterId");
   });
 
   it("rejects duplicate character ids", () => {
@@ -26,10 +26,16 @@ describe("validateProject", () => {
     expect(validateProject(project).ok).toBe(false);
   });
 
-  it("requires exactly one player spawn", () => {
+  it("requires exactly one player character, never spawned in a room", () => {
     const project = createDefaultProject();
-    project.sandbox.spawns = project.sandbox.spawns.filter((s) => s.characterId !== "player");
+    expect(validateProject({ ...project, characters: project.characters.slice(1) }).ok).toBe(false);
+    project.world.rooms[0]!.spawns.push({ id: "player_1", characterId: "player", x: 100, y: 672 });
     expect(validateProject(project).ok).toBe(false);
+  });
+
+  it("needs the playtest room to exist", () => {
+    const project = createDefaultProject();
+    expect(validateProject({ ...project, world: { ...project.world, playtest: { room: "nowhere", x: 0, y: 0, abilities: [] } } }).ok).toBe(false);
   });
 
   it("rejects unknown fields", () => {

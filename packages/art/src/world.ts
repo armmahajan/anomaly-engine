@@ -7,8 +7,10 @@ import {
   PlatformRect,
   RoomComposition,
   snapPlacements,
+  borderedGrid,
   gridPlatforms,
   gridSize,
+  worldRoomFor,
   uniqueId,
   withPlacementIds,
   WorldLayer,
@@ -250,8 +252,8 @@ export interface WorldComposeInput {
   feedback?: string;
   /** Also design new platforms (stored as a suggestion the creator can accept). */
   newLayout?: boolean;
-  /** Dress the arena with the new room. */
-  dressArena?: boolean;
+  /** A world room to dress with the new room (its tiles are what the room is composed around). */
+  dressRoom?: string;
   /** Recompose this existing room (same id, name and suggested layout) instead of adding one. */
   roomId?: string;
 }
@@ -261,8 +263,14 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
   const biome = findBiome(project, input.biomeId);
   if (!biome.kit) throw new StageError(`paint ${biome.name}'s kit first`);
   const kit = biome.kit;
-  const { width, height } = gridSize(project.sandbox.grid);
-  const arenaPlatforms = gridPlatforms(project.sandbox.grid, project.world.ledgeThickness);
+  // Composed around a world room's tiles: the one it dresses (recomposing), the one to dress, else the playtest room.
+  const target =
+    (input.roomId ? worldRoomFor(project, biome.id, input.roomId) : project.world.rooms.find((r) => r.id === input.dressRoom)) ??
+    project.world.rooms.find((r) => r.id === project.world.playtest?.room) ??
+    project.world.rooms[0];
+  const grid = target?.grid ?? borderedGrid(50, 23);
+  const { width, height } = gridSize(grid);
+  const arenaPlatforms = gridPlatforms(grid, project.world.ledgeThickness);
   const backdrop = await ctx.files.get(kit.backdrop);
   const schema = input.newLayout ? RoomComposition.extend({ platforms: z.array(PlatformRect).min(1).max(12) }) : RoomComposition;
   const composed = (await ask(
@@ -315,7 +323,7 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
         name: "addRoom",
         input: {
           assetId: biome.id,
-          dressArena: input.dressArena ?? false,
+          dressRoom: input.dressRoom ?? null,
           room: { id: roomId, name, composition: { ...composition, placements }, layout: platforms ?? null, cost: 0, at: new Date().toISOString() },
         },
       },

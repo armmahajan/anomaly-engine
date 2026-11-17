@@ -4,13 +4,13 @@ import { uniqueId } from "../ids.ts";
 import type { OperationError, OperationResult } from "../operations.ts";
 import { ProjectSpec } from "../schema.ts";
 import type { BiomeAsset } from "./asset.ts";
-import { BiomeKit, Room, WorldLayer, WorldScene, type PlatformRect } from "./world.ts";
-import { fillTiles, gridCols, gridPlatforms, gridRows, gridSize, rectsToGrid, type TileGrid } from "../world/tiles.ts";
+import { BiomeKit, Room, WorldLayer, WorldScene, type Dressing, type PlatformRect } from "./world.ts";
+import { borderedGrid, fillTiles, gridCols, gridPlatforms, gridRows, gridSize, rectsToGrid, type TileGrid } from "../world/tiles.ts";
 
 /**
- * World operations (biomes, rooms, placements, the arena's dressing). Same
+ * World art operations (biomes, their rooms, placements, dressing world rooms). Same
  * contract as ../operations.ts: pure, untrusted input, whole-project check.
- * Rooms only dress a layout; collision stays the arena's platforms until the
+ * Rooms only dress tiles; a world room's collision changes only when the
  * creator accepts a suggested layout (applyRoomLayout).
  */
 
@@ -95,8 +95,8 @@ export function setBiomeKit(project: ProjectSpec, input: unknown): OperationResu
 export const AddRoomInput = z.strictObject({
   assetId: Id,
   room: z.unknown(),
-  /** Dress the arena with it right away. */
-  dressArena: z.boolean().default(false),
+  /** A world room to dress with it right away. */
+  dressRoom: Id.nullable().default(null),
 });
 
 export function addRoom(project: ProjectSpec, input: unknown): OperationResult {
@@ -116,8 +116,10 @@ export function addRoom(project: ProjectSpec, input: unknown): OperationResult {
   const unknown = room.data.composition.placements.filter((pl) => !pieceIds.has(pl.piece)).map((pl) => pl.piece);
   if (unknown.length > 0) return fail("invalid_input", `room places unknown piece(s) ${[...new Set(unknown)].join(", ")}`);
   const next = withBiome(project, found.index, { ...found.biome, rooms: [...found.biome.rooms, room.data] });
-  if (!next.ok || !p.data.dressArena) return next;
-  return commit({ ...next.project, revision: project.revision, sandbox: { ...next.project.sandbox, dressing: { biome: found.biome.id, room: room.data.id } } });
+  if (!next.ok || !p.data.dressRoom) return next;
+  const target = worldRoomIndex(next.project, p.data.dressRoom);
+  if (target < 0) return fail("not_found", `no world room "${p.data.dressRoom}" to dress`);
+  return commit({ ...next.project, revision: project.revision, world: dressWorldRoom(next.project.world, target, { biome: found.biome.id, room: room.data.id }) });
 }
 
 export const SetRoomCompositionInput = z.strictObject({ assetId: Id, roomId: Id, composition: z.unknown() });
@@ -177,9 +179,7 @@ export function deleteRoom(project: ProjectSpec, input: unknown): OperationResul
   const rooms = found.biome.rooms.filter((r) => r.id !== p.data.roomId);
   const assets = project.art.assets.slice();
   assets[found.index] = { ...found.biome, rooms };
-  const d = project.sandbox.dressing;
-  const dressing = d && d.biome === p.data.assetId && d.room === p.data.roomId ? null : d;
-  return commit({ ...project, art: { ...project.art, assets }, sandbox: { ...project.sandbox, dressing } });
+  return commit({ ...project, art: { ...project.art, assets }, world: undress(project.world, (d) => d.biome === p.data.assetId && d.room === p.data.roomId) });
 }
 
 export const PlacementChanges = z.strictObject({
@@ -245,52 +245,84 @@ export function removePlacement(project: ProjectSpec, input: unknown): Operation
   return withRoom(project, found, { ...found.room, composition: { ...found.room.composition, placements } }, "room");
 }
 
-// --- the arena --------------------------------------------------------------------
+// --- dressing world rooms -------------------------------------------------------------
+
+const worldRoomIndex = (project: ProjectSpec, id: string) => project.world.rooms.findIndex((r) => r.id === id);
+
+function dressWorldRoom(world: ProjectSpec["world"], index: number, dressing: Dressing | null, grid?: TileGrid): ProjectSpec["world"] {
+  const rooms = world.rooms.slice();
+  rooms[index] = { ...rooms[index]!, dressing, ...(grid && { grid }) };
+  return { ...world, rooms };
+}
+
+/** Every world room whose dressing matches, undressed (a biome or its room was deleted). */
+export function undress(world: ProjectSpec["world"], match: (d: Dressing) => boolean): ProjectSpec["world"] {
+  return { ...world, rooms: world.rooms.map((r) => (r.dressing && match(r.dressing) ? { ...r, dressing: null } : r)) };
+}
+
+/** The world room art work applies to: the one named, else the playtest room, else the first. */
+function targetRoom(project: ProjectSpec, worldRoomId?: string): { ok: true; index: number } | Fail {
+  const id = worldRoomId ?? project.world.playtest?.room ?? project.world.rooms[0]?.id;
+  const index = id === undefined ? -1 : worldRoomIndex(project, id);
+  if (index >= 0) return { ok: true, index };
+  const ids = project.world.rooms.map((r) => r.id);
+  return fail("not_found", `no world room "${id ?? ""}"${ids.length ? ` (rooms: ${ids.join(", ")})` : " (the world has no rooms)"}`);
+}
 
 export const SetDressingInput = z.strictObject({
-  biomeId: Id.nullable().describe("Biome to dress the arena with; null = plain arena."),
-  roomId: Id.optional(),
+  worldRoomId: Id.optional().describe("The world room to dress; default the playtest room."),
+  biomeId: Id.nullable().describe("Biome to dress it with; null = plain tiles."),
+  roomId: Id.optional().describe("The biome's room (composition); default its newest."),
 });
 
-/** Dress the arena with a biome room (art only), or go back to the plain arena. */
+/** Dress a world room with a biome room (art only), or go back to plain tiles. */
 export function setDressing(project: ProjectSpec, input: unknown): OperationResult {
   const p = parse(SetDressingInput, input, "setDressing");
   if (!p.ok) return p;
-  if (p.data.biomeId === null) return commit({ ...project, sandbox: { ...project.sandbox, dressing: null } });
+  const target = targetRoom(project, p.data.worldRoomId);
+  if (!target.ok) return target;
+  if (p.data.biomeId === null) return commit({ ...project, world: dressWorldRoom(project.world, target.index, null) });
   const found = findBiome(project, p.data.biomeId);
   if (!found.ok) return found;
   const roomId = p.data.roomId ?? found.biome.rooms.at(-1)?.id;
   if (!roomId) return fail("invalid_input", `biome "${p.data.biomeId}" has no rooms yet; compose one first`);
-  return commit({ ...project, sandbox: { ...project.sandbox, dressing: { biome: p.data.biomeId, room: roomId } } });
+  return commit({ ...project, world: dressWorldRoom(project.world, target.index, { biome: p.data.biomeId, room: roomId }) });
 }
 
-export const ApplyRoomLayoutInput = z.strictObject({ assetId: Id, roomId: Id });
+export const ApplyRoomLayoutInput = z.strictObject({
+  assetId: Id,
+  roomId: Id,
+  worldRoomId: Id.optional().describe("The world room whose tiles become the layout; default the playtest room."),
+});
 
-/** A suggested layout on the arena's grid (same size), keeping its walls and ceiling. */
-function layoutGrid(arena: TileGrid, layout: PlatformRect[]): TileGrid {
-  const cols = gridCols(arena);
-  const rows = gridRows(arena);
+/** A suggested layout on a room's grid (same size), keeping its walls and ceiling. */
+function layoutGrid(base: TileGrid, layout: PlatformRect[]): TileGrid {
+  const cols = gridCols(base);
+  const rows = gridRows(base);
   let grid = rectsToGrid(layout, cols, rows);
   grid = fillTiles(grid, { col: 0, row: 0, cols: 1, rows }, "solid");
   grid = fillTiles(grid, { col: cols - 1, row: 0, cols: 1, rows }, "solid");
   return fillTiles(grid, { col: 0, row: 0, cols, rows: 1 }, "solid");
 }
 
-/** Accept a room's suggested layout: the arena's tiles become it, and the arena is dressed with the room. */
+/** Accept a biome room's suggested layout: a world room's tiles become it, and it is dressed with that room. */
 export function applyRoomLayout(project: ProjectSpec, input: unknown): OperationResult {
   const p = parse(ApplyRoomLayoutInput, input, "applyRoomLayout");
   if (!p.ok) return p;
   const found = findRoom(project, p.data.assetId, p.data.roomId);
   if (!found.ok) return found;
   if (!found.room.layout) return fail("invalid_input", `room "${p.data.roomId}" has no suggested layout`);
+  const target = targetRoom(project, p.data.worldRoomId);
+  if (!target.ok) return target;
   const rooms = found.biome.rooms.slice();
   rooms[found.roomIndex] = { ...found.room, layout: null };
   const assets = project.art.assets.slice();
   assets[found.index] = { ...found.biome, rooms };
+  const grid = layoutGrid(project.world.rooms[target.index]!.grid, found.room.layout);
   return commit({
     ...project,
     art: { ...project.art, assets },
-    sandbox: { ...project.sandbox, grid: layoutGrid(project.sandbox.grid, found.room.layout), dressing: { biome: found.biome.id, room: found.room.id } },
+    world: dressWorldRoom(project.world, target.index, { biome: found.biome.id, room: found.room.id }, grid),
   });
 }
 
@@ -313,16 +345,24 @@ export function newRoomId(biome: BiomeAsset, name: string): string {
   return uniqueId(base, biome.rooms.map((r) => r.id));
 }
 
+/** The world room a biome room is shown over: one it dresses, else the playtest room, else the first. */
+export function worldRoomFor(project: ProjectSpec, biomeId: string, roomId: string): ProjectSpec["world"]["rooms"][number] | undefined {
+  const { rooms, playtest } = project.world;
+  return rooms.find((r) => r.dressing?.biome === biomeId && r.dressing.room === roomId) ?? rooms.find((r) => r.id === playtest?.room) ?? rooms[0];
+}
+
 /**
- * What the runtime draws for a room: the kit + the composition over a layout
- * (the room's suggested one if asked and present, else the arena's platforms).
+ * What the runtime draws for a biome room: the kit + the composition over a
+ * world room's tiles (see worldRoomFor), or the biome room's suggested layout
+ * on them if asked and present.
  */
 export function worldSceneFor(project: ProjectSpec, biomeId: string, roomId: string, useRoomLayout = false): WorldScene | null {
   const biome = project.art.assets.find((a) => a.id === biomeId);
   if (!biome || biome.kind !== "biome" || !biome.kit) return null;
   const room = biome.rooms.find((r) => r.id === roomId);
   if (!room) return null;
-  const grid = useRoomLayout && room.layout ? layoutGrid(project.sandbox.grid, room.layout) : project.sandbox.grid;
+  const base = worldRoomFor(project, biomeId, roomId)?.grid ?? borderedGrid(50, 23);
+  const grid = useRoomLayout && room.layout ? layoutGrid(base, room.layout) : base;
   const ledgeThickness = project.world.ledgeThickness;
   const size = gridSize(grid);
   const scene = WorldScene.safeParse({

@@ -60,9 +60,9 @@ const cast: [ReturnType<typeof enemy>, [number, number][]][] = [
 ];
 
 export const castOperations = () => [
-  { name: "moveSpawn", input: { spawnId: "player_1", x: 300 } },
+  { name: "setPlaytest", input: { x: 300 } },
   ...cast.flatMap(([character, spots]) => [
     { name: "createCharacter", input: { character } },
-    ...spots.map(([x, y], i) => ({ name: "addSpawn", input: { characterId: character.id, spawnId: `${character.id}_${i + 1}`, x, y } })),
+    ...spots.map(([x, y], i) => ({ name: "addRoomSpawn", input: { roomId: "arena", characterId: character.id, spawnId: `${character.id}_${i + 1}`, x, y } })),
   ]),
 ];

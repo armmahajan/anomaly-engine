@@ -20,7 +20,7 @@ import {
   type PlayerCharacter,
   type TileGrid,
 } from "@anomaly/core";
-import { entity, range, simulate, type Input, type Sample, type Scenario } from "./simulate.ts";
+import { entity, playtestRoom, range, simulate, type Input, type Sample, type Scenario } from "./simulate.ts";
 
 // The traversal checker finds a route through each chunk with its required
 // abilities; routeInputs turns it into frame inputs. Here the real runtime
@@ -29,7 +29,7 @@ import { entity, range, simulate, type Input, type Sample, type Scenario } from 
 
 const base = createDefaultProject();
 const player = base.characters[0] as PlayerCharacter;
-const params = movementParams(player, base.sandbox.gravity);
+const params = movementParams(player, base.world.gravity);
 const ALL = Object.keys(MOVEMENT_ABILITIES) as MovementAbility[];
 const PAD = 6;
 
@@ -87,16 +87,7 @@ function scenario(c: Case, abilities: MovementAbility[], replay: ReturnType<type
   const grid = stampChunk({ rows: Array.from({ length: rows }, () => ".".repeat(cols)) }, c, PAD, PAD);
   const frames = replay.inputs.length + 10;
   return {
-    project: ProjectSpec.parse({
-      ...base,
-      characters: [player],
-      sandbox: {
-        ...base.sandbox,
-        grid,
-        playerAbilities: abilities,
-        spawns: [{ id: "player_1", characterId: "player", x: replay.start.x + PAD * TILE, y: replay.start.y + PAD * TILE }],
-      },
-    }),
+    project: playtestRoom({ ...base, characters: [player] }, grid, { x: replay.start.x + PAD * TILE, y: replay.start.y + PAD * TILE }, abilities),
     frames,
     samples: range(0, frames),
     input: spansFromFrames(replay.inputs),
@@ -115,7 +106,7 @@ function exits(c: Case, samples: Sample[]): boolean {
   const hazards = gridToSolids(c.grid).filter((s) => s.kind === "hazard");
   const hw = params.width / 2;
   for (const s of samples) {
-    const e = entity(s, "player_1");
+    const e = entity(s, "player");
     const x = e.x - PAD * TILE;
     const y = e.y - PAD * TILE;
     if (hazards.some((z) => x - hw - 1 < z.x + z.width && x + hw + 1 > z.x && y - params.height - 1 < z.y + z.height && y + 1 > z.y)) return false;
@@ -155,7 +146,7 @@ describe("checker routes in the runtime", () => {
       for (const s of results[k]!) {
         const m = states[s.frame - 1];
         if (!m) continue;
-        const e = entity(s, "player_1");
+        const e = entity(s, "player");
         const off = Math.max(Math.abs(e.x - PAD * TILE - m.x), Math.abs(e.y - PAD * TILE - m.y));
         if (off > 0.001) throw new Error(`${r.c.name} frame ${s.frame}: runtime (${e.x - PAD * TILE}, ${e.y - PAD * TILE}) vs simulator (${m.x}, ${m.y})`);
       }

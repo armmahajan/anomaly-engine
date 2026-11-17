@@ -30,7 +30,7 @@ import {
 } from "../src/index.ts";
 
 const base = createDefaultProject();
-const params = movementParams(base.characters[0] as PlayerCharacter, base.sandbox.gravity);
+const params = movementParams(base.characters[0] as PlayerCharacter, base.world.gravity);
 const ALL = Object.keys(MOVEMENT_ABILITIES) as MovementAbility[];
 const library = chunkLibrary(params);
 

@@ -54,7 +54,7 @@ var _rig: Node2D = null
 var _preview_clip := ""
 
 
-func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
+func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
 	character_id = character.id
 	_states = character.behavior.states
 	_interrupts = character.behavior.get("interrupts", [])
@@ -66,8 +66,8 @@ func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2, art: Dict
 	health = max_health
 	_size = Vector2(character.size.width, character.size.height)
 	_color = Color(character.color)
-	_gravity = float(sandbox.gravity)
-	_kill_y = float(sandbox.height) + 400.0
+	_gravity = float(bounds.gravity)
+	_kill_y = float(bounds.height) + 400.0
 	home = spawn
 	position = spawn
 

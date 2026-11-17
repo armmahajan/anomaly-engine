@@ -33,7 +33,7 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   await expect.poll(async () => (await runtimeState(page)).stage, { timeout: 90_000 }).toBe("world"); // after the room is composed and reviewed (two headless renders)
   const first = (await biome(page))!;
   expect(first.rooms).toHaveLength(1);
-  expect((await project(page)).sandbox.dressing).toEqual({ biome: first.id, room: first.rooms[0]!.id });
+  expect((await project(page)).world.rooms[0]!.dressing).toEqual({ biome: first.id, room: first.rooms[0]!.id });
 
   // Layer, fog and exploded toggles just change the view.
   await page.getByLabel("Front layer").uncheck();
@@ -49,9 +49,9 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   await fromRuntime(page, { type: "worldPick", placementId: "pl_1" });
   await expect(page.getByTestId("world-selection")).toBeVisible();
   // A dropped piece comes to rest on a surface (pl_1 is a distant pillar: the floor line); Alt keeps the drop point.
-  const { sandbox } = await project(page);
-  const size = gridSize(sandbox.grid);
-  const floor = floorLine({ width: Math.max(960, size.width), height: Math.max(360, size.height), platforms: gridPlatforms(sandbox.grid) });
+  const arena = (await project(page)).world.rooms[0]!;
+  const size = gridSize(arena.grid);
+  const floor = floorLine({ width: Math.max(960, size.width), height: Math.max(360, size.height), platforms: gridPlatforms(arena.grid) });
   const pillar = async () => (await biome(page))!.rooms[0]!.composition.placements.find((p) => p.id === "pl_1");
   await fromRuntime(page, { type: "worldMove", placementId: "pl_1", x: 777, y: 100 });
   await expect.poll(async () => (await pillar())?.x).toBe(777);
@@ -62,22 +62,22 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   await expect.poll(async () => (await biome(page))!.rooms[0]!.composition.placements.find((p) => p.id === "pl_1")?.layer).toBe("back");
 
   // A second room with a suggested layout: nothing changes until it is accepted.
-  const tiles = (await project(page)).sandbox.grid;
+  const tiles = (await project(page)).world.rooms[0]!.grid;
   await panel.getByLabel("Suggest layout").check();
   await panel.getByRole("button", { name: /Compose room/ }).click();
   await expect(page.getByText("This room suggests a new platform layout.")).toBeVisible({ timeout: 30_000 });
-  expect((await project(page)).sandbox.grid).toEqual(tiles);
+  expect((await project(page)).world.rooms[0]!.grid).toEqual(tiles);
   await page.getByLabel("Preview it").check();
-  await page.getByRole("button", { name: "Use this layout in the arena" }).click();
-  await expect.poll(async () => (await project(page)).sandbox.grid).not.toEqual(tiles);
+  await page.getByRole("button", { name: "Use this layout" }).click();
+  await expect.poll(async () => (await project(page)).world.rooms[0]!.grid).not.toEqual(tiles);
   await expect(page.getByText("This room suggests a new platform layout.")).toHaveCount(0);
 
-  // Undo puts the arena back.
+  // Undo puts the arena room back.
   await page.getByRole("button", { name: "↶ Undo" }).click();
-  await expect.poll(async () => (await project(page)).sandbox.grid).toEqual(tiles);
+  await expect.poll(async () => (await project(page)).world.rooms[0]!.grid).toEqual(tiles);
 
-  // The arena is drawn with the room, and the game still plays in it.
-  await page.getByRole("tab", { name: "Arena" }).click();
+  // The arena room is drawn with the biome room, and the game still plays in it.
+  await page.getByRole("tab", { name: "Playtest" }).click();
   await expect.poll(async () => (await runtimeState(page)).dressed).toBe(true);
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Playing");

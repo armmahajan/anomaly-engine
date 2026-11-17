@@ -120,7 +120,7 @@ export const RoomComposition = WorldScene.pick({ palette: true, placements: true
 export type RoomComposition = z.infer<typeof RoomComposition>;
 
 /**
- * One composed room. It dresses the arena's layout; `layout` is a suggested
+ * One composed room. It dresses a world room's tiles; `layout` is a suggested
  * platform layout (from "suggest layout") that the creator can accept.
  */
 export const Room = z.strictObject({
@@ -134,6 +134,6 @@ export const Room = z.strictObject({
 });
 export type Room = z.infer<typeof Room>;
 
-/** The arena dressed with a biome room. */
+/** A world room dressed with a biome room. */
 export const Dressing = z.strictObject({ biome: Id, room: Id });
 export type Dressing = z.infer<typeof Dressing>;

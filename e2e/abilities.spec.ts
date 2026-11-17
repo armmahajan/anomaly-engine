@@ -97,8 +97,8 @@ test("a ground pound smashes the cracked platform", async ({ page }) => {
     data: {
       baseRevision: base,
       operations: [
-        { name: "setArenaAbilities", input: { abilities: ["ground_pound"] } },
-        { name: "moveSpawn", input: { spawnId: "player_1", x: 830, y: 416 } },
+        { name: "setPlaytest", input: { abilities: ["ground_pound"] } },
+        { name: "setPlaytest", input: { x: 830, y: 416 } },
       ],
     },
   });

@@ -10,10 +10,10 @@ export const FPS = 60;
 
 export interface Scenario {
   project: ProjectSpec;
-  /** Collision to use instead of the arena grid's (for exact, non-tile geometry in physics tests). */
+  /** Collision to use instead of the playtest room grid's (for exact, non-tile geometry in physics tests). */
   solids?: GridSolid[];
   seed?: number;
-  /** Start in the game world (as the play message's `world`) instead of the arena. */
+  /** Start here (as the play message's `world`) instead of the playtest. */
   world?: WorldStart;
   frames: number;
   samples: number[];
@@ -38,7 +38,8 @@ export function simulate(scenarios: Scenario[]): Sample[][] {
   try {
     const runtime = scenarios.map(({ solids, project, ...rest }) => {
       const sent = toRuntimeProject(project);
-      if (solids) sent.sandbox.solids = solids;
+      const room = sent.world.rooms.find((r) => r.id === project.world.playtest?.room);
+      if (solids && room) room.solids = solids;
       return { ...rest, project: sent };
     });
     writeFileSync(join(dir, "in.json"), JSON.stringify({ scenarios: runtime }));
@@ -74,8 +75,8 @@ export interface EnemySetup {
   stats?: { knockback?: number; health?: number; contactDamage?: number };
 }
 
-/** The default arena (floor top y=672; a ledge at x 384-608 y 544, a breakable block at x 736-928 y 416) with the given enemies. */
-export function arena(enemies: EnemySetup[], player: [number, number] = [160, ARENA_FLOOR]): ProjectSpec {
+/** The default arena room (floor top y=672; a ledge at x 384-608 y 544, a breakable block at x 736-928 y 416) with the given enemies, as the playtest. */
+export function arena(enemies: EnemySetup[], player: [number, number] = [160, ARENA_FLOOR], abilities: string[] = []): ProjectSpec {
   const base = createDefaultProject();
   const toTransitions = (steps: Step[] = []) => steps.map(([when, to]) => ({ when, to }));
   return ProjectSpec.parse({
@@ -99,16 +100,23 @@ export function arena(enemies: EnemySetup[], player: [number, number] = [160, AR
         },
       })),
     ],
-    sandbox: {
-      ...base.sandbox,
-      spawns: [
-        { id: "player_1", characterId: "player", x: player[0], y: player[1] },
-        ...enemies.flatMap((e) =>
-          range(1, e.count ?? 1).map((n) => ({ id: `${e.id}_${n}`, characterId: e.id, x: e.at[0], y: e.at[1] })),
-        ),
+    world: {
+      ...base.world,
+      rooms: [
+        {
+          ...base.world.rooms[0]!,
+          spawns: enemies.flatMap((e) => range(1, e.count ?? 1).map((n) => ({ id: `${e.id}_${n}`, characterId: e.id, x: e.at[0], y: e.at[1] }))),
+        },
       ],
+      playtest: { room: base.world.rooms[0]!.id, x: player[0], y: player[1], abilities },
     },
   });
+}
+
+/** `base` playtesting its first room, re-tiled with `grid` (and emptied of enemies), from `at`. */
+export function playtestRoom(base: ProjectSpec, grid: { rows: string[] }, at: { x: number; y: number }, abilities: string[] = []): ProjectSpec {
+  const room = { ...base.world.rooms[0]!, grid, spawns: [], doors: [] };
+  return ProjectSpec.parse({ ...base, world: { ...base.world, rooms: [room], start: null, playtest: { room: room.id, ...at, abilities } } });
 }
 
 export function entity(sample: Sample | undefined, spawnId: string): EntityState {

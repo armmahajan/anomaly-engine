@@ -82,7 +82,7 @@ export type CharacterAsset = z.infer<typeof CharacterAsset>;
 
 /**
  * A biome: one place's art kit (backdrop, piece sheets, ground) and the rooms
- * composed from it. `brief` is the theme. Rooms dress a layout (the arena).
+ * composed from it. `brief` is the theme. Rooms dress world rooms' tiles.
  */
 export const BiomeAsset = z.strictObject({
   ...assetBase,

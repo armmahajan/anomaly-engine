@@ -24,7 +24,7 @@ const fastCharger: TurnRunner = (request) =>
       callTools(toolCall("duplicateCharacter", { characterId: "charger", newId: "fast_charger", name: "Fast Charger" })),
       callTools(
         toolCall("updateBehavior", { characterId: "fast_charger", stateId: "charge", action: { speed: 800 } }),
-        toolCall("addSpawn", { characterId: "fast_charger", x: 1100, y: 660 }),
+        toolCall("addRoomSpawn", { roomId: "arena", characterId: "fast_charger", x: 1100, y: 660 }),
       ),
       say("Added a Fast Charger."),
     ]),
@@ -65,7 +65,7 @@ describe("ChatService", () => {
       text: "Added a Fast Charger.",
       outcome: "committed",
       revision: 1,
-      changes: ["copied charger as fast_charger", "tuned fast_charger › charge", "placed fast_charger"],
+      changes: ["copied charger as fast_charger", "tuned fast_charger › charge", "placed fast_charger in arena"],
     });
     expect(store.getHistory()).toEqual([expect.objectContaining({ revision: 1, author: "ai" })]);
     expect((await ChatService.open(store, fastCharger)).getState().entries).toHaveLength(2);

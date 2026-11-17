@@ -26,10 +26,12 @@ function err(result: OperationResult) {
 const op = (p: Project, name: string, input: unknown) => applyOperation(p, name, input);
 const room = (p: Project, id: string) => p.world.rooms.find((r) => r.id === id)!;
 
-/** Two 20x10 rooms, a and b. */
+/** Two 20x10 rooms, a and b (and no others). */
 function twoRooms(): Project {
+  const empty = createDefaultProject();
+  empty.world = { ...empty.world, rooms: [], start: null, playtest: null };
   return ok(
-    applyBatch(createDefaultProject(), [
+    applyBatch(empty, [
       { name: "createWorldRoom", input: { name: "A", cols: 20, rows: 10 } },
       { name: "createWorldRoom", input: { name: "B", cols: 20, rows: 10 } },
     ]),
@@ -100,14 +102,14 @@ describe("world rooms", () => {
 });
 
 describe("paintTiles", () => {
-  it("paints a rectangle or cells in a room, or the arena", () => {
+  it("paints a rectangle or cells in a room", () => {
     let p = twoRooms();
     p = ok(op(p, "paintTiles", { roomId: "a", kind: "ledge", area: { col: 2, row: 5, cols: 4, rows: 1 } }));
     expect(room(p, "a").grid.rows[5]).toBe("#.====.............#");
     p = ok(op(p, "paintTiles", { roomId: "a", kind: "hazard", cells: [[1, 8], [2, 8]] }));
     expect(room(p, "a").grid.rows[8]!.slice(0, 4)).toBe("#^^.");
-    p = ok(op(p, "paintTiles", { kind: "oneway", cells: [[5, 5]] }));
-    expect(tileAt(p.sandbox.grid, 5, 5)).toBe("oneway");
+    p = ok(op(p, "paintTiles", { roomId: "b", kind: "oneway", cells: [[5, 5]] }));
+    expect(tileAt(room(p, "b").grid, 5, 5)).toBe("oneway");
   });
 
   it("rejects cells outside the grid, unknown rooms and bad kinds", () => {
@@ -205,6 +207,16 @@ describe("room spawns, start and rules", () => {
     expect(ok(op(p, "setWorldStart", { roomId: null })).world.start).toBeNull();
   });
 
+  it("sets what ▶ Play tests, changing only what is named; deleting its room clears it", () => {
+    let p = ok(op(twoRooms(), "setPlaytest", { roomId: "a", x: 64, y: 288, abilities: ["dash", "dash"] }));
+    expect(p.world.playtest).toEqual({ room: "a", x: 64, y: 288, abilities: ["dash"] });
+    p = ok(op(p, "setPlaytest", { x: 100 }));
+    expect(p.world.playtest).toEqual({ room: "a", x: 100, y: 288, abilities: ["dash"] });
+    expect(err(op(p, "setPlaytest", { roomId: "b" })).message).toContain("give x and y");
+    expect(err(op(p, "setPlaytest", { x: 9999 })).message).toContain("outside room");
+    expect(ok(op(p, "deleteWorldRoom", { roomId: "a" })).world.playtest).toBeNull();
+  });
+
   it("changes only the named rules, and the ledge thickness", () => {
     let p = ok(op(createDefaultProject(), "setGameRules", { onDeath: "start" }));
     expect(p.world.rules).toEqual({ onDeath: "start", save: "room", hazardDamage: 1 });
@@ -213,7 +225,7 @@ describe("room spawns, start and rules", () => {
     expect(err(op(p, "setGameRules", {})).message).toContain("nothing to change");
     expect(err(op(p, "setGameRules", { onDeath: "town" })).code).toBe("invalid_input");
     p = ok(op(p, "setLedgeThickness", { thickness: 12 }));
-    expect(gridToSolids(p.sandbox.grid, p.world.ledgeThickness).find((s) => s.kind === "ledge")!.height).toBe(12);
+    expect(gridToSolids(p.world.rooms[0]!.grid, p.world.ledgeThickness).find((s) => s.kind === "ledge")!.height).toBe(12);
     expect(err(op(p, "setLedgeThickness", { thickness: 64 })).code).toBe("invalid_input");
   });
 });

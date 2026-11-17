@@ -75,7 +75,7 @@ beforeAll(() => {
 describe("player sword", () => {
   it("a forward swing damages, knocks back and kills; the cooldown swallows a too-early press", () => {
     const dummy = track(r.forward, "dummy_1");
-    const player = track(r.forward, "player_1");
+    const player = track(r.forward, "player");
     const hit = dummy.findIndex((e) => e.health === 1);
     expect(hit).toBeGreaterThan(40);
     expect(dummy[hit + 15]!.health).toBe(1);
@@ -91,11 +91,11 @@ describe("player sword", () => {
     const bat = track(r.up, "bat_1");
     expect(bat.at(-1)!.health).toBe(2);
     expect(Math.min(...bat.map((e) => e.y))).toBeLessThan(590);
-    expect(track(r.up, "player_1").some((e) => e.behaviorState === "slash_up")).toBe(true);
+    expect(track(r.up, "player").some((e) => e.behaviorState === "slash_up")).toBe(true);
   });
 
   it("a downward strike in the air bounces the player off the enemy (pogo) without taking damage", () => {
-    const player = track(r.pogo, "player_1");
+    const player = track(r.pogo, "player");
     const dummy = track(r.pogo, "dummy_1");
     const hit = dummy.findIndex((e) => e.health === 2);
     expect(hit).toBeGreaterThan(0);
@@ -109,10 +109,10 @@ describe("player health", () => {
   it("contact damage costs health once per invulnerability window; at 0 the run restarts", () => {
     const deathAt = r.death.findIndex((x) => x.deaths === 1);
     expect(deathAt).toBeGreaterThan(0);
-    const before = r.death.slice(0, deathAt).map((x) => entity(x, "player_1").health);
+    const before = r.death.slice(0, deathAt).map((x) => entity(x, "player").health);
     expect(before).toContain(1);
     expect(before.slice(0, 20)).toEqual(Array(20).fill(2));
-    const after = entity(r.death[deathAt], "player_1");
+    const after = entity(r.death[deathAt], "player");
     expect(after).toMatchObject({ health: 2, x: 160, y: FLOOR });
     expect(entity(r.death[deathAt], "spiker_1").x).toBeCloseTo(500, -1);
   });

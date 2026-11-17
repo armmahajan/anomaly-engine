@@ -92,14 +92,16 @@ e2e/            Playwright acceptance test.
     toolbar, replayable) that drives `chance`.
   - Primitive tests run the real game headless (`game/tests/simulate.gd`)
     at a fixed 60 fps and assert positions and states.
-- **Geometry is tiles.** Rooms (and the arena) are grids of 32 px tiles
+- **Geometry is tiles.** Rooms are grids of 32 px tiles
   (`packages/core/src/world/tiles.ts`): `.` empty, `#` solid, `=` ledge
   (thin and solid; thickness is one per-game setting, `world.ledgeThickness`),
   `-` one-way (jump up through it), `^` hazard, `%` breakable (a ground pound
   smashes the whole connected area). Collision rectangles are derived from
   the grid (`gridToSolids`) and sent to the runtime with the project
   (`toRuntimeProject`), never stored. The game's rooms, doors and rules live
-  in `project.world` (`world/world.ts`).
+  in `project.world` (`world/world.ts`). There is no separate test arena:
+  the starter project's arena is an ordinary room, and `world.playtest`
+  (room, spot, abilities) is what ▶ Play tests.
 - **Terrain is drawn from the grid, as one mass** (`game/scripts/terrain.gd`):
   every cell is filled with one material (flat color, or the biome's ground
   texture sampled in world space), darkened by its distance from the nearest
@@ -122,7 +124,8 @@ e2e/            Playwright acceptance test.
   - Abilities: dash, double jump, wall jump (with wall slide), glide, ground
     pound; each tunable on the player. Coyote time, jump buffering and
     short hops are built in. Which abilities the player has comes from the
-    arena (`sandbox.playerAbilities`) for now, from the game later.
+    playtest (`world.playtest.abilities`) or the run's start for now, from
+    pickups later.
 - **Schema changes ship with a migration** (`packages/core/src/migrations.ts`);
   older project files are upgraded when loaded.
 - **The protocol speaks project terms, not Godot terms**, so the runtime is
@@ -158,12 +161,11 @@ Operations (all in `packages/core/src/operations.ts`):
 | `updateCharacter` | Name, color, size, stats |
 | `updateBehavior` | Targeted edit of one state, e.g. `{"characterId":"charger","stateId":"windup","transitions":[{"index":0,"when":{"seconds":1.2}}]}` |
 | `setBehavior` | Replace a whole state machine |
-| `addSpawn` / `moveSpawn` / `removeSpawn` | Place, move, remove instances (spawns have stable ids like `charger_1`) |
 | `createWorldRoom` / `updateWorldRoom` / `resizeWorldRoom` / `deleteWorldRoom` | Game-world rooms (`world/operations.ts`); deleting one unlinks doors to it |
-| `paintTiles` | Fill a rectangle or a list of cells of a room's (or the arena's) grid with one tile kind |
+| `paintTiles` | Fill a rectangle or a list of cells of a room's grid with one tile kind |
 | `setDoor` / `removeDoor` / `connectDoors` | Door openings and their links (right <-> left, bottom <-> top) |
-| `addRoomSpawn` / `moveRoomSpawn` / `removeRoomSpawn` | Enemies in rooms |
-| `setWorldStart` / `setGameRules` / `setLedgeThickness` | Where the game begins, death/saving/hazard rules, ledge thickness |
+| `addRoomSpawn` / `moveRoomSpawn` / `removeRoomSpawn` | Enemies in rooms (spawns have stable ids like `charger_1`) |
+| `setWorldStart` / `setPlaytest` / `setGameRules` / `setLedgeThickness` | Where the game begins, what ▶ Play tests (room, spot, abilities), death/saving/hazard rules, ledge thickness |
 
 `POST /api/batch` applies several operations atomically, as one revision and
 one undo step; if any step fails nothing changes and the error names the step:
@@ -173,7 +175,7 @@ curl -s -H "$H" -X POST localhost:5173/api/batch -H 'content-type: application/j
   "baseRevision": 3, "author": "ai", "operations": [
     { "name": "duplicateCharacter", "input": { "characterId": "charger", "newId": "fast_charger" } },
     { "name": "updateBehavior", "input": { "characterId": "fast_charger", "stateId": "charge", "action": { "speed": 800 } } },
-    { "name": "addSpawn", "input": { "characterId": "fast_charger", "x": 1000, "y": 660 } } ] }'
+    { "name": "addRoomSpawn", "input": { "roomId": "arena", "characterId": "fast_charger", "x": 1000, "y": 672 } } ] }'
 ```
 
 In the browser console, `window.studio` exposes the same operations plus
@@ -183,7 +185,7 @@ runtime control: `studio.updateCharacter(...)`, `studio.applyOperation(name, inp
 
 ## Chat
 
-The chat panel (right) follows the tab: on **Arena** it is the build
+The chat panel (right) follows the tab: on **Playtest** it is the build
 assistant, which changes the game from plain-language requests; on **Wiki**
 and **Progression** it is the director (see below). Each agent keeps its own
 conversation.
@@ -280,13 +282,13 @@ between regions (two-way or one-way, gated by abilities), **story beats**
 
 ## Studio modes
 
-The toolbar switches modes in one window: **Arena** (play and tune), **Characters**
+The toolbar switches modes in one window: **Playtest** (play and tune in the playtest room), **Characters**
 and **Worlds** (art workbenches), **Rooms** (the game world), **Wiki** and **Progression** (design documents,
 with the director's chat). The game runtime stays mounted the whole time; modes
-only move it between named grid areas and send it a `stage` message (the arena,
+only move it between named grid areas and send it a `stage` message (the playtest room,
 one character, a biome room or a game-world room). The sidebar resizes from its left edge and the
 chat collapses to a strip (both remembered per browser); the stage has a
-full-screen button. Leaving the mode a playtest runs in stops it; Play returns to the arena.
+full-screen button. Leaving the mode a playtest runs in stops it; Play returns to the playtest room.
 
 ## Rooms (the game world)
 
@@ -294,9 +296,11 @@ full-screen button. Leaving the mode a playtest runs in stops it; Play returns t
 lines for connected doors), the selected room live in the runtime (stage
 `room`) with a tile painter over it (pick a kind, click or drag: one stroke is
 one undoable `paintTiles`), doors (add, connect, disconnect), enemy spawns, the
-start and the rules. **📍 Spot** marks a point for **Set start here**, **+ Enemy at
-spot** and **▶ Play from here** (with the chosen abilities); **▶ From start** and
-**Continue** (the run saved in this browser) play from the world's start.
+start and the rules. **📍 Spot** marks a point for **Set start here**, **Playtest
+here** (where ▶ Play in **Playtest** starts), **+ Enemy at spot** and **▶ Play from
+here** (with the chosen abilities); **▶ From start** and **Continue** (the run saved
+in this browser) play from the world's start. While playing, the sidebar follows the
+player from room to room (`roomEntered`).
 
 World play (`play` with `world: { room, x, y, abilities, continue? }`;
 `game/scripts/world_runtime.gd`): leaving through a door opening enters the
@@ -375,8 +379,9 @@ player is behind them.
   (move, rescale, re-layer, remove, add), which are snapped again. Both renders
   are in the job log. A fix that scores worse is undone with more rounds
   (`roomRounds`, default 1).
-- **The arena:** a room *dresses* the arena (`sandbox.dressing`): Play happens
-  inside it, with the arena's own platforms textured (breakable ones keep their
+- **Dressing rooms:** a biome room *dresses* a world room (`room.dressing`; new art
+  dresses the playtest room while it is plain): Play happens inside it, with the
+  room's own tiles textured and nothing drawn outside its walls (breakable ones keep their
   cracked look; smashing one also clears the pieces and lights standing on it). Rooms never change
   collision; **Suggest layout** stores new platforms on the room, which you can
   preview and accept (`applyRoomLayout`, one undo step).

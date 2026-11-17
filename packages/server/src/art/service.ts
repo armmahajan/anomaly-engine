@@ -276,7 +276,7 @@ export class ArtService {
         if (isNew) {
           stages.push({
             stage: "worldCompose",
-            run: () => worldComposeStage(ctx, { biomeId: running.biomeId!, dressArena: request.dressArena }),
+            run: () => worldComposeStage(ctx, { biomeId: running.biomeId!, dressRoom: request.dressRoom }),
           });
         } else {
           stages.push(...this.recomposeRooms(ctx, request.biomeId!));

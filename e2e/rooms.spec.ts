@@ -96,6 +96,7 @@ test("Rooms: play from here and walk through a door with the keyboard", async ({
   await page.keyboard.down("ArrowRight");
   await expect.poll(async () => (await runtimeState(page)).room, { timeout: 5_000 }).toBe("east");
   await page.keyboard.up("ArrowRight");
+  await expect(page.getByTestId("room-east")).toHaveClass(/selected/); // the sidebar follows the player
   const state = await runtimeState(page);
   expect(state.visited).toEqual(["west", "east"]);
   expect(state.entities.map((e) => e.characterId).sort()).toEqual(["crawler", "player"]);
@@ -106,5 +107,5 @@ test("Rooms: play from here and walk through a door with the keyboard", async ({
   await page.getByRole("button", { name: "■ Stop" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Editing");
   await expect.poll(async () => (await runtimeState(page)).stage).toBe("room");
-  expect((await runtimeState(page)).room).toBeNull();
+  expect((await runtimeState(page)).room).toBe("east"); // shown where the player left off
 });

@@ -14,8 +14,8 @@ import { fileUrl } from "./api.ts";
 import { useChatOpen, useSidebarWidth } from "./layout.ts";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
-type Tab = "arena" | "characters" | "worlds" | "rooms" | "wiki" | "progression";
-const TAB_LABEL: Record<Tab, string> = { arena: "Arena", characters: "Characters", worlds: "Worlds", rooms: "Rooms", wiki: "Wiki", progression: "Progression" };
+type Tab = "playtest" | "characters" | "worlds" | "rooms" | "wiki" | "progression";
+const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Worlds", rooms: "Rooms", wiki: "Wiki", progression: "Progression" };
 /** Design documents (the director's tabs): the game is hidden and the chat is the director's. */
 const DESIGN_TABS: readonly Tab[] = ["wiki", "progression"];
 
@@ -25,7 +25,7 @@ export function App({ session }: { session: Session }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>("crawler");
-  const [tab, setTab] = useState<Tab>("arena");
+  const [tab, setTab] = useState<Tab>("playtest");
   const [wikiNav, setWikiNav] = useState<WikiNav>({ pageId: null, editing: null });
   const [progressionNav, setProgressionNav] = useState<ProgressionNav>({ selected: null, creating: null });
   const [sidebarWidth, startResize] = useSidebarWidth();
@@ -67,9 +67,12 @@ export function App({ session }: { session: Session }) {
   const { project } = state;
   const selected = project.characters.find((c) => c.id === selectedId) ?? null;
   const characterIds = project.characters.map((c) => c.id);
-  const playerSpawn = project.sandbox.spawns.find((s) => s.characterId === "player");
-  /** Where new things appear: arena centre, on the player's floor. */
-  const defaultSpawn = { x: Math.round(gridSize(project.sandbox.grid).width / 2), y: playerSpawn?.y ?? 0 };
+  const { playtest } = project.world;
+  const testRoom = project.world.rooms.find((r) => r.id === playtest?.room) ?? null;
+  /** Where new things appear: the playtest room's centre, on the player's floor. */
+  const defaultSpawn = testRoom && playtest ? { x: Math.round(gridSize(testRoom.grid).width / 2), y: playtest.y } : null;
+  const spawnHere = (characterId: string, at: { x: number; y: number } | null) =>
+    testRoom && at ? [{ name: "addRoomSpawn", input: { roomId: testRoom.id, characterId, ...at } }] : [];
 
   const report = (result: ChangeResult) => {
     if (!result.ok) session.reportProblem(result.error.message);
@@ -84,7 +87,7 @@ export function App({ session }: { session: Session }) {
     const ok = report(
       await session.applyBatch([
         { name: "createCharacter", input: { character: newEnemyCharacter(id, name, color) } },
-        { name: "addSpawn", input: { characterId: id, ...defaultSpawn } },
+        ...spawnHere(id, defaultSpawn),
       ]),
     );
     if (ok) setSelectedId(id);
@@ -93,11 +96,11 @@ export function App({ session }: { session: Session }) {
   const duplicateSelected = async () => {
     if (!selected) return;
     const newId = uniqueId(`${selected.id}_copy`, characterIds);
-    const source = project.sandbox.spawns.find((s) => s.characterId === selected.id) ?? defaultSpawn;
+    const source = testRoom?.spawns.find((s) => s.characterId === selected.id) ?? defaultSpawn;
     const ok = report(
       await session.applyBatch([
         { name: "duplicateCharacter", input: { characterId: selected.id, newId } },
-        { name: "addSpawn", input: { characterId: newId, x: source.x + 80, y: source.y } },
+        ...spawnHere(newId, source && { x: source.x + 80, y: source.y }),
       ]),
     );
     if (ok) setSelectedId(newId);
@@ -105,7 +108,7 @@ export function App({ session }: { session: Session }) {
 
   const deleteSelected = async () => {
     if (!selected) return;
-    const spawnCount = project.sandbox.spawns.filter((s) => s.characterId === selected.id).length;
+    const spawnCount = project.world.rooms.flatMap((r) => r.spawns).filter((s) => s.characterId === selected.id).length;
     if (!window.confirm(`Delete ${selected.name} and its ${spawnCount} spawn(s)? (Undo can restore it.)`)) return;
     if (report(await session.applyOperation("deleteCharacter", { characterId: selected.id }))) setSelectedId("player");
   };
@@ -115,7 +118,7 @@ export function App({ session }: { session: Session }) {
     if (report(await session.resetProject())) setSelectedId("crawler");
   };
 
-  /** The arena plays in Arena mode and the world in Rooms mode: opening another mode ends a playtest. */
+  /** The playtest room plays in Playtest mode and the world in Rooms mode: opening another mode ends a playtest. */
   const openTab = (next: Tab) => {
     if (next !== tab && playing) session.stop();
     setTab(next);
@@ -123,8 +126,13 @@ export function App({ session }: { session: Session }) {
 
   // Tell the runtime what to show for this mode (workbenches drive their own stage).
   useEffect(() => {
-    if (tab === "arena" || tab === "wiki") session.setStage({ mode: "game" });
+    if (tab === "playtest" || tab === "wiki") session.setStage({ mode: "game" });
   }, [session, tab, state.runtimeStatus]);
+
+  // While playing the world, the Rooms sidebar follows the player from room to room.
+  useEffect(() => {
+    if (playing && state.room) setRoomsUi((ui) => (ui.roomId === state.room ? ui : { ...ui, roomId: state.room, spot: null }));
+  }, [playing, state.room]);
 
   const openWikiPage = (pageId: string) => {
     setWikiNav({ pageId, editing: null });
@@ -133,7 +141,7 @@ export function App({ session }: { session: Session }) {
 
   const openCharacter = (characterId: string) => {
     setSelectedId(characterId);
-    setTab("arena");
+    setTab("playtest");
   };
 
   /** Kit shelf click: put the piece in the middle of the current view, standing on the surface there. */
@@ -153,7 +161,7 @@ export function App({ session }: { session: Session }) {
 
   const progression = project.progression;
   const drafts: Record<Tab, number> = {
-    arena: 0,
+    playtest: 0,
     characters: 0,
     worlds: 0,
     rooms: 0,
@@ -173,7 +181,7 @@ export function App({ session }: { session: Session }) {
   );
 
   const onPlay = async (seed?: number) => {
-    setTab("arena");
+    setTab("playtest");
     if (await session.play(seed)) {
       frameRef.current?.focus();
       frameRef.current?.contentWindow?.focus();
@@ -244,7 +252,7 @@ export function App({ session }: { session: Session }) {
       {/* The game stays mounted (and sized) in every mode so it never reboots; modes only move it. */}
       <main className={`viewport${design ? " offstage" : ""}`} aria-hidden={design}>
         <iframe ref={frameRef} src="/game/index.html" title="Game" className="game-frame" />
-        {tab === "arena" && !playing && state.runtimeStatus === "ready" && (
+        {tab === "playtest" && !playing && state.runtimeStatus === "ready" && (
           <div className="edit-badge">Edit mode — press Play to test</div>
         )}
         {tab === "rooms" && !playing && state.runtimeStatus === "ready" && (
@@ -382,17 +390,18 @@ export function App({ session }: { session: Session }) {
         {selected && tab === "characters" && (
           <ArtPanel key={selected.id} character={selected} project={project} art={state.art} session={session} locked={playing || Object.values(state.chats).some((c) => c.running !== null)} />
         )}
-        {selected && tab === "arena" && (
+        {selected && tab === "playtest" && (
           <Inspector
             key={selected.id}
             character={selected}
-            spawns={project.sandbox.spawns.filter((s) => s.characterId === selected.id)}
+            roomId={testRoom?.id ?? null}
+            spawns={testRoom?.spawns.filter((s) => s.characterId === selected.id) ?? []}
             defaultSpawn={defaultSpawn}
             session={session}
             locked={locked}
             lockHint={aiBusy ? "The AI is editing. Wait for it or cancel." : "Stop the playtest to edit."}
             wikiPageId={project.wiki.pages.find((p) => p.characterId === selected.id)?.id}
-            arenaAbilities={project.sandbox.playerAbilities}
+            playtest={playtest}
             onOpenWiki={openWikiPage}
           />
         )}

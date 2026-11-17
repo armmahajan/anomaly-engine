@@ -101,7 +101,7 @@ static func _frames(seconds: float) -> int:
 	return maxi(0, roundi(seconds * FPS))
 
 
-func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
+func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
 	character_id = character.id
 	var stats: Dictionary = character.stats
 	_run_speed = float(stats.runSpeed)
@@ -117,15 +117,15 @@ func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2, art: Dict
 	_buffer_frames = _frames(float(stats.get("jumpBuffer", 0.12)))
 	_size = Vector2(character.size.width, character.size.height)
 	_color = Color(character.color)
-	_gravity = float(sandbox.gravity)
+	_gravity = float(bounds.gravity)
 	_spawn = spawn
-	_kill_y = float(sandbox.height) + 400.0
+	_kill_y = float(bounds.height) + 400.0
 	position = spawn
 	_px = spawn.x
 	_py = spawn.y
 
 	_tuning = character.get("abilities", {})
-	for ability in sandbox.get("playerAbilities", []):
+	for ability in bounds.get("playerAbilities", []):
 		_has[str(ability)] = true
 	var dash: Dictionary = _tuning.get("dash", {})
 	_dash_length = maxi(1, _frames(float(dash.get("duration", 0.2))))
@@ -155,8 +155,8 @@ func setup(character: Dictionary, sandbox: Dictionary, spawn: Vector2, art: Dict
 	camera.position = Vector2(0, -_size.y / 2.0)
 	camera.limit_left = 0
 	camera.limit_top = 0
-	camera.limit_right = int(sandbox.width)
-	camera.limit_bottom = int(sandbox.height)
+	camera.limit_right = int(bounds.width)
+	camera.limit_bottom = int(bounds.height)
 	camera.position_smoothing_enabled = true
 	camera.position_smoothing_speed = 8.0
 	add_child(camera)

@@ -24,7 +24,7 @@ import {
 } from "../src/index.ts";
 
 const base = createDefaultProject();
-const params = movementParams(base.characters[0] as PlayerCharacter, base.sandbox.gravity);
+const params = movementParams(base.characters[0] as PlayerCharacter, base.world.gravity);
 const ALL = Object.keys(MOVEMENT_ABILITIES) as MovementAbility[];
 
 /** A room from rows, with a door on the left and right whose bottoms sit on the given rows. */

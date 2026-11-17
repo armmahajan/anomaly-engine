@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createDefaultProject, gridToSolids, TILE, toRuntimeProject, type ProjectSpec } from "@anomaly/core";
-import { FPS } from "./simulate.ts";
+import { FPS, playtestRoom } from "./simulate.ts";
 
 // The terrain drawer (game/scripts/terrain.gd), probed headless through game/tests/terrain_probe.gd.
 
@@ -88,17 +88,10 @@ function outside(drawn: Drawn, rows: string[]): string[] {
 /** The starter arena, the player on its breakable block, ground pounding through it. */
 function smashRun(dressed: boolean) {
   const base = createDefaultProject();
-  const project: ProjectSpec = {
-    ...base,
-    sandbox: {
-      ...base.sandbox,
-      playerAbilities: ["ground_pound"],
-      spawns: base.sandbox.spawns.filter((s) => s.characterId === "player").map((s) => ({ ...s, x: 832, y: 416 })),
-    },
-  };
+  const project = playtestRoom(base, base.world.rooms[0]!.grid, { x: 832, y: 416 }, ["ground_pound"]);
   const sent = toRuntimeProject(project);
   if (dressed) {
-    sent.sandbox.dressing = { biome: "cave", room: "hall" };
+    sent.world.rooms[0]!.dressing = { biome: "cave", room: "hall" };
     (sent.art.assets as unknown[]).push({ // just what the runtime reads
       id: "cave",
       kind: "biome",
@@ -129,7 +122,7 @@ function smashRun(dressed: boolean) {
 }
 
 describe("terrain", () => {
-  const arena = createDefaultProject().sandbox.grid.rows;
+  const arena = createDefaultProject().world.rooms[0]!.grid.rows;
   let drawn: { arena: Drawn; tricky: Drawn; thin: Drawn; plain: Played; dressed: Played; rebuilt: { rows: string[]; ledge: number } };
 
   beforeAll(() => {

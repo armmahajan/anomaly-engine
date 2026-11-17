@@ -57,7 +57,7 @@ describe("runAgentTurn", () => {
     const model = new FakeModel([
       callTools(
         toolCall("createCharacter", { character: lurker }),
-        toolCall("addSpawn", { characterId: "lurker", x: 1000, y: 660 }),
+        toolCall("addRoomSpawn", { roomId: "arena", characterId: "lurker", x: 1000, y: 660 }),
       ),
       say("Added a Lurker that waits, then chases you within 220px."),
     ]);
@@ -71,7 +71,7 @@ describe("runAgentTurn", () => {
         baseRevision: 0,
         operations: [
           { name: "createCharacter", input: { character: lurker } },
-          { name: "addSpawn", input: { characterId: "lurker", x: 1000, y: 660 } },
+          { name: "addRoomSpawn", input: { roomId: "arena", characterId: "lurker", x: 1000, y: 660 } },
         ],
       },
     ]);
@@ -128,7 +128,7 @@ describe("runAgentTurn", () => {
   });
 
   it("stops at the step limit without saving", async () => {
-    const loop = () => callTools(toolCall("moveSpawn", { spawnId: "charger_1", x: 700 }));
+    const loop = () => callTools(toolCall("moveRoomSpawn", { roomId: "arena", spawnId: "charger_1", x: 700 }));
     const model = new FakeModel([loop, loop, loop, loop]);
     const { promise, commits, events } = turn(model, { maxSteps: 3 });
     const result = await promise;
@@ -139,7 +139,7 @@ describe("runAgentTurn", () => {
   });
 
   it("stops without saving when the model fails or the turn is cancelled", async () => {
-    const failing = new FakeModel([callTools(toolCall("moveSpawn", { spawnId: "charger_1", x: 700 })), new Error("503 upstream")]);
+    const failing = new FakeModel([callTools(toolCall("moveRoomSpawn", { roomId: "arena", spawnId: "charger_1", x: 700 })), new Error("503 upstream")]);
     const failed = await turn(failing).promise;
     expect(failed.outcome).toBe("model_error");
     expect(failed.operations).toEqual([]);
@@ -148,7 +148,7 @@ describe("runAgentTurn", () => {
     const cancelling = new FakeModel([
       () => {
         controller.abort();
-        return callTools(toolCall("moveSpawn", { spawnId: "charger_1", x: 700 }));
+        return callTools(toolCall("moveRoomSpawn", { roomId: "arena", spawnId: "charger_1", x: 700 }));
       },
       say("never reached"),
     ]);
@@ -158,7 +158,7 @@ describe("runAgentTurn", () => {
   });
 
   it("reports a rejected commit (e.g. a playtest started meanwhile)", async () => {
-    const model = new FakeModel([callTools(toolCall("moveSpawn", { spawnId: "charger_1", x: 700 })), say("Moved it.")]);
+    const model = new FakeModel([callTools(toolCall("moveRoomSpawn", { roomId: "arena", spawnId: "charger_1", x: 700 })), say("Moved it.")]);
     const { commit } = recordingCommit({ ok: false, error: { code: "locked", message: "a playtest is running", issues: [] } });
     const result = await runAgentTurn({ model, project: createDefaultProject(), history: [], userMessage: "move it", commit });
     expect(result.outcome).toBe("commit_failed");
@@ -167,7 +167,7 @@ describe("runAgentTurn", () => {
 
   it("survives malformed tool arguments and unknown tools", async () => {
     const model = new FakeModel([
-      callTools(toolCall("addSpawn", "{oops"), toolCall("summonDragon", {})),
+      callTools(toolCall("addRoomSpawn", "{oops"), toolCall("summonDragon", {})),
       say("Sorry, let me know what to add."),
     ]);
     const result = await turn(model).promise;

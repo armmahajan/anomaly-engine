@@ -56,7 +56,7 @@ export const ResetRequest = z.strictObject({ baseRevision: z.number().int().min(
 
 export const ChatRequest = z.strictObject({ message: z.string().trim().min(1).max(4000) });
 
-/** The studio's AI agents, each with its own chat: build assistant (arena) and narrative director (wiki). */
+/** The studio's AI agents, each with its own chat: build assistant (the game) and director (wiki and progression). */
 export const AgentId = z.enum(["build", "narrative"]);
 export type AgentId = z.infer<typeof AgentId>;
 
@@ -140,7 +140,7 @@ export const WORLD_STAGES: readonly ArtStage[] = ["worldKit", "worldCompose", "w
 /**
  * Character stages need `characterId`. World stages:
  *   worldKit:     paint a biome's kit (new biome from `brief` = theme, or `biomeId` to repaint all of it); `quality`
- *   worldCompose: compose a room for `biomeId` around the arena (`newLayout` also suggests platforms; `dressArena`)
+ *   worldCompose: compose a room for `biomeId` around a world room's tiles (`newLayout` also suggests platforms; `dressRoom` dresses that world room)
  *   worldRepaint: repaint one `part` of `biomeId`'s kit
  */
 export const ArtJobRequest = z
@@ -152,7 +152,8 @@ export const ArtJobRequest = z
     name: z.string().trim().max(80).optional(),
     quality: z.enum(["draft", "final"]).optional(),
     newLayout: z.boolean().optional(),
-    dressArena: z.boolean().optional(),
+    /** A world room to dress with the composed room. */
+    dressRoom: Id.optional(),
     part: z.enum(["backdrop", "structures", "props", "ground"]).optional(),
     brief: z.string().trim().max(2000).optional(),
   feedback: z.string().trim().max(1000).optional(),

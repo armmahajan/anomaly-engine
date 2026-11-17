@@ -47,7 +47,7 @@ test("create, duplicate, place, move, remove and delete characters", async ({ pa
   expect(Object.fromEntries(speeds)).toMatchObject({ charger: 520, charger_copy: 800 });
 
   // Place a second copy, move it, remove it.
-  await page.getByRole("button", { name: "+ Add to arena" }).click();
+  await page.getByRole("button", { name: "+ Add to room" }).click();
   await expect(page.getByTestId("spawn-charger_copy_2")).toBeVisible();
   await commitField(page, page.getByLabel("charger_copy_2 x"), "1300");
   expect((await runtimeState(page)).entities.find((e) => e.spawnId === "charger_copy_2")).toMatchObject({ x: 1300 });
@@ -100,7 +100,7 @@ test("create, duplicate, place, move, remove and delete characters", async ({ pa
       author: "ai",
       operations: [
         { name: "createCharacter", input: { character: lurker } },
-        { name: "addSpawn", input: { characterId: "lurker", x: 1000, y: 660 } },
+        { name: "addRoomSpawn", input: { roomId: "arena", characterId: "lurker", x: 1000, y: 660 } },
         { name: "updateBehavior", input: { characterId: "lurker", stateId: "chase", action: { speed: -5 } } },
       ],
     },
@@ -116,7 +116,7 @@ test("create, duplicate, place, move, remove and delete characters", async ({ pa
       author: "ai",
       operations: [
         { name: "createCharacter", input: { character: lurker } },
-        { name: "addSpawn", input: { characterId: "lurker", x: 1000, y: 660 } },
+        { name: "addRoomSpawn", input: { roomId: "arena", characterId: "lurker", x: 1000, y: 660 } },
       ],
     },
   });

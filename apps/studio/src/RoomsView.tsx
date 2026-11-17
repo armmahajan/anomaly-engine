@@ -345,6 +345,7 @@ export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) 
             <button type="button" data-testid={`room-${r.id}`} className={r.id === room?.id ? "selected" : ""} onClick={() => select(r.id)}>
               {r.name}
               {project.world.start?.room === r.id && <span className="tag">start</span>}
+              {project.world.playtest?.room === r.id && <span className="tag">playtest</span>}
               <span className="kind">
                 {gridCols(r.grid)}×{gridRows(r.grid)}
               </span>
@@ -452,6 +453,9 @@ export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) 
           <div className="list-actions rooms-row">
             <button type="button" disabled={locked || !spot} onClick={() => void edit("setWorldStart", { roomId: room.id, ...spot })}>
               Set start here
+            </button>
+            <button type="button" disabled={locked || !spot} title="Where ▶ Play in the Playtest tab starts" onClick={() => void edit("setPlaytest", { roomId: room.id, ...spot })}>
+              Playtest here
             </button>
             <button
               type="button"

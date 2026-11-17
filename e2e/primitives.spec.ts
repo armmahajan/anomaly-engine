@@ -74,7 +74,7 @@ test("the starter Charger ignores a player on the ledge above, and its `and` con
   const status = page.getByTestId("runtime-status");
   const movePlayer = async (x: number, y: number) => {
     const base = await projectRevision(page);
-    const moved = await page.request.post("/api/ops", { data: { name: "moveSpawn", input: { spawnId: "player_1", x, y }, baseRevision: base } });
+    const moved = await page.request.post("/api/ops", { data: { name: "setPlaytest", input: { x, y }, baseRevision: base } });
     expect(moved.ok()).toBe(true);
     await waitForRuntimeAfter(page, base);
   };

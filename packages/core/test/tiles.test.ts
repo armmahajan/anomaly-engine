@@ -1,3 +1,4 @@
+import { legacy } from "./legacy.ts";
 import { describe, expect, it } from "vitest";
 import {
   createDefaultProject,
@@ -83,7 +84,7 @@ describe("tile grids", () => {
 
   it("are validated: one width, known characters", () => {
     const project = createDefaultProject();
-    const bad = (rows: string[]) => validateProject({ ...project, sandbox: { ...project.sandbox, grid: { rows } } }).ok;
+    const bad = (rows: string[]) => validateProject({ ...project, world: { ...project.world, rooms: [{ ...project.world.rooms[0]!, grid: { rows } }] } }).ok;
     expect(bad(["....", "....", "....", "...."])).toBe(true);
     expect(bad(["....", ".....", "....", "...."])).toBe(false);
     expect(bad(["....", "..x.", "....", "...."])).toBe(false);
@@ -92,10 +93,9 @@ describe("tile grids", () => {
 
 describe("the arena on a grid", () => {
   it("old arenas migrate onto the grid: outside walls and ceiling become its border", () => {
-    const { grid: _grid, ...sandbox } = createDefaultProject().sandbox;
+    const { grid: _grid, ...sandbox } = legacy().sandbox;
     const old = {
-      ...createDefaultProject(),
-      schemaVersion: 4,
+      ...legacy(createDefaultProject(), 4),
       sandbox: {
         ...sandbox,
         width: 1600,
@@ -115,17 +115,16 @@ describe("the arena on a grid", () => {
       },
     };
     const migrated = ProjectSpec.parse(migrateProject(old));
-    expect(migrated.sandbox.grid).toEqual(defaultArenaGrid());
-    expect(migrated.sandbox.spawns).toEqual([
-      { id: "player_1", characterId: "player", x: 160, y: 660 },
-      { id: "crawler_1", characterId: "crawler", x: 48, y: 672 }, // out of the wall and the floor
-    ]);
+    expect(migrated.world.rooms[0]!.grid).toEqual(defaultArenaGrid());
+    expect(migrated.world.rooms[0]!.spawns).toEqual([{ id: "crawler_1", characterId: "crawler", x: 48, y: 672 }]); // out of the wall and the floor
+    expect(migrated.world.playtest).toEqual({ room: "arena", x: 160, y: 660, abilities: [] });
   });
 
   it("the runtime gets the arena's size and collision, computed once", () => {
     const runtime = toRuntimeProject(createDefaultProject());
-    expect([runtime.sandbox.width, runtime.sandbox.height]).toEqual([1600, 736]);
-    expect(runtime.sandbox.solids).toEqual(gridToSolids(defaultArenaGrid()));
+    const arena = runtime.world.rooms[0]!;
+    expect([arena.width, arena.height]).toEqual([1600, 736]);
+    expect(arena.solids).toEqual(gridToSolids(defaultArenaGrid()));
     expect(runtime.wiki.pages).toEqual([]);
   });
 });

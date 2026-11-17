@@ -34,7 +34,7 @@ test("flying enemies, new setting controls, and replaying a run's seed", async (
       baseRevision: r0,
       operations: [
         { name: "createCharacter", input: { character: bat } },
-        { name: "addSpawn", input: { characterId: "bat", x: 1000, y: 300 } },
+        { name: "addRoomSpawn", input: { roomId: "arena", characterId: "bat", x: 1000, y: 300 } },
       ],
     },
   });

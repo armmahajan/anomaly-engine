@@ -12,10 +12,9 @@ const statesOf = (samples: Sample[], spawnId: string) => samples.map((x) => enti
 /** The starter project with only the player and its Charger. */
 function starterCharger(player: [number, number]): ProjectSpec {
   const base = createDefaultProject();
-  const spawns = base.sandbox.spawns
-    .filter((sp) => sp.characterId !== "crawler")
-    .map((sp) => (sp.characterId === "player" ? { ...sp, x: player[0], y: player[1] } : sp));
-  return { ...base, sandbox: { ...base.sandbox, spawns } };
+  const [room, ...rooms] = base.world.rooms;
+  const spawns = room!.spawns.filter((sp) => sp.characterId !== "crawler");
+  return { ...base, world: { ...base.world, rooms: [{ ...room!, spawns }, ...rooms], playtest: { room: room!.id, x: player[0], y: player[1], abilities: [] } } };
 }
 
 const scenarios = {

@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { Id } from "../common.ts";
+import { Color, Id } from "../common.ts";
+import { MovementAbility } from "../movement/params.ts";
 import { Dressing } from "../art/world.ts";
 import { DEFAULT_LEDGE_THICKNESS, gridCols, gridRows, TileGrid } from "./tiles.ts";
 
 /**
- * The game world: rooms of tiles joined by doors. The arena (sandbox) is a
- * separate test room; the world is what the game is played in.
+ * The game world: rooms of tiles joined by doors. Every room is just a room;
+ * `playtest` names the room (and spot, and abilities) that ▶ Play tests in.
  *
  * A door is an opening on one side of a room, `size` tiles long, starting
  * `offset` tiles from the top (left/right sides) or the left (top/bottom).
@@ -62,13 +63,26 @@ export const GameRules = z.strictObject({
 });
 export type GameRules = z.infer<typeof GameRules>;
 
+/** What ▶ Play tests: a room, where the player starts in it, and the abilities they have. */
+export const Playtest = z.strictObject({
+  room: Id,
+  x: z.number().describe("Feet x, px from the room's left."),
+  y: z.number().describe("Feet y, px from the room's top."),
+  abilities: z.array(MovementAbility).max(5).default([]).describe("Movement abilities the player has when playtesting."),
+});
+export type Playtest = z.infer<typeof Playtest>;
+
 export const World = z.strictObject({
-  /** Thickness of ledges and one-way platforms, px (in the arena too). */
+  gravity: z.number().min(0).max(10_000).default(1800).describe("px/s^2, for every room."),
+  backgroundColor: Color.default("#1b2030").describe("Behind rooms without a dressing."),
+  platformColor: Color.default("#4a5470").describe("Tiles in rooms without a dressing."),
+  /** Thickness of ledges and one-way platforms, px. */
   ledgeThickness: z.number().int().min(4).max(32).default(DEFAULT_LEDGE_THICKNESS),
   rules: GameRules.prefault({}),
   /** Where the game begins. */
   start: z.strictObject({ room: Id, x: z.number(), y: z.number() }).nullable().default(null),
   rooms: z.array(WorldRoom).max(200).default([]),
+  playtest: Playtest.nullable().default(null),
 });
 export type World = z.infer<typeof World>;
 
@@ -108,5 +122,6 @@ export function worldIssues(world: World, enemyIds: Set<string>): { path: (strin
     });
   });
   if (world.start && !rooms.has(world.start.room)) issues.push({ path: ["world", "start", "room"], message: `unknown room "${world.start.room}"` });
+  if (world.playtest && !rooms.has(world.playtest.room)) issues.push({ path: ["world", "playtest", "room"], message: `unknown room "${world.playtest.room}"` });
   return issues;
 }

@@ -17,7 +17,7 @@ test("modes switch the runtime's stage, stop playtests, and keep the layout adju
   await expect(page.getByTestId("art-panel")).toBeVisible();
 
   // Entering a workbench mode stops a playtest; Play brings the arena back.
-  await page.getByRole("tab", { name: "Arena" }).click();
+  await page.getByRole("tab", { name: "Playtest" }).click();
   await expect.poll(stage).toBe("game");
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
@@ -25,7 +25,7 @@ test("modes switch the runtime's stage, stop playtests, and keep the layout adju
   await expect(page.getByTestId("runtime-status")).toHaveText("Editing");
   await expect.poll(stage).toBe("character");
   await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("tab", { name: "Arena" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Playtest" })).toHaveAttribute("aria-selected", "true");
   await expect.poll(stage).toBe("game");
   await page.getByRole("button", { name: "■ Stop" }).click();
 

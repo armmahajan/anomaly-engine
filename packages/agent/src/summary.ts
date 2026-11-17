@@ -15,8 +15,8 @@ const primitive = (p: Action | Condition) => (params(p) ? `${p.type}(${params(p)
 const condition = (t: Transition) => [t.when, ...(t.and ?? [])].map(primitive).join(" and ");
 
 export function describeCharacter(project: ProjectSpec, character: Character): string {
-  const spawns = project.sandbox.spawns.filter((s) => s.characterId === character.id);
-  const placed = spawns.length > 0 ? spawns.map((s) => `${s.id} (${s.x}, ${s.y})`).join(", ") : "not placed";
+  const spawns = project.world.rooms.flatMap((r) => r.spawns.filter((s) => s.characterId === character.id).map((s) => `${r.id}/${s.id} (${s.x}, ${s.y})`));
+  const placed = character.kind === "player" ? "enters through the start or the playtest" : spawns.join(", ") || "not placed";
   const stats = Object.entries(character.stats)
     .map(([k, v]) => `${k} ${v}`)
     .join(", ");
@@ -36,20 +36,22 @@ export function describeCharacter(project: ProjectSpec, character: Character): s
 }
 
 export function summarizeProject(project: ProjectSpec): string {
-  const { sandbox } = project;
-  const playerSpawn = sandbox.spawns.find((s) => project.characters.find((c) => c.id === s.characterId)?.kind === "player");
+  const { world } = project;
   const player = project.characters.find((c) => c.kind === "player");
-  const size = gridSize(sandbox.grid);
-  const reach = player?.kind === "player" ? movementModel(movementParams(player, sandbox.gravity), sandbox.playerAbilities) : undefined;
+  const test = world.playtest;
+  const testRoom = world.rooms.find((r) => r.id === test?.room);
+  const reach = player?.kind === "player" && test ? movementModel(movementParams(player, world.gravity), test.abilities) : undefined;
   const warnings = lintProject(project);
   return [
     `Project "${project.name}" (revision ${project.revision})`,
-    `Arena: ${size.width}x${size.height} px (${TILE} px tiles), gravity ${sandbox.gravity} px/s^2, y grows downward.` +
-      (playerSpawn ? ` The player stands on y = ${playerSpawn.y}.` : ""),
-    `Arena tiles (row 0 at the top; . empty, # solid, = ledge, - one-way, ^ hazard, % breakable):\n${sandbox.grid.rows.join("\n")}`,
-    reach
-      ? `Player abilities in arena playtests: ${sandbox.playerAbilities.join(", ") || "none"}. With them the player jumps ${Math.round(reach.maxHeight)} px high and crosses gaps up to ${Math.round(reach.maxGap(0))} px between platforms at the same height${reach.climbsWalls ? "; climbs walls" : ""}${reach.breaksFloors ? "; smashes breakable platforms" : ""}.`
-      : "",
+    `Gravity ${world.gravity} px/s^2, y grows downward, ${TILE} px tiles.`,
+    test && testRoom
+      ? `Playtest (what ▶ Play tests; setPlaytest changes it): room ${test.room}, the player starts at (${test.x}, ${test.y}) with ${test.abilities.join(", ") || "no abilities"}.` +
+        (reach
+          ? ` With them the player jumps ${Math.round(reach.maxHeight)} px high and crosses gaps up to ${Math.round(reach.maxGap(0))} px between platforms at the same height${reach.climbsWalls ? "; climbs walls" : ""}${reach.breaksFloors ? "; smashes breakable platforms" : ""}.`
+          : "") +
+        `\nTiles of ${test.room} (row 0 at the top; . empty, # solid, = ledge, - one-way, ^ hazard, % breakable):\n${testRoom.grid.rows.join("\n")}`
+      : "No playtest room set (setPlaytest).",
     "Characters:",
     ...project.characters.map((c) => describeCharacter(project, c) + (c.appearance ? ` Drawn by art asset "${c.appearance}".` : " No art yet (a colored box).")),
     ...worldSummary(project),
@@ -60,11 +62,10 @@ export function summarizeProject(project: ProjectSpec): string {
     .join("\n");
 }
 
-/** Biomes, their rooms and the arena's dressing, so the agent can refer to them. */
+/** Biomes and their rooms, so the agent can refer to them (world rooms list their dressing). */
 function artSummary(project: ProjectSpec): string[] {
   const biomes = project.art.assets.filter((a) => a.kind === "biome");
   if (biomes.length === 0) return ["Worlds: none yet (generateWorld makes one)."];
-  const dressing = project.sandbox.dressing;
   return [
     "Worlds (biomes):",
     ...biomes.map((b) =>
@@ -74,7 +75,6 @@ function artSummary(project: ProjectSpec): string[] {
           }`
         : "",
     ),
-    dressing ? `The arena is dressed with ${dressing.biome} / ${dressing.room}.` : "The arena is plain (not dressed).",
   ];
 }
 
@@ -92,10 +92,10 @@ export function describeRoom(room: WorldRoom): string {
 
 function worldSummary(project: ProjectSpec): string[] {
   const { world } = project;
-  if (world.rooms.length === 0) return ["Game world: no rooms yet (createWorldRoom). Play happens in the arena only."];
+  if (world.rooms.length === 0) return ["Rooms: none yet (createWorldRoom)."];
   const start = world.start ? `starts in ${world.start.room} at (${world.start.x}, ${world.start.y})` : "no start set";
   return [
-    `Game world (${TILE} px tiles; doors: offset/size in tiles; getRoom shows a room's tiles): ${start}; on death back to the ${world.rules.onDeath}; saves ${world.rules.save === "room" ? "on entering each room" : "never"}; hazards cost ${world.rules.hazardDamage}; ledges ${world.ledgeThickness} px thick.`,
+    `Rooms (doors: offset/size in tiles; getRoom shows a room's tiles): ${start}; on death back to the ${world.rules.onDeath}; saves ${world.rules.save === "room" ? "on entering each room" : "never"}; hazards cost ${world.rules.hazardDamage}; ledges ${world.ledgeThickness} px thick.`,
     ...world.rooms.map(describeRoom),
   ];
 }

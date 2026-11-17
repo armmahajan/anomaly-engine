@@ -187,6 +187,7 @@ func _enter(id: String, at: Vector2, carried: Node) -> void:
 	if not id in visited:
 		visited.append(id)
 	main._build_room(_rooms[id], at, carried, abilities)
+	main._send({"type": "roomEntered", "room": id})
 	_on_room_entered()
 
 
@@ -266,7 +267,7 @@ func _go_through(player: Node, door: Dictionary, along: Vector2) -> void:
 				at.y = size.y + 1.0
 			else:
 				at.y = float(target.height) - 1.0
-				velocity.y = minf(velocity.y, -sqrt(2.0 * float(main._project.sandbox.gravity) * UP_CARRY))
+				velocity.y = minf(velocity.y, -sqrt(2.0 * float(main._project.world.get("gravity", 1800)) * UP_CARRY))
 	_enter(str(target.id), at, player)
 	_place(player, at, velocity)
 

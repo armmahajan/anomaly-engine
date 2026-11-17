@@ -4,7 +4,6 @@ import { Id } from "./common.ts";
 import type { Transition } from "./behavior.ts";
 import { wikiOperations } from "./wiki/operations.ts";
 import { progressionOperations, withoutEnemy } from "./progression/operations.ts";
-import { MovementAbility } from "./movement/params.ts";
 import { artOperations } from "./art/operations.ts";
 import { worldOperations } from "./art/worldOperations.ts";
 import { withoutRoomSpawns, worldRoomOperations } from "./world/operations.ts";
@@ -58,9 +57,6 @@ function known(ids: Iterable<string>): string {
 
 const noCharacter = (project: ProjectSpec, id: string) =>
   fail("not_found", `no character with id "${id}"${known(project.characters.map((c) => c.id))}`);
-const noSpawn = (project: ProjectSpec, id: string) =>
-  fail("not_found", `no spawn with id "${id}"${known(project.sandbox.spawns.map((s) => s.id))}`);
-
 export function fail(code: ErrorCode, message: string, issues: Issue[] = []): { ok: false; error: OperationError } {
   return { ok: false, error: { code, message, issues } };
 }
@@ -167,17 +163,6 @@ export function updateCharacter(project: ProjectSpec, input: unknown): Operation
   const characters = project.characters.slice();
   characters[index] = parsedCharacter.data;
   return commit({ ...project, characters });
-}
-
-export const SetArenaAbilitiesInput = z.strictObject({
-  abilities: z.array(MovementAbility).describe("Every movement ability the player has in the arena (replaces the list); [] for none."),
-});
-
-/** Choose which movement abilities the player has when playtesting the arena. */
-export function setArenaAbilities(project: ProjectSpec, input: unknown): OperationResult {
-  const parsed = SetArenaAbilitiesInput.safeParse(input);
-  if (!parsed.success) return fail("invalid_input", "setArenaAbilities input is malformed", toIssues(parsed.error));
-  return commit({ ...project, sandbox: { ...project.sandbox, playerAbilities: [...new Set(parsed.data.abilities)] } });
 }
 
 /** Find an enemy (only enemies have behaviors). */
@@ -322,7 +307,7 @@ export function setBehavior(project: ProjectSpec, input: unknown): OperationResu
 
 export const CreateCharacterInput = z.strictObject({ character: z.unknown() });
 
-/** Add a new character type. It does not appear in the arena until spawned (addSpawn). */
+/** Add a new character type. It does not appear in a room until spawned there (addRoomSpawn). */
 export function createCharacter(project: ProjectSpec, input: unknown): OperationResult {
   const parsedInput = CreateCharacterInput.safeParse(input);
   if (!parsedInput.success) return fail("invalid_input", "createCharacter input is malformed", toIssues(parsedInput.error));
@@ -344,7 +329,7 @@ export function createCharacter(project: ProjectSpec, input: unknown): Operation
 
 export const CharacterRef = z.strictObject({ characterId: Id });
 
-/** Remove a character type and every spawn of it (arena and rooms). The player cannot be deleted. */
+/** Remove a character type and every spawn of it in every room. The player cannot be deleted. */
 export function deleteCharacter(project: ProjectSpec, input: unknown): OperationResult {
   const parsed = CharacterRef.safeParse(input);
   if (!parsed.success) return fail("invalid_input", "deleteCharacter input is malformed", toIssues(parsed.error));
@@ -355,7 +340,6 @@ export function deleteCharacter(project: ProjectSpec, input: unknown): Operation
   return commit({
     ...project,
     characters: project.characters.filter((c) => c.id !== characterId),
-    sandbox: { ...project.sandbox, spawns: project.sandbox.spawns.filter((s) => s.characterId !== characterId) },
     progression: withoutEnemy(project.progression, characterId),
     world: withoutRoomSpawns(project.world, characterId),
   });
@@ -384,60 +368,6 @@ export function duplicateCharacter(project: ProjectSpec, input: unknown): Operat
   return commit({ ...project, characters: [...project.characters, checked.data] });
 }
 
-// --- spawns ------------------------------------------------------------------
-
-export const AddSpawnInput = z.strictObject({
-  characterId: Id,
-  x: z.number().describe("Feet x in px."),
-  y: z.number().describe("Feet y in px (y grows downward; use the floor's top to stand on the floor)."),
-  spawnId: Id.optional().describe("Optional id to refer to this spawn later; generated (<characterId>_<n>) if omitted."),
-});
-
-/** Place an instance of a character in the sandbox. (x, y) is its feet. */
-export function addSpawn(project: ProjectSpec, input: unknown): OperationResult {
-  const parsed = AddSpawnInput.safeParse(input);
-  if (!parsed.success) return fail("invalid_input", "addSpawn input is malformed", toIssues(parsed.error));
-  const { characterId, x, y } = parsed.data;
-  if (!project.characters.some((c) => c.id === characterId)) {
-    return noCharacter(project, characterId);
-  }
-  const taken = project.sandbox.spawns.map((s) => s.id);
-  if (parsed.data.spawnId && taken.includes(parsed.data.spawnId)) {
-    return fail("invalid_input", `a spawn with id "${parsed.data.spawnId}" already exists`);
-  }
-  let n = 1;
-  while (taken.includes(`${characterId}_${n}`)) n++;
-  const id = parsed.data.spawnId ?? `${characterId}_${n}`;
-  return commit({ ...project, sandbox: { ...project.sandbox, spawns: [...project.sandbox.spawns, { id, characterId, x, y }] } });
-}
-
-export const MoveSpawnInput = z.strictObject({ spawnId: Id, x: z.number().optional(), y: z.number().optional() });
-
-export function moveSpawn(project: ProjectSpec, input: unknown): OperationResult {
-  const parsed = MoveSpawnInput.safeParse(input);
-  if (!parsed.success) return fail("invalid_input", "moveSpawn input is malformed", toIssues(parsed.error));
-  const { spawnId, x, y } = parsed.data;
-  const index = project.sandbox.spawns.findIndex((s) => s.id === spawnId);
-  const spawn = project.sandbox.spawns[index];
-  if (!spawn) return noSpawn(project, spawnId);
-  const spawns = project.sandbox.spawns.slice();
-  spawns[index] = { ...spawn, x: x ?? spawn.x, y: y ?? spawn.y };
-  return commit({ ...project, sandbox: { ...project.sandbox, spawns } });
-}
-
-export const SpawnRef = z.strictObject({ spawnId: Id });
-
-export function removeSpawn(project: ProjectSpec, input: unknown): OperationResult {
-  const parsed = SpawnRef.safeParse(input);
-  if (!parsed.success) return fail("invalid_input", "removeSpawn input is malformed", toIssues(parsed.error));
-  const spawn = project.sandbox.spawns.find((s) => s.id === parsed.data.spawnId);
-  if (!spawn) return noSpawn(project, parsed.data.spawnId);
-  return commit({
-    ...project,
-    sandbox: { ...project.sandbox, spawns: project.sandbox.spawns.filter((s) => s.id !== spawn.id) },
-  });
-}
-
 /** Every operation, by name. The server and (later) AI tools dispatch through this. */
 const operations = {
   updateCharacter,
@@ -446,10 +376,6 @@ const operations = {
   createCharacter,
   deleteCharacter,
   duplicateCharacter,
-  addSpawn,
-  moveSpawn,
-  removeSpawn,
-  setArenaAbilities,
   ...wikiOperations,
   ...progressionOperations,
   ...artOperations,

@@ -73,22 +73,22 @@ describe("world stages", () => {
   it("composes a room around the arena's platforms, or suggests a layout", async () => {
     const h = harness();
     h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
-    const room = await worldComposeStage(h.ctx, { biomeId: h.biome().id, dressArena: true });
+    const room = await worldComposeStage(h.ctx, { biomeId: h.biome().id, dressRoom: "arena" });
     const asked = (c: { type: string; text?: string }, words: string) => c.type === "text" && Boolean(c.text?.includes(words));
     const compose = h.vision.requests.find((r) => r.content.some((c) => asked(c, "Compose one room")))!;
     expect(compose.content.some((c) => asked(c, "FIXED"))).toBe(true);
     h.commit(room.operations);
-    expect(h.project().sandbox.dressing).toEqual({ biome: h.biome().id, room: room.roomId });
+    expect(h.project().world.rooms[0]!.dressing).toEqual({ biome: h.biome().id, room: room.roomId });
     const added = h.biome().rooms[0]!;
     expect(added.layout).toBeNull();
     expect(added.composition.placements.every((p) => p.id?.startsWith("pl_"))).toBe(true);
 
-    const arenaGrid = h.project().sandbox.grid;
+    const arenaGrid = h.project().world.rooms[0]!.grid;
     const suggested = await worldComposeStage(h.ctx, { biomeId: h.biome().id, newLayout: true, name: "Second hall" });
     h.commit(suggested.operations);
     expect(h.biome().rooms[1]).toMatchObject({ id: "second_hall", name: "Second hall" });
     expect(h.biome().rooms[1]!.layout).toHaveLength(2);
-    expect(h.project().sandbox.grid).toEqual(arenaGrid); // only a suggestion
+    expect(h.project().world.rooms[0]!.grid).toEqual(arenaGrid); // only a suggestion
 
     const scene = worldSceneFor(h.project(), h.biome().id, "second_hall", true);
     expect(scene?.terrain?.grid).not.toEqual(arenaGrid); // the preview draws the suggested layout on the grid
@@ -110,7 +110,7 @@ describe("world stages", () => {
     const placements = h.biome().rooms[0]!.composition.placements;
     const lantern = placements.find((p) => p.id === "pl_3")!;
     expect(lantern.x).toBe(650); // the reviewer's move
-    const floor = gridPlatforms(h.project().sandbox.grid).filter((p) => p.x <= 650 && 650 <= p.x + p.width).map((p) => p.y);
+    const floor = gridPlatforms(h.project().world.rooms[0]!.grid).filter((p) => p.x <= 650 && 650 <= p.x + p.width).map((p) => p.y);
     expect(floor).toContain(lantern.y); // resting on a surface there
     expect(placements.find((p) => p.layer === "front")!.y).toBeLessThanOrEqual(0); // the hanging curtain starts at the top
   });

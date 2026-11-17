@@ -8,17 +8,19 @@ describe("lintProject", () => {
     expect(lintProject(createDefaultProject())).toEqual([]);
   });
 
-  it("flags spawns outside the arena or embedded in platforms", () => {
+  it("flags spawns outside their room or embedded in platforms", () => {
     const project = createDefaultProject();
-    project.sandbox.spawns.push({ id: "lost", characterId: "crawler", x: 5000, y: 660 });
-    project.sandbox.spawns.push({ id: "stuck", characterId: "crawler", x: 800, y: 690 }); // inside the floor
-    project.sandbox.spawns.push({ id: "on_ledge", characterId: "crawler", x: 450, y: 530 }); // resting on a platform: fine
+    project.world.rooms[0]!.spawns.push({ id: "lost", characterId: "crawler", x: 5000, y: 660 });
+    project.world.rooms[0]!.spawns.push({ id: "stuck", characterId: "crawler", x: 800, y: 690 }); // inside the floor
+    project.world.rooms[0]!.spawns.push({ id: "on_ledge", characterId: "crawler", x: 450, y: 530 }); // resting on a platform: fine
     const warnings = lintProject(project);
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
-      ["spawn_out_of_bounds", "sandbox.spawns.3"],
-      ["spawn_inside_platform", "sandbox.spawns.4"],
+      ["spawn_out_of_bounds", "world.rooms.0.spawns.2"],
+      ["spawn_inside_platform", "world.rooms.0.spawns.3"],
     ]);
     expect(warnings[1]?.message).toContain("y = 672");
+    project.world.playtest = { room: "arena", x: 800, y: 690, abilities: [] };
+    expect(lintProject(project).map((w) => w.path)).toContain("world.playtest");
   });
 
   it("flags enemies with no spawn", () => {

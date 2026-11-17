@@ -3,10 +3,9 @@ import { Behavior } from "./behavior.ts";
 import { Color, Id } from "./common.ts";
 import { defaultWiki, Wiki } from "./wiki/wiki.ts";
 import { defaultProgression, Progression, progressionIssues } from "./progression/progression.ts";
-import { AbilityTuning, MovementAbility } from "./movement/params.ts";
+import { AbilityTuning } from "./movement/params.ts";
 import { ArtSection, defaultArtSection } from "./art/asset.ts";
 import { Dressing } from "./art/world.ts";
-import { TileGrid } from "./world/tiles.ts";
 import { World, worldIssues } from "./world/world.ts";
 
 /**
@@ -15,7 +14,7 @@ import { World, worldIssues } from "./world/world.ts";
  * are the character's feet (bottom-centre).
  */
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 
 const Size = z.strictObject({
@@ -66,7 +65,7 @@ export const PlayerCharacter = z.strictObject({
   ...characterBase,
   kind: z.literal("player"),
   stats: PlayerStats,
-  /** Tuning of every movement ability (which ones the player has is decided by the game, or the arena's playerAbilities). */
+  /** Tuning of every movement ability (which ones the player has is decided by the game, or world.playtest when testing). */
   abilities: AbilityTuning.prefault({}),
 });
 
@@ -84,29 +83,6 @@ export const EnemyCharacter = z.strictObject({
 /** A character *type*. Every spawn of it shares these values. */
 export const Character = z.discriminatedUnion("kind", [PlayerCharacter, EnemyCharacter]);
 
-const Coord = z.number().min(-10_000).max(10_000);
-
-/** One placed instance of a character type. `id` is stable across edits. */
-export const Spawn = z.strictObject({
-  id: Id,
-  characterId: Id,
-  x: Coord.describe("Feet x in px (0 = left edge of the arena)."),
-  y: Coord.describe("Feet y in px; y grows downward (the floor's top is usually the spawn y)."),
-});
-
-/** The test room where creators try out character interactions. Its size is its grid's. */
-export const Sandbox = z.strictObject({
-  gravity: z.number().min(0).max(10_000),
-  backgroundColor: Color,
-  platformColor: Color,
-  /** The arena's tiles (see world/tiles.ts). */
-  grid: TileGrid,
-  /** Movement abilities the player has when playtesting the arena. */
-  playerAbilities: z.array(MovementAbility).max(5).default([]),
-  spawns: z.array(Spawn).max(200),
-  /** Biome room drawn over the arena (art only; collision is always the grid). */
-  dressing: Dressing.nullable().default(null),
-});
 
 export const ProjectSpec = z
   .strictObject({
@@ -116,7 +92,6 @@ export const ProjectSpec = z
     /** Incremented by every successful operation. */
     revision: z.number().int().min(0),
     characters: z.array(Character).max(500),
-    sandbox: Sandbox,
     /** The game wiki (narrative, characters, lore). Older projects get an empty one. */
     wiki: Wiki.default(defaultWiki),
     /** Regions, abilities and gates. Older projects get an empty one. */
@@ -153,7 +128,6 @@ export const ProjectSpec = z
         ctx.addIssue({ code: "custom", path: [...path, "room"], message: `biome "${dressing.biome}" has no room "${dressing.room}"` });
       }
     };
-    checkDressing(project.sandbox.dressing, ["sandbox", "dressing"]);
     project.world.rooms.forEach((room, i) => checkDressing(room.dressing, ["world", "rooms", i, "dressing"]));
     project.characters.forEach((c, i) => {
       if (c.appearance !== undefined && !project.art.assets.some((a) => a.id === c.appearance && a.kind === "character")) {
@@ -180,30 +154,9 @@ export const ProjectSpec = z
       ids.add(c.id);
     });
 
-    let playerSpawns = 0;
-    const spawnIds = new Set<string>();
-    project.sandbox.spawns.forEach((s, i) => {
-      if (spawnIds.has(s.id)) {
-        ctx.addIssue({ code: "custom", path: ["sandbox", "spawns", i, "id"], message: `duplicate spawn id "${s.id}"` });
-      }
-      spawnIds.add(s.id);
-      const character = project.characters.find((c) => c.id === s.characterId);
-      if (!character) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["sandbox", "spawns", i, "characterId"],
-          message: `unknown character "${s.characterId}"`,
-        });
-      } else if (character.kind === "player") {
-        playerSpawns++;
-      }
-    });
-    if (playerSpawns !== 1) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["sandbox", "spawns"],
-        message: `sandbox needs exactly one player spawn (found ${playerSpawns})`,
-      });
+    const players = project.characters.filter((c) => c.kind === "player").length;
+    if (players !== 1) {
+      ctx.addIssue({ code: "custom", path: ["characters"], message: `a project needs exactly one player character (found ${players})` });
     }
   });
 
@@ -211,5 +164,3 @@ export type ProjectSpec = z.infer<typeof ProjectSpec>;
 export type Character = z.infer<typeof Character>;
 export type PlayerCharacter = z.infer<typeof PlayerCharacter>;
 export type EnemyCharacter = z.infer<typeof EnemyCharacter>;
-export type Sandbox = z.infer<typeof Sandbox>;
-export type Spawn = z.infer<typeof Spawn>;

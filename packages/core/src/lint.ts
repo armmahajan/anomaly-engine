@@ -35,40 +35,37 @@ const MOVEMENT_ONLY: Record<string, { movement: "ground" | "flying"; otherwise: 
 
 export function lintProject(project: ProjectSpec): ProjectWarning[] {
   const warnings: ProjectWarning[] = [];
-  const { sandbox } = project;
-  const size = gridSize(sandbox.grid);
-  const solids = gridToSolids(sandbox.grid, project.world.ledgeThickness).filter((s) => s.kind !== "oneway");
-
-  sandbox.spawns.forEach((spawn, i) => {
-    const path = `sandbox.spawns.${i}`;
-    if (spawn.x < 0 || spawn.x > size.width || spawn.y < 0 || spawn.y > size.height) {
-      warnings.push({
-        code: "spawn_out_of_bounds",
-        path,
-        message: `spawn "${spawn.id}" at (${spawn.x}, ${spawn.y}) is outside the ${size.width}x${size.height} arena`,
-      });
+  // Spawns (and the playtest spot) must be inside their room and not stuck in a solid.
+  const points = project.world.rooms.flatMap((room, r) => [
+    ...room.spawns.map((spawn, i) => ({ room, path: `world.rooms.${r}.spawns.${i}`, label: `spawn "${spawn.id}"`, x: spawn.x, y: spawn.y })),
+    ...(project.world.playtest?.room === room.id ? [{ room, path: "world.playtest", label: "the playtest spot", x: project.world.playtest.x, y: project.world.playtest.y }] : []),
+  ]);
+  for (const { room, path, label, x, y } of points) {
+    const size = gridSize(room.grid);
+    if (x < 0 || x > size.width || y < 0 || y > size.height) {
+      warnings.push({ code: "spawn_out_of_bounds", path, message: `${label} at (${x}, ${y}) is outside room "${room.id}" (${size.width}x${size.height})` });
     }
     // Feet strictly inside a solid (not resting on its top edge) means stuck in it.
-    const embedded = solids.find(
-      (p) => spawn.x > p.x && spawn.x < p.x + p.width && spawn.y > p.y + 1 && spawn.y < p.y + p.height,
-    );
+    const embedded = gridToSolids(room.grid, project.world.ledgeThickness)
+      .filter((s) => s.kind !== "oneway")
+      .find((p) => x > p.x && x < p.x + p.width && y > p.y + 1 && y < p.y + p.height);
     if (embedded) {
       warnings.push({
         code: "spawn_inside_platform",
         path,
-        message: `spawn "${spawn.id}" at (${spawn.x}, ${spawn.y}) is inside a platform; put its feet on the platform's top (y = ${embedded.y})`,
+        message: `${label} at (${x}, ${y}) in room "${room.id}" is inside a platform; put its feet on the platform's top (y = ${embedded.y})`,
       });
     }
-  });
+  }
 
   project.characters.forEach((character, i) => {
     if (character.kind !== "enemy") return;
     const inRooms = project.world.rooms.some((r) => r.spawns.some((s) => s.characterId === character.id));
-    if (!inRooms && !sandbox.spawns.some((s) => s.characterId === character.id)) {
+    if (!inRooms) {
       warnings.push({
         code: "unplaced_character",
         path: `characters.${i}`,
-        message: `"${character.id}" has no spawn, so it won't appear in the arena (use addSpawn)`,
+        message: `"${character.id}" has no spawn, so it won't appear in any room (use addRoomSpawn)`,
       });
     }
 

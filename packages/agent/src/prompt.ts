@@ -10,8 +10,8 @@ export function buildSystemPrompt(project: ProjectSpec): string {
 
 How the game is represented:
 - Characters are types. Editing a character changes every spawn of it. A variant (e.g. "a faster version") is a separate character: duplicate it, then edit the copy.
-- Spawns place character instances in the test arena. Coordinates are pixels, y grows downward, and a spawn is the character's feet.
-- The game world is rooms of 32 px tiles joined by doors (openings in a room's side that lead to a door on the opposite side of another room). Read a room with getRoom; paint tiles with paintTiles (cells are [col, row]; a floor's top is row * 32 px). Enemies in rooms are addRoomSpawn, not addSpawn.
+- The game is rooms of 32 px tiles joined by doors (openings in a room's side that lead to a door on the opposite side of another room). Every room is just a room; the playtest (setPlaytest) is the room, starting spot and abilities ▶ Play tests. Read a room with getRoom; paint tiles with paintTiles (cells are [col, row]; a floor's top is row * 32 px).
+- Spawns place enemy instances in a room (addRoomSpawn). Coordinates are pixels from the room's top-left, y grows downward, and a spawn is the character's feet. The player is never spawned: it enters at the world's start or the playtest spot.
 - Enemy behavior is a state machine. Each state runs one action primitive and leaves through transitions guarded by condition primitives (call listPrimitives for the full list and parameters). A transition can require several conditions at once with \`and\` (e.g. playerWithin 260 and playerLevel 60, so a ground enemy ignores a player on a ledge above). Behaviors can also have interrupts: transitions checked from every state.
 - Enemies have a movement type: ground (gravity, walking, jumping) or flying (no gravity; chase, retreat, returnHome and charge with direction towardPlayer move in 2D; hover bobs in place).
 - Combat: the player has health and a sword (forward swing, up swing, and a downward strike in the air that bounces them off enemies: the pogo). Enemies have health (sword hits to kill at attackDamage 1) and contactDamage (player health lost on touch); at 0 health the player's run restarts. Use wasHit for flinches or retaliation and healthBelow for second phases.
@@ -22,7 +22,7 @@ How to work:
 - Changes you make during a turn are staged and saved together as one undoable step when you reply without calling tools. Later tool calls see earlier staged changes.
 - If a tool returns an error, read it, correct the call and retry. Pay attention to warnings in tool results.
 - Ground patrols on platforms should set turnAtLedge: true so they don't walk off.
-- New enemies must also be placed with addSpawn. Flyers can be placed in mid-air. Put their feet on a surface (usually the floor the player stands on) and away from the player's spawn.
+- New enemies must also be placed with addRoomSpawn (usually in the playtest room, so the creator can try them). Flyers can be placed in mid-air. Put their feet on a surface (usually the floor the player stands on) and away from the playtest spot.
 - Favor readable, fair mechanics: attacks should be telegraphed before they land.
 - When you are done, tell the creator in a few sentences what you changed (with the key numbers) and what to look for when they playtest. Write plain text (no Markdown) and do not paste JSON.
 

@@ -17,7 +17,7 @@ import type { RuntimeProject } from "./world/runtime.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -29,7 +29,7 @@ export type StudioToRuntime =
   | { type: "load"; project: RuntimeProject }
   /**
    * `seed` drives every random choice in the run (e.g. `chance`), so a run can be replayed.
-   * With `world`, play the game world from there; without it, the arena.
+   * With `world`, play from there; without it, the world's playtest (room, spot and abilities).
    */
   | { type: "play"; seed: number; world?: WorldStart }
   | { type: "stop" }
@@ -38,7 +38,7 @@ export type StudioToRuntime =
   | ({ type: "renderRig" } & RenderRigRequest)
   /** Edit mode only: make every spawn of a character play `clip` (null = back to normal). */
   | { type: "previewClip"; characterId: string; clip: string | null }
-  /** What the runtime shows (studio modes). Ignored while playing; `game` is the arena. */
+  /** What the runtime shows (studio modes). Ignored while playing; `game` is the playtest room. */
   | { type: "stage"; stage: Stage }
   /** Images (base64 by file ref) for worlds; the runtime keeps them, so each is sent once. */
   | { type: "images"; images: Record<string, string> };
@@ -56,7 +56,7 @@ export interface WorldStart {
 }
 
 /**
- * The runtime's stage: the arena (`game`), one character large on a neutral
+ * The runtime's stage: the playtest room (`game`), one character large on a neutral
  * stage (Characters mode), or a world room (Worlds mode).
  */
 export type Stage =
@@ -154,15 +154,17 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     deaths: z.number(),
     /** What the runtime is showing (see Stage). */
     stage: z.enum(["game", "character", "world", "room"]).default("game"),
-    /** The arena is drawn with its biome dressing. */
+    /** The room shown is drawn with its biome dressing. */
     dressed: z.boolean().default(false),
     entities: z.array(EntityState),
-    /** World play: the room the player is in (null in the arena), rooms visited this run, and where the player comes back on death. */
+    /** The room the player is in (or shown, in edit mode), rooms visited this run, and where the player comes back on death. */
     room: z.string().nullable().default(null),
     visited: z.array(z.string()).default([]),
     entry: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  /** Play: the player entered a room (at the start of the run, through a door, or on respawn). */
+  z.object({ type: z.literal("roomEntered"), room: z.string() }),
   /** World stage: the creator clicked a piece (null = empty space). */
   z.object({ type: z.literal("worldPick"), placementId: z.string().nullable() }),
   /** World stage: the creator dragged a piece to a new room position. */

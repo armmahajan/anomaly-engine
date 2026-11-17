@@ -53,8 +53,8 @@ describe("runClaudeCodeTurn", () => {
   it("runs only game tools on the local login and saves staged calls as one commit", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "should-not-be-used");
     const { promise, commits, seen } = run(async function* (tools) {
-      expect(await tools.moveSpawn!({ spawnId: "charger_1", x: 700 })).toMatchObject({ isError: false });
-      expect(await tools.moveSpawn!({ spawnId: "nope", x: 1 })).toMatchObject({ isError: true });
+      expect(await tools.moveRoomSpawn!({ roomId: "arena", spawnId: "charger_1", x: 700 })).toMatchObject({ isError: false });
+      expect(await tools.moveRoomSpawn!({ roomId: "arena", spawnId: "nope", x: 1 })).toMatchObject({ isError: true });
       yield result();
     });
     const turn = await promise;
@@ -62,7 +62,7 @@ describe("runClaudeCodeTurn", () => {
 
     expect(turn).toMatchObject({ outcome: "committed", reply: "Moved the Charger." });
     expect(turn.usage).toEqual({ promptTokens: 150, completionTokens: 20, cost: 0.01 });
-    expect(commits).toEqual([[{ name: "moveSpawn", input: { spawnId: "charger_1", x: 700 } }]]);
+    expect(commits).toEqual([[{ name: "moveRoomSpawn", input: { roomId: "arena", spawnId: "charger_1", x: 700 } }]]);
     expect(seen.prompt).toContain("Creator: hi\n\nYou: Hello!");
     expect(seen.options).toMatchObject({ tools: [], permissionMode: "dontAsk", settingSources: [], strictMcpConfig: true });
     expect((seen.options!.allowedTools as string[]).every((t) => t.startsWith("mcp__game__"))).toBe(true);
@@ -71,7 +71,7 @@ describe("runClaudeCodeTurn", () => {
 
   it("saves nothing when the turn limit is hit or the turn is cancelled", async () => {
     const limited = run(async function* (tools) {
-      await tools.moveSpawn!({ spawnId: "charger_1", x: 700 });
+      await tools.moveRoomSpawn!({ roomId: "arena", spawnId: "charger_1", x: 700 });
       yield result("error_max_turns");
     });
     expect((await limited.promise).outcome).toBe("step_limit");
@@ -79,7 +79,7 @@ describe("runClaudeCodeTurn", () => {
 
     const controller = new AbortController();
     const cancelled = run(async function* (tools) {
-      await tools.moveSpawn!({ spawnId: "charger_1", x: 700 });
+      await tools.moveRoomSpawn!({ roomId: "arena", spawnId: "charger_1", x: 700 });
       controller.abort();
       throw new Error("aborted");
     }, controller.signal);

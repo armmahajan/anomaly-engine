@@ -23,7 +23,7 @@ test("the studio needs its token link; the API rejects anonymous calls", async (
   const anonymous = await playwright.request.newContext({ baseURL });
   expect((await anonymous.get("/api/project")).status()).toBe(401);
   const edit = await anonymous.post("/api/ops", {
-    data: { name: "moveSpawn", input: { spawnId: "charger_1", x: 700 }, baseRevision: 0 },
+    data: { name: "moveRoomSpawn", input: { roomId: "arena", spawnId: "charger_1", x: 700 }, baseRevision: 0 },
   });
   expect(edit.status()).toBe(401);
   expect((await anonymous.get("/api/project", { headers: { "x-studio-token": E2E_TOKEN } })).status()).toBe(200);

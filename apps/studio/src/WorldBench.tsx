@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { worldSceneFor, type BiomeAsset, type ProjectSpec, type WorldLayer } from "@anomaly/core";
+import { worldRoomFor, worldSceneFor, type BiomeAsset, type ProjectSpec, type WorldLayer } from "@anomaly/core";
 import { fileUrl } from "./api.ts";
 import type { Session } from "./session.ts";
 
@@ -17,7 +17,7 @@ export interface WorldUi {
   fog: boolean;
   lights: boolean;
   exploded: boolean;
-  /** Show the room's suggested layout instead of the arena's. */
+  /** Show the room's suggested layout instead of its room's. */
   previewLayout: boolean;
 }
 
@@ -81,7 +81,7 @@ export function WorldBench({ project, session, ui, setUi, selected, locked, onPl
 
   const toggle = (layer: WorldLayer) =>
     setUi({ ...ui, hidden: ui.hidden.includes(layer) ? ui.hidden.filter((l) => l !== layer) : [...ui.hidden, layer] });
-  const dressed = biome && room && project.sandbox.dressing?.biome === biome.id && project.sandbox.dressing.room === room.id;
+  const dressed = biome && room ? worldRoomFor(project, biome.id, room.id) : null;
 
   return (
     <div className="bench" data-testid="world-bench">
@@ -91,7 +91,7 @@ export function WorldBench({ project, session, ui, setUi, selected, locked, onPl
             <>
               <strong>{biome.name}</strong>
               {room && <span> · {room.name}</span>}
-              {dressed && <span className="tag">arena</span>}
+              {dressed && <span className="tag">{dressed.name}</span>}
               {biome.kit && <span className="tag">{biome.kit.quality}</span>}
             </>
           ) : (
@@ -129,12 +129,12 @@ export function WorldBench({ project, session, ui, setUi, selected, locked, onPl
             type="button"
             disabled={locked}
             onClick={async () => {
-              const result = await session.applyOperation("applyRoomLayout", { assetId: biome!.id, roomId: room.id });
+              const result = await session.applyOperation("applyRoomLayout", { assetId: biome!.id, roomId: room.id, worldRoomId: dressed?.id });
               if (!result.ok) session.reportProblem(result.error.message);
               else setUi({ ...ui, previewLayout: false });
             }}
           >
-            Use this layout in the arena
+            Use this layout
           </button>
         </div>
       )}

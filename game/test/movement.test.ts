@@ -16,7 +16,7 @@ import {
   type PlayerCharacter,
   type Solid,
 } from "@anomaly/core";
-import { entity, range, simulate, type Input, type Sample, type Scenario } from "./simulate.ts";
+import { entity, playtestRoom, range, simulate, type Input, type Sample, type Scenario } from "./simulate.ts";
 
 // The movement model (packages/core/src/movement) is a port of player.gd's
 // movement. These tests run the same inputs through both and compare every
@@ -24,7 +24,7 @@ import { entity, range, simulate, type Input, type Sample, type Scenario } from 
 
 const base = createDefaultProject();
 const player = base.characters[0] as PlayerCharacter;
-const params = movementParams(player, base.sandbox.gravity);
+const params = movementParams(player, base.world.gravity);
 const hw = params.width / 2;
 
 type Span = { action: Input; from: number; to: number };
@@ -64,16 +64,8 @@ function spansFromFrames(inputs: FrameInput[]): Span[] {
 
 /** A big empty arena with the player at `start` (collision comes from the scenario's own solids). */
 function arenaOf(start: { x: number; y: number }, abilities: MovementAbility[], offset: { x: number; y: number }): ProjectSpec {
-  return ProjectSpec.parse({
-    ...base,
-    characters: [player],
-    sandbox: {
-      ...base.sandbox,
-      grid: { rows: Array.from({ length: 282 }, () => ".".repeat(313)) },
-      spawns: [{ id: "player_1", characterId: "player", x: start.x + offset.x, y: start.y + offset.y }],
-      playerAbilities: abilities,
-    },
-  });
+  const grid = { rows: Array.from({ length: 282 }, () => ".".repeat(313)) };
+  return playtestRoom({ ...base, characters: [player] }, grid, { x: start.x + offset.x, y: start.y + offset.y }, abilities);
 }
 
 /** The scenario's solids, shifted into the arena. */
@@ -213,7 +205,7 @@ beforeAll(() => {
 }, 120_000);
 
 const godot = (s: Sample, run: Run) => {
-  const e = entity(s, "player_1");
+  const e = entity(s, "player");
   const o = run.offset ?? OFFSET;
   return { x: e.x - o.x, y: e.y - o.y, state: e.behaviorState };
 };

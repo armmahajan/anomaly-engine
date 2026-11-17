@@ -13,50 +13,38 @@ static func check(project: Variant) -> String:
 		return "project.revision must be a number"
 	if typeof(project.get("characters")) != TYPE_ARRAY:
 		return "project.characters must be an array"
-	if typeof(project.get("sandbox")) != TYPE_DICTIONARY:
-		return "project.sandbox must be an object"
+	if typeof(project.get("world")) != TYPE_DICTIONARY:
+		return "project.world must be an object"
 
 	var ids := {}
+	var players := 0
 	for c in project.characters:
 		var problem := _check_character(c)
 		if problem != "":
 			return problem
 		ids[c.id] = c.kind
-
-	var sandbox: Dictionary = project.sandbox
-	for key in ["width", "height", "gravity"]:
-		if not _is_num(sandbox, key):
-			return "sandbox.%s must be a number" % key
-	for key in ["backgroundColor", "platformColor"]:
-		if not _is_color(sandbox.get(key)):
-			return "sandbox.%s must be a #rrggbb color" % key
-	if typeof(sandbox.get("solids")) != TYPE_ARRAY or typeof(sandbox.get("spawns")) != TYPE_ARRAY:
-		return "sandbox.solids and sandbox.spawns must be arrays (send core toRuntimeProject)"
-	var problem := check_solids(sandbox.solids)
-	if problem != "":
-		return problem
-	if sandbox.has("playerAbilities"):
-		if typeof(sandbox.playerAbilities) != TYPE_ARRAY:
-			return "sandbox.playerAbilities must be an array"
-		for ability in sandbox.playerAbilities:
-			if typeof(ability) != TYPE_STRING:
-				return "sandbox.playerAbilities must hold ability names"
-
-	var players := 0
-	for spawn in sandbox.spawns:
-		if typeof(spawn) != TYPE_DICTIONARY or not _all_num(spawn, ["x", "y"]) or typeof(spawn.get("id")) != TYPE_STRING:
-			return "every spawn needs a string id and numeric x, y"
-		var kind = ids.get(spawn.get("characterId"))
-		if kind == null:
-			return "spawn references unknown character '%s'" % spawn.get("characterId")
-		if kind == "player":
+		if c.kind == "player":
 			players += 1
 	if players != 1:
-		return "sandbox needs exactly one player spawn"
-	return _check_world(project.get("world"), ids)
+		return "a project needs exactly one player character"
+
+	var world: Dictionary = project.world
+	if not _is_num(world, "gravity"):
+		return "world.gravity must be a number"
+	for key in ["backgroundColor", "platformColor"]:
+		if not _is_color(world.get(key)):
+			return "world.%s must be a #rrggbb color" % key
+	var test = world.get("playtest")
+	if test != null:
+		if typeof(test) != TYPE_DICTIONARY or typeof(test.get("room")) != TYPE_STRING or not _all_num(test, ["x", "y"]):
+			return "world.playtest needs a room and numeric x, y"
+		for ability in test.get("abilities", []):
+			if typeof(ability) != TYPE_STRING:
+				return "world.playtest.abilities must hold ability names"
+	return _check_world(world, ids)
 
 
-## World rooms (optional): derived geometry, doors and enemy spawns.
+## World rooms: derived geometry, doors and enemy spawns.
 static func _check_world(world: Variant, ids: Dictionary) -> String:
 	if world == null:
 		return ""

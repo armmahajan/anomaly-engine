@@ -90,7 +90,7 @@ test("opening the wiki stops a playtest", async ({ page }) => {
   await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
   await page.getByRole("tab", { name: "Wiki" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Editing");
-  await page.getByRole("tab", { name: "Arena" }).click();
+  await page.getByRole("tab", { name: "Playtest" }).click();
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
 });

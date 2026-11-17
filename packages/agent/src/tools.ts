@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   Action,
-  AddSpawnInput,
   applyOperation,
   Behavior,
   CharacterRef,
@@ -9,10 +8,8 @@ import {
   DuplicateCharacterInput,
   EnemyCharacter,
   Id,
+  MovementAbility,
   lintProject,
-  MoveSpawnInput,
-  SetArenaAbilitiesInput,
-  SpawnRef,
   UpdateBehaviorInput,
   UpdateCharacterInput,
   SetArtDirectionInput,
@@ -81,18 +78,14 @@ type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOper
 
 const writeDescriptions: Record<BuildOperation, string> = {
   createCharacter:
-    "Create a new enemy type. It does not appear in the arena until you also call addSpawn. Give it a behavior built from the primitives (see listPrimitives).",
+    "Create a new enemy type. It does not appear in any room until you also call addRoomSpawn. Give it a behavior built from the primitives (see listPrimitives).",
   duplicateCharacter: "Copy an existing enemy type under a new id (stats, look, behavior), e.g. to make a variant.",
   deleteCharacter: "Delete an enemy type and all its spawns. The player cannot be deleted.",
   updateCharacter: "Change a character's name, color, size or stats (and, for the player, movement ability tuning). Applies to every spawn of it.",
-  setArenaAbilities: "Choose which movement abilities (dash, double_jump, wall_jump, glide, ground_pound) the player has when playtesting the arena.",
   updateBehavior:
     "Targeted edit of one behavior state (action params, transitions by index) and/or the behavior's interrupts by index. Prefer this over setBehavior for tweaks.",
   setBehavior:
     "Replace an enemy's whole behavior state machine. Use for new or restructured behaviors (adding/removing states or transitions).",
-  addSpawn: "Place an instance of a character in the arena at its feet position.",
-  moveSpawn: "Move a spawn (either axis).",
-  removeSpawn: "Remove one spawn. The character type remains.",
   setArtDirection: "Change the project-wide art direction (style words, palette, outline color/width, line boil).",
   updateAsset: "Rename an art asset or change its brief (the description concept art is generated from).",
   deleteAsset: "Delete an art asset; characters drawn with it go back to colored boxes.",
@@ -103,17 +96,17 @@ const writeDescriptions: Record<BuildOperation, string> = {
     "Create, replace or delete (clip: null) an animation clip on a character asset. Slot names (idle, walk, run, windup, attack, hurt, jump, fall, fly) are used automatically.",
   setStateClip: "Make a behavior state play a specific clip instead of its automatic slot (clipId null = automatic).",
   updateRoom: "Change a world room's name or atmosphere: palette colors, fog density per layer (0-1), dust.",
-  deleteRoom: "Delete a world room (the arena goes back to plain if it was dressed with it).",
+  deleteRoom: "Delete a biome's room (composition); world rooms dressed with it go back to plain tiles.",
   updatePlacement: "Move, re-layer, scale or flip one placed piece in a world room.",
   addPlacement: "Place a biome kit piece in a room (x = room x; y = its bottom, or top if hanging).",
   removePlacement: "Remove one placed piece from a world room, by placement id.",
-  setDressing: "Dress the arena with a biome room (art only), or biomeId null for the plain arena.",
-  applyRoomLayout: "Accept a room's suggested layout: the arena's platforms become it.",
+  setDressing: "Dress a world room (default: the playtest room) with a biome room (art only), or biomeId null for plain tiles.",
+  applyRoomLayout: "Accept a biome room's suggested layout: a world room's tiles (default: the playtest room's) become it.",
   createWorldRoom: "Create a game-world room: a grid of 32 px tiles, empty with a solid border. Rooms join through doors.",
   updateWorldRoom: "Rename a game-world room, move it on the world map (tiles), dress it with a biome room or set its region.",
   deleteWorldRoom: "Delete a game-world room; doors to it become unconnected.",
   resizeWorldRoom: "Resize a room's grid; shiftX/shiftY move the content right/down. New cells: empty, solid outer edge.",
-  paintTiles: "Set a rectangle (area) or [col, row] cells of a room's grid (the arena's without roomId) to one tile kind.",
+  paintTiles: "Set a rectangle (area) or [col, row] cells of a room's grid to one tile kind.",
   setDoor: "Add or change (by id) a door: an opening carved in one side. The floor inside should be level with its bottom edge.",
   removeDoor: "Remove a door (its partner becomes unconnected; tiles stay).",
   connectDoors: "Make two doors lead to each other (right <-> left, bottom <-> top); to: null disconnects.",
@@ -121,6 +114,7 @@ const writeDescriptions: Record<BuildOperation, string> = {
   moveRoomSpawn: "Move an enemy spawn in a room.",
   removeRoomSpawn: "Remove an enemy spawn from a room.",
   setWorldStart: "Set where the game begins (room, player's feet); roomId null clears it.",
+  setPlaytest: "Set what ▶ Play tests: the room (with x, y: where the player starts) and/or the movement abilities the player has (dash, double_jump, wall_jump, glide, ground_pound).",
   setGameRules: "Game rules: onDeath room (back to the room's entry) | start, save room | never, hazardDamage.",
   setLedgeThickness: "Thickness (px) of ledge and one-way tiles everywhere.",
 };
@@ -136,12 +130,8 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   duplicateCharacter: DuplicateCharacterInput,
   deleteCharacter: CharacterRef,
   updateCharacter: UpdateCharacterInput,
-  setArenaAbilities: SetArenaAbilitiesInput,
   updateBehavior: UpdateBehaviorInput,
   setBehavior: z.strictObject({ characterId: Id, behavior: Behavior }),
-  addSpawn: AddSpawnInput,
-  moveSpawn: MoveSpawnInput,
-  removeSpawn: SpawnRef,
   setArtDirection: SetArtDirectionInput,
   updateAsset: UpdateAssetInput,
   deleteAsset: AssetRef,
@@ -182,7 +172,7 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
     placement: z.record(z.string(), z.unknown()).describe("{piece, layer: far|mid|back|play|front, x, y, scale?, flip?}"),
   }),
   removePlacement: RemovePlacementInput,
-  setDressing: z.strictObject({ biomeId: Id.nullable(), roomId: Id.optional() }),
+  setDressing: z.strictObject({ worldRoomId: Id.optional(), biomeId: Id.nullable(), roomId: Id.optional() }),
   applyRoomLayout: ApplyRoomLayoutInput,
   // Game-world tools take compact specs too (ids as plain strings, details in the descriptions); the operations validate fully.
   createWorldRoom: z.strictObject({ name: z.string(), id: z.string().optional(), cols: int.optional(), rows: int.optional(), at: xy.optional() }),
@@ -193,7 +183,7 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   deleteWorldRoom: z.strictObject({ roomId: z.string() }),
   resizeWorldRoom: z.strictObject({ roomId: z.string(), cols: int, rows: int, shiftX: int.optional(), shiftY: int.optional() }),
   paintTiles: z.strictObject({
-    roomId: z.string().optional(),
+    roomId: z.string(),
     kind: z.enum(["empty", "solid", "ledge", "oneway", "hazard", "breakable"]),
     area: z.strictObject({ col: int, row: int, cols: int, rows: int }).optional(),
     cells: z.array(z.tuple([int, int])).optional(),
@@ -205,10 +195,17 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   }),
   removeDoor: z.strictObject({ roomId: z.string(), doorId: z.string() }),
   connectDoors: z.strictObject({ from: doorEnd, to: doorEnd.nullable() }),
-  addRoomSpawn: z.strictObject({ roomId: z.string(), characterId: z.string(), x: z.number(), y: z.number(), spawnId: z.string().optional() }),
+  addRoomSpawn: z.strictObject({
+    roomId: z.string(),
+    characterId: z.string(),
+    x: z.number().describe("Feet x, px from the room's left."),
+    y: z.number().describe("Feet y, px from the room's top; y grows downward (a floor's top to stand on it)."),
+    spawnId: z.string().optional(),
+  }),
   moveRoomSpawn: z.strictObject({ roomId: z.string(), spawnId: z.string(), x: z.number().optional(), y: z.number().optional() }),
   removeRoomSpawn: z.strictObject({ roomId: z.string(), spawnId: z.string() }),
   setWorldStart: z.strictObject({ roomId: z.string().nullable(), x: z.number().optional(), y: z.number().optional() }),
+  setPlaytest: z.strictObject({ roomId: z.string().optional(), x: z.number().optional(), y: z.number().optional(), abilities: z.array(MovementAbility).optional() }),
   setGameRules: z.strictObject({ onDeath: GameRules.shape.onDeath.unwrap().optional(), save: GameRules.shape.save.unwrap().optional(), hazardDamage: int.optional() }),
   setLedgeThickness: z.strictObject({ thickness: int }),
 };
@@ -237,7 +234,7 @@ function writeTool(name: BuildOperation): ToolSpec {
 
 export const projectSummaryTool: ToolSpec = {
   name: "getProjectSummary",
-  description: "Readable summary of the game's characters, arena and behaviors, including changes staged this turn and any warnings.",
+  description: "Readable summary of the game's characters, rooms, playtest and behaviors, including changes staged this turn and any warnings.",
   schema: z.strictObject({}),
   run: (draft) => ({ ok: true, summary: summarizeProject(draft.current) }),
 };
@@ -260,7 +257,7 @@ const readTools: ToolSpec[] = [
       return {
         ok: true,
         character,
-        spawns: draft.current.sandbox.spawns.filter((s) => s.characterId === character.id),
+        spawns: draft.current.world.rooms.flatMap((r) => r.spawns.filter((s) => s.characterId === character.id).map((s) => ({ room: r.id, ...s }))),
         summary: describeCharacter(draft.current, character),
       };
     },
@@ -304,13 +301,13 @@ const GenerateWorldInput = z.strictObject({
   theme: z.string().min(3).max(2000).describe("What the place is."),
   name: z.string().max(80).optional(),
   quality: z.enum(["draft", "final"]).default("draft").describe("draft ~$0.02, final ~$0.05"),
-  dressArena: z.boolean().default(true),
+  dress: z.boolean().default(true).describe("Dress the playtest room with its first room."),
 });
 const ComposeWorldRoomInput = z.strictObject({
   biomeId: Id,
   direction: z.string().max(1000).optional(),
   newLayout: z.boolean().default(false).describe("Also suggest platforms (creator accepts)."),
-  dressArena: z.boolean().default(false),
+  dressRoom: Id.optional().describe("A world room to dress with it (its tiles are what the room is composed around)."),
 });
 
 function queue(draft: Draft, job: ArtJobRequest, note: string): unknown {
@@ -342,14 +339,14 @@ const artTools: ToolSpec[] = [
   {
     name: "generateWorld",
     description:
-      "Queue a new biome: a painted kit plus a first room around the arena (~1 min).",
+      "Queue a new biome: a painted kit plus a first room composed around the playtest room's tiles (~1 min).",
     schema: GenerateWorldInput,
     run: (draft, args) => {
       const p = GenerateWorldInput.safeParse(args);
       if (!p.success) return { ok: false, error: { code: "invalid_input", message: p.error.issues.map((i) => i.message).join("; ") } };
       return queue(
         draft,
-        { stage: "worldKit", brief: p.data.theme, name: p.data.name, quality: p.data.quality, dressArena: p.data.dressArena },
+        { stage: "worldKit", brief: p.data.theme, name: p.data.name, quality: p.data.quality, dressRoom: p.data.dress ? draft.current.world.playtest?.room : undefined },
         `a ${p.data.quality} world "${p.data.name ?? p.data.theme.slice(0, 40)}"`,
       );
     },
@@ -365,7 +362,7 @@ const artTools: ToolSpec[] = [
       if (!biome) return { ok: false, error: { code: "not_found", message: `no biome "${p.data.biomeId}"` } };
       return queue(
         draft,
-        { stage: "worldCompose", biomeId: biome.id, feedback: p.data.direction, newLayout: p.data.newLayout, dressArena: p.data.dressArena },
+        { stage: "worldCompose", biomeId: biome.id, feedback: p.data.direction, newLayout: p.data.newLayout, dressRoom: p.data.dressRoom },
         `a new room for ${biome.name}`,
       );
     },

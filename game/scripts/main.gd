@@ -1,9 +1,9 @@
 extends Node2D
 ## Runtime entry point. Talks to the studio over window.postMessage and
-## builds the sandbox scene from the project spec it receives.
+## shows the playtest room (edit mode) or plays the world (rooms and doors) from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 10
+const PROTOCOL_VERSION := 11
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -48,6 +48,7 @@ func _ready() -> void:
 	_edit_camera.make_current()
 	get_viewport().size_changed.connect(_fit_edit_camera)
 	var hud_layer := CanvasLayer.new()
+	hud_layer.layer = 2  # above room frames
 	add_child(hud_layer)
 	_hud = HudScript.new()
 	_hud.visible = false
@@ -121,7 +122,7 @@ func handle_message(message: Dictionary) -> void:
 			else:
 				_seed_run(int(message.get("seed", 0)))
 				_deaths = 0
-				_stage = {"mode": "game"}  # play always happens in the arena
+				_stage = {"mode": "game"}  # play always shows the game
 				_apply_stage()
 				_set_mode("play")
 			_send({"type": "modeChanged", "mode": _mode})
@@ -144,7 +145,7 @@ func handle_message(message: Dictionary) -> void:
 				"stage": str(_stage.get("mode", "game")),
 				"dressed": _dressing_view != null,
 				"entities": _entity_states(),
-				"room": _run.room_id if _run.active else null,
+				"room": _run.room_id if _run.active else _shown_room().get("id"),
 				"visited": _run.visited if _run.active else [],
 				"entry": {"x": _run.entry.x, "y": _run.entry.y} if _run.active else null,
 			})
@@ -154,8 +155,8 @@ func handle_message(message: Dictionary) -> void:
 			var images = message.get("images")
 			if typeof(images) == TYPE_DICTIONARY:
 				_textures.merge(WorldView.textures_from(images), true)
-				# The arena's dressing may have been waiting for these.
-				if _mode == "edit" and _dressing_view == null and not _dressing_scene().is_empty():
+				# The playtest room's dressing may have been waiting for these.
+				if _mode == "edit" and _dressing_view == null and not _dressing_scene(_playtest_room()).is_empty():
 					_build_world()
 				_apply_stage()
 		"stage":
@@ -194,62 +195,39 @@ func _error(code: String, text: String) -> void:
 
 # --- world -----------------------------------------------------------------
 
+## Edit mode: the playtest room, frozen, with the player at the playtest spot.
 func _build_world() -> void:
-	if _world != null:
-		remove_child(_world)
-		_world.queue_free()
-		_world = null
-		_player = null
 	_freeze = 0
 	if _project.is_empty():
 		return
-
-	var sandbox: Dictionary = _project.sandbox
-	RenderingServer.set_default_clear_color(Color(sandbox.backgroundColor))
-
-	_world = Node2D.new()
-	_world.name = "World"
-	_world.process_mode = Node.PROCESS_MODE_DISABLED  # frozen until play
-	add_child(_world)
-
-	var platform_color := Color(sandbox.platformColor)
-	# A dressed arena: the biome room draws the platforms (textured) and everything around them.
-	var dressing := _dressing_scene()
-	_dressing_view = null
-	if not dressing.is_empty():
-		_dressing_view = WorldView.new()
-		_dressing_view.process_mode = Node.PROCESS_MODE_ALWAYS  # parallax follows the edit camera too
-		_dressing_view.vignette = false
-		_world.add_child(_dressing_view)
-		_dressing_view.build(dressing, _textures, Vector2(sandbox.width, sandbox.height) * 1.5)
-	var solids: Array = Level.build(_world, sandbox.solids, platform_color, _dressing_view != null, sandbox.get("grid"), int(_project.get("world", {}).get("ledgeThickness", 20)))
-
-	var characters := {}
-	for c in _project.characters:
-		characters[c.id] = c
-	var enemies := []
-	for spawn in sandbox.spawns:
-		var character: Dictionary = characters[spawn.characterId]
-		var body: CharacterBody2D = PlayerScript.new() if character.kind == "player" else EnemyScript.new()
-		body.setup(character, sandbox, Vector2(spawn.x, spawn.y), _project.get("art", {}))
-		body.spawn_id = spawn.id
-		_world.add_child(body)
-		if character.kind == "player":
-			_player = body
-		else:
-			enemies.append(body)
-	for enemy in enemies:
-		enemy.player = _player
-	if _player != null:
-		_player.solids = solids
-		_player.enemies = enemies
-		_player.landed_hit.connect(_hit_stop)
-		_player.died.connect(_restart_run, CONNECT_DEFERRED)
-		_player.smashed.connect(_on_smashed)
-	_hud.player = _player
+	RenderingServer.set_default_clear_color(Color(_project.world.get("backgroundColor", "#1b2030")))
+	var room := _playtest_room()
+	if room.is_empty():
+		if _world != null:
+			remove_child(_world)
+			_world.queue_free()
+		_world = null
+		_player = null
+		_dressing_view = null
+		_hud.player = null
+		return
+	var test: Dictionary = _project.world.playtest
+	_build_room(room, Vector2(test.x, test.y), null, test.get("abilities", []))
 	_apply_preview_clips()
-
 	_fit_edit_camera()
+
+
+## The world's playtest room (with derived size and solids), or {}.
+func _playtest_room() -> Dictionary:
+	var test = _project.get("world", {}).get("playtest")
+	return _room_by_id(str(test.room)) if typeof(test) == TYPE_DICTIONARY else {}
+
+
+func _room_by_id(id: String) -> Dictionary:
+	for room in _project.get("world", {}).get("rooms", []):
+		if room.id == id:
+			return room
+	return {}
 
 
 func _on_smashed(rect: Rect2) -> void:
@@ -267,15 +245,12 @@ func _seed_run(run_seed: int) -> void:
 			child.rng.seed = hash("%d:%s" % [run_seed, child.spawn_id])
 
 
-## The player died: rebuild the arena (or respawn in the world) and replay the same seed.
+## The player died: the world's death rule respawns them; the run keeps its seed.
 func _restart_run() -> void:
-	if _mode != "play":
+	if _mode != "play" or not _run.active:
 		return
 	_deaths += 1
-	if _run.active:
-		_run.on_player_died()
-	else:
-		_build_world()
+	_run.on_player_died()
 	_seed_run(_seed)
 	_set_mode("play")
 
@@ -318,18 +293,24 @@ func _focus_canvas() -> void:
 		canvas.focus()
 
 
-## In edit mode, show the whole arena (or the room the stage shows).
+## The room shown in edit mode: the Rooms stage's, else the playtest room ({} if none).
+func _shown_room() -> Dictionary:
+	var room := _stage_room()
+	return room if not room.is_empty() else _playtest_room()
+
+
+## In edit mode, show the whole room.
 func _fit_edit_camera() -> void:
 	if _project.is_empty():
 		return
-	var arena := Vector2(_project.sandbox.width, _project.sandbox.height)
-	var shown := _stage_room()
-	if not shown.is_empty():
-		arena = Vector2(shown.width, shown.height)
+	var shown := _shown_room()
+	if shown.is_empty():
+		return
+	var size := Vector2(shown.width, shown.height)
 	var view := get_viewport_rect().size
-	var z: float = min(view.x / arena.x, view.y / arena.y) * 0.95
+	var z: float = min(view.x / size.x, view.y / size.y) * 0.95
 	_edit_camera.zoom = Vector2(z, z)
-	_edit_camera.position = arena / 2.0
+	_edit_camera.position = size / 2.0
 
 
 func _entity_states() -> Array:
@@ -392,7 +373,7 @@ var _world_stage: Node2D = null
 var _textures := {}
 
 
-## Show what the studio's mode asks for: the arena, one character, or a world room.
+## Show what the studio's mode asks for: the playtest room, one character, a biome room or a world room.
 func _apply_stage() -> void:
 	var mode := str(_stage.get("mode", "game"))
 	if mode != "character" and _stage_view != null:
@@ -430,17 +411,16 @@ func _apply_stage() -> void:
 			_world_stage.apply(_stage, _textures)
 
 
-# --- the dressed arena ------------------------------------------------------------
+# --- dressed rooms -------------------------------------------------------------------
 
 var _dressing_view: Node2D = null
 
 
-## The arena's (or a world room's) dressing as a world scene (core worldSceneFor), or {} if none / images not here yet.
-func _dressing_scene(level: Dictionary = {}) -> Dictionary:
-	if _project.is_empty():
+## A world room's dressing as a world scene (core worldSceneFor), or {} if none / images not here yet.
+func _dressing_scene(level: Dictionary) -> Dictionary:
+	if _project.is_empty() or level.is_empty():
 		return {}
-	var sandbox: Dictionary = level if not level.is_empty() else _project.sandbox
-	var dressing = sandbox.get("dressing")
+	var dressing = level.get("dressing")
 	if typeof(dressing) != TYPE_DICTIONARY:
 		return {}
 	var biome = null
@@ -462,13 +442,13 @@ func _dressing_scene(level: Dictionary = {}) -> Dictionary:
 	var scene: Dictionary = room.composition.duplicate()
 	scene.merge({
 		"name": room.name,
-		"width": maxf(960.0, float(sandbox.width)),
-		"height": maxf(360.0, float(sandbox.height)),
+		"width": maxf(960.0, float(level.width)),
+		"height": maxf(360.0, float(level.height)),
 		"backdrop": kit.backdrop,
 		"ground": kit.ground,
 		"pieces": kit.pieces,
-		"platforms": sandbox.solids.filter(func(p): return str(p.kind) != "breakable" and float(p.height) >= 8.0).map(func(p): return {"x": p.x, "y": p.y, "width": p.width, "height": p.height}),
-		"terrain": {"grid": sandbox.grid, "ledgeThickness": int(_project.get("world", {}).get("ledgeThickness", 20))},
+		"platforms": level.solids.filter(func(p): return str(p.kind) != "breakable" and float(p.height) >= 8.0).map(func(p): return {"x": p.x, "y": p.y, "width": p.width, "height": p.height}),
+		"terrain": {"grid": level.grid, "ledgeThickness": int(_project.get("world", {}).get("ledgeThickness", 20))},
 	}, true)
 	return scene
 
@@ -493,13 +473,13 @@ var _room_view: Node2D = null
 var _room_dressing: Node2D = null
 
 
-## A play message's world start begins a run there; without one, play is in the arena. Returns a problem or "".
+## A play message's world start begins a run there; without one, at the world's playtest. Returns a problem or "".
 func _start_world_play(start) -> String:
 	if typeof(start) != TYPE_DICTIONARY:
-		if _run.active:
-			_run.stop()
-			_build_world()
-		return ""
+		var test = _project.get("world", {}).get("playtest")
+		if typeof(test) != TYPE_DICTIONARY:
+			return "no playtest room: set one first"
+		start = {"room": test.room, "x": test.x, "y": test.y, "abilities": test.get("abilities", [])}
 	return _run.start(_project, start)
 
 
@@ -544,9 +524,9 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 		_seed_run(_seed)
 
 
-## What characters set up from (the arena's gravity, the room's size, the run's abilities).
+## What characters set up from (the world's gravity, the room's size, the run's abilities).
 func _room_bounds(room: Dictionary, abilities: Array) -> Dictionary:
-	return {"gravity": _project.sandbox.gravity, "width": room.width, "height": room.height, "playerAbilities": abilities}
+	return {"gravity": _project.world.get("gravity", 1800), "width": room.width, "height": room.height, "playerAbilities": abilities}
 
 
 func _player_character() -> Dictionary:
@@ -566,7 +546,8 @@ func _populate_room(parent: Node2D, room: Dictionary, bounds: Dictionary, player
 		dressing_view.vignette = false
 		parent.add_child(dressing_view)
 		dressing_view.build(scene, _textures, Vector2(room.width, room.height) * 1.5)
-	var solids: Array = Level.build(parent, room.solids, Color(_project.sandbox.platformColor), dressing_view != null, room.get("grid"), int(_project.get("world", {}).get("ledgeThickness", 20)))
+		_frame_room(parent, room)
+	var solids: Array = Level.build(parent, room.solids, Color(_project.world.get("platformColor", "#4a5470")), dressing_view != null, room.get("grid"), int(_project.get("world", {}).get("ledgeThickness", 20)))
 	if player != null:
 		parent.add_child(player)
 	var characters := {}
@@ -583,6 +564,26 @@ func _populate_room(parent: Node2D, room: Dictionary, bounds: Dictionary, player
 		parent.add_child(body)
 		enemies.append(body)
 	return {"solids": solids, "enemies": enemies, "dressing": dressing_view}
+
+
+## Cover everything outside a dressed room: its backdrop, fog and glows reach past the walls.
+func _frame_room(parent: Node2D, room: Dictionary) -> void:
+	var frame := CanvasLayer.new()
+	frame.name = "RoomFrame"
+	frame.layer = 1
+	frame.follow_viewport_enabled = true
+	parent.add_child(frame)
+	var w := float(room.width)
+	var h := float(room.height)
+	var m := 100000.0
+	var color := Color(str(_project.world.get("backgroundColor", "#1b2030")))
+	for r in [Rect2(-m, -m, w + 2.0 * m, m), Rect2(-m, h, w + 2.0 * m, m), Rect2(-m, 0, m, h), Rect2(w, 0, m, h)]:
+		var rect := ColorRect.new()
+		rect.position = r.position
+		rect.size = r.size
+		rect.color = color
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.add_child(rect)
 
 
 ## The world room the Rooms stage shows, or {}.

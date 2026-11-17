@@ -6,7 +6,7 @@ import { biomesOf, currentWorld, type WorldUi } from "./WorldBench.tsx";
 
 /**
  * Worlds mode sidebar: biomes (paint a kit at draft or final quality, repaint
- * one part), rooms (compose, suggest a layout, dress the arena, delete),
+ * one part), rooms (compose, suggest a layout, dress the playtest room, delete),
  * the room's atmosphere, and the selected piece.
  */
 
@@ -47,7 +47,10 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
   };
   const placement = room?.composition.placements.find((p) => p.id === selected) ?? null;
   const piece = placement ? biome?.kit?.pieces.find((p) => p.id === placement.piece) : null;
-  const dressing = project.sandbox.dressing;
+  const testRoom = project.world.rooms.find((r) => r.id === project.world.playtest?.room) ?? null;
+  const dressing = testRoom?.dressing ?? null;
+  /** New art dresses the playtest room while it is still plain. */
+  const dressRoom = testRoom && !dressing ? testRoom.id : undefined;
 
   return (
     <section className="world-panel" data-testid="world-panel">
@@ -100,7 +103,7 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
               type="button"
               disabled={disabled || !theme.trim()}
               onClick={async () => {
-                if (await session.startArtJob({ stage: "worldKit", brief: theme.trim(), name: name.trim() || undefined, quality, dressArena: !dressing })) {
+                if (await session.startArtJob({ stage: "worldKit", brief: theme.trim(), name: name.trim() || undefined, quality, dressRoom })) {
                   setCreating(false);
                   setUi({ ...ui, biomeId: null, roomId: null });
                 }
@@ -164,14 +167,14 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
                   <button type="button" onClick={() => setUi({ ...ui, biomeId: biome.id, roomId: r.id, previewLayout: false })}>
                     {r.name}
                     {r.layout && <span className="tag">layout</span>}
-                    {isDressed && <span className="tag">arena</span>}
+                    {isDressed && <span className="tag">playtest</span>}
                   </button>
                   <button
                     type="button"
                     className="icon-button"
-                    title={isDressed ? "Plain arena" : "Dress the arena with this room"}
-                    aria-label={isDressed ? `undress arena from ${r.name}` : `dress arena with ${r.name}`}
-                    disabled={locked}
+                    title={isDressed ? "Plain playtest room" : "Dress the playtest room with this"}
+                    aria-label={isDressed ? `undress playtest room from ${r.name}` : `dress playtest room with ${r.name}`}
+                    disabled={locked || !testRoom}
                     onClick={() => void edit("setDressing", isDressed ? { biomeId: null } : { biomeId: biome.id, roomId: r.id })}
                   >
                     {isDressed ? "◉" : "○"}
@@ -191,7 +194,7 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
                   type="button"
                   disabled={disabled}
                   onClick={() =>
-                    void session.startArtJob({ stage: "worldCompose", biomeId: biome.id, feedback: roomNote.trim() || undefined, newLayout, dressArena: !dressing })
+                    void session.startArtJob({ stage: "worldCompose", biomeId: biome.id, feedback: roomNote.trim() || undefined, newLayout, dressRoom })
                   }
                 >
                   Compose room (~$0.004)

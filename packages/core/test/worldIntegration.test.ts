@@ -7,7 +7,7 @@ describe("the traversal checker on the world runtime's fixture", () => {
   it("finds the fixture world finishable from its start, through every room", () => {
     const project = fixtureProject();
     const player = project.characters.find((c) => c.kind === "player") as PlayerCharacter;
-    const params = movementParams(player, project.sandbox.gravity);
+    const params = movementParams(player, project.world.gravity);
     const { rooms } = worldTraversal(project.world, params, []);
     expect(project.world.start?.room).toBe(FIXTURE_START_ROOM);
     expect(rooms.has(FIXTURE_END_ROOM)).toBe(true);

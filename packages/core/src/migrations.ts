@@ -114,6 +114,50 @@ const steps: Record<number, (project: Json) => Json> = {
     });
     return { ...project, schemaVersion: 5, sandbox: { ...sandbox, grid, spawns } };
   },
+
+  /**
+   * v5 -> v6: the arena is just a room. It joins the world as room "Arena"
+   * (its tiles, enemies and dressing); the player's spawn and the arena's
+   * abilities become the world's playtest; gravity and colors move to the world.
+   */
+  5: (project) => {
+    const sandbox = isObject(project.sandbox) ? project.sandbox : {};
+    const world = isObject(project.world) ? project.world : {};
+    const rooms = (Array.isArray(world.rooms) ? world.rooms : []).filter(isObject);
+    const players = new Set(
+      (Array.isArray(project.characters) ? project.characters : []).filter((c) => isObject(c) && c.kind === "player").map((c) => (c as Json).id),
+    );
+    const spawns = (Array.isArray(sandbox.spawns) ? sandbox.spawns : []).filter(isObject);
+    const playerSpawn = spawns.find((s) => players.has(s.characterId));
+    const taken = new Set(rooms.map((r) => r.id));
+    let id = "arena";
+    for (let n = 2; taken.has(id); n++) id = `arena_${n}`;
+    const grid = isObject(sandbox.grid) ? sandbox.grid : { rows: [] };
+    const cols = Array.isArray(grid.rows) && typeof grid.rows[0] === "string" ? grid.rows[0].length : 0;
+    const left = Math.min(0, ...rooms.map((r) => (isObject(r.at) ? Number(r.at.x) || 0 : 0)));
+    const arena = {
+      id,
+      name: "Arena",
+      grid,
+      at: { x: rooms.length ? left - cols - 4 : 0, y: 0 },
+      doors: [],
+      spawns: spawns.filter((s) => !players.has(s.characterId)),
+      dressing: sandbox.dressing ?? null,
+    };
+    const { sandbox: _sandbox, ...rest } = project;
+    return {
+      ...rest,
+      schemaVersion: 6,
+      world: {
+        ...world,
+        gravity: sandbox.gravity ?? 1800,
+        backgroundColor: sandbox.backgroundColor ?? "#1b2030",
+        platformColor: sandbox.platformColor ?? "#4a5470",
+        rooms: [arena, ...rooms],
+        playtest: { room: id, x: Number(playerSpawn?.x ?? 160), y: Number(playerSpawn?.y ?? 0), abilities: sandbox.playerAbilities ?? [] },
+      },
+    };
+  },
 };
 
 export function migrateProject(raw: unknown): unknown {

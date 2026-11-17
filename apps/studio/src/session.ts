@@ -35,7 +35,7 @@ export interface SessionState {
   /** Project revision the runtime has built its scene from. */
   loadedRevision: number | null;
   lastProblem: string | null;
-  /** Each agent's conversation: build assistant (arena) and director (wiki and progression). */
+  /** Each agent's conversation: build assistant (the game) and director (wiki and progression). */
   chats: Record<AgentId, ChatState>;
   /** Seed of the current or most recent playtest. */
   seed: number | null;
@@ -43,6 +43,8 @@ export interface SessionState {
   /** Worlds mode: the piece the creator clicked in the runtime (null = none), and where the camera looks. */
   worldPick: string | null;
   worldCameraX: number | null;
+  /** Play: the room the player is in (null in edit mode). */
+  room: string | null;
 }
 
 export interface RuntimeSnapshot {
@@ -53,7 +55,7 @@ export interface RuntimeSnapshot {
   stage: Stage["mode"];
   dressed: boolean;
   entities: EntityState[];
-  /** World play: the current room (null in the arena), rooms visited and the respawn point. */
+  /** World play: the current room (null when not playing), rooms visited and the respawn point. */
   room: string | null;
   visited: string[];
   entry: { x: number; y: number } | null;
@@ -99,6 +101,7 @@ export class Session {
       art: { available: false, models: { image: "", vision: "" }, budget: 0, running: null, jobs: [], queued: 0, totalCost: 0 },
       worldPick: null,
       worldCameraX: null,
+      room: null,
     };
   }
 
@@ -148,8 +151,8 @@ export class Session {
     if (runtimeStatus !== "ready" || mode !== "edit" || this.requestedRevision === project.revision) return;
     // The runtime never needs the design documents.
     if (this.bridge.send({ type: "load", project: toRuntimeProject(project) })) this.requestedRevision = project.revision;
-    // A dressed arena (or world room) needs its biome's images (sent once; the runtime redraws when they arrive).
-    const biomeIds = new Set([project.sandbox.dressing, ...project.world.rooms.map((r) => r.dressing)].flatMap((d) => (d ? [d.biome] : [])));
+    // A dressed room needs its biome's images (sent once; the runtime redraws when they arrive).
+    const biomeIds = new Set(project.world.rooms.flatMap((r) => (r.dressing ? [r.dressing.biome] : [])));
     for (const biome of project.art.assets) {
       if (biome.kind === "biome" && biome.kit && biomeIds.has(biome.id)) {
         void this.sendImages([biome.kit.backdrop, biome.kit.ground, ...biome.kit.pieces.map((p) => p.file)]);
@@ -201,7 +204,7 @@ export class Session {
         return;
       case "modeChanged": {
         const leavingPlay = this.state.mode === "play" && message.mode === "edit";
-        this.set({ mode: message.mode });
+        this.set({ mode: message.mode, ...(message.mode === "edit" && { room: null }) });
         if (leavingPlay) {
           this.releasing = api.setPlaytest(false, this.clientId);
           this.syncRuntime();
@@ -217,6 +220,9 @@ export class Session {
         return; // the studio never asks the runtime to render
       case "worldPick":
         this.set({ worldPick: message.placementId });
+        return;
+      case "roomEntered":
+        this.set({ room: message.room });
         return;
       case "worldCamera":
         this.set({ worldCameraX: message.x });

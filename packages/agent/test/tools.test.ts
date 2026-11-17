@@ -34,7 +34,7 @@ describe("tool definitions", () => {
     const actions = behavior.properties.states.additionalProperties.properties.action.oneOf;
     expect(actions.map((a: any) => a.properties.type.const)).toEqual(ACTION_TYPES);
     expect(actions[0].description).toContain("back and forth");
-    expect((byName.addSpawn!.parameters as any).properties.y.description).toContain("downward");
+    expect((byName.addRoomSpawn!.parameters as any).properties.y.description).toContain("downward");
   });
 });
 
@@ -66,7 +66,7 @@ describe("executeTool", () => {
   it("handles unknown tools and malformed arguments", () => {
     const draft = new Draft(createDefaultProject());
     expect(executeTool(draft, "launchMissiles", "{}")).toMatchObject({ ok: false, error: { code: "unknown_tool" } });
-    expect(executeTool(draft, "addSpawn", "{not json")).toMatchObject({ ok: false, error: { code: "invalid_arguments" } });
+    expect(executeTool(draft, "addRoomSpawn", "{not json")).toMatchObject({ ok: false, error: { code: "invalid_arguments" } });
     expect(executeTool(draft, "getProjectSummary", "")).toMatchObject({ ok: true });
   });
 
@@ -87,8 +87,7 @@ describe("executeTool", () => {
 describe("summaries and prompt", () => {
   it("summarize the project readably", () => {
     const summary = summarizeProject(createDefaultProject());
-    expect(summary).toContain("Arena: 1600x736 px");
-    expect(summary).toContain("The player stands on y = 672");
+    expect(summary).toContain("room arena, the player starts at (160, 672) with no abilities");
     expect(summary).toContain("windup: telegraph(color #ffd27a, shake false); [0] -> charge when after(seconds 0.6)");
     expect(summary).toContain("charger_1 (640, 672)");
     expect(summary).toContain("Warnings: none");

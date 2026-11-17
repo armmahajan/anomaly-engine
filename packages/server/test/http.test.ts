@@ -18,7 +18,7 @@ let chat: ChatService;
 const runner: TurnRunner = (request) =>
   runAgentTurn({
     ...request,
-    model: new FakeModel([callTools(toolCall("moveSpawn", { spawnId: "crawler_1", x: 900 })), say("Moved the Crawler.")]),
+    model: new FakeModel([callTools(toolCall("moveRoomSpawn", { roomId: "arena", spawnId: "crawler_1", x: 900 })), say("Moved the Crawler.")]),
   });
 
 beforeEach(async () => {

@@ -234,12 +234,14 @@ export function describeCall({ name, input }: OperationCall): string {
       return `tuned ${i.characterId} › ${i.stateId}`;
     case "setBehavior":
       return `rewrote ${i.characterId}'s behavior`;
-    case "addSpawn":
-      return `placed ${i.characterId}`;
-    case "moveSpawn":
+    case "addRoomSpawn":
+      return `placed ${i.characterId} in ${i.roomId}`;
+    case "moveRoomSpawn":
       return `moved ${i.spawnId}`;
-    case "removeSpawn":
+    case "removeRoomSpawn":
       return `removed ${i.spawnId}`;
+    case "setPlaytest":
+      return "changed the playtest";
     case "createWikiPage":
       return `drafted page ${(i as { page?: { id?: string } }).page?.id}`;
     case "updateWikiPage":

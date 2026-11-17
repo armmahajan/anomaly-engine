@@ -1,5 +1,7 @@
+import { legacy } from "./legacy.ts";
 import { describe, expect, it } from "vitest";
 import {
+  migrateProject,
   applyOperation,
   createDefaultProject,
   movementModel,
@@ -12,7 +14,7 @@ import {
 
 const project = createDefaultProject();
 const player = project.characters[0] as PlayerCharacter;
-const params = movementParams(player, project.sandbox.gravity);
+const params = movementParams(player, project.world.gravity);
 const model = (...abilities: MovementAbility[]) => movementModel(params, abilities);
 const heights = [-280, -150, 0, 100, 300];
 
@@ -50,7 +52,7 @@ describe("movement model", () => {
   });
 
   it("follows the tuning", () => {
-    const longDash = movementParams({ ...player, abilities: { ...player.abilities, dash: { ...player.abilities.dash, distance: 400 } } }, project.sandbox.gravity);
+    const longDash = movementParams({ ...player, abilities: { ...player.abilities, dash: { ...player.abilities.dash, distance: 400 } } }, project.world.gravity);
     expect(movementModel(longDash, ["dash"]).maxGap(0)).toBeGreaterThan(model("dash").maxGap(0) + 150);
     expect(model("dash").dashDistance).toBe(220);
     expect(model("dash", "glide")).toBe(model("glide", "dash"));
@@ -64,9 +66,9 @@ const apply = (p: ProjectSpec, name: string, input: unknown) => {
 };
 
 describe("ability operations", () => {
-  it("choose the arena's abilities", () => {
-    expect(apply(project, "setArenaAbilities", { abilities: ["dash", "glide", "dash"] }).sandbox.playerAbilities).toEqual(["dash", "glide"]);
-    const bad = applyOperation(project, "setArenaAbilities", { abilities: ["swim"] });
+  it("choose the playtest's abilities", () => {
+    expect(apply(project, "setPlaytest", { abilities: ["dash", "glide", "dash"] }).world.playtest?.abilities).toEqual(["dash", "glide"]);
+    const bad = applyOperation(project, "setPlaytest", { abilities: ["swim"] });
     expect(bad.ok).toBe(false);
   });
 
@@ -83,11 +85,12 @@ describe("ability operations", () => {
   it("projects saved before abilities load with the defaults", () => {
     const { abilities: _a, ...oldPlayer } = player;
     const { maxFallSpeed: _m, coyoteTime: _c, jumpBuffer: _j, ...oldStats } = player.stats;
-    const { playerAbilities: _p, ...oldSandbox } = project.sandbox;
-    const result = validateProject({ ...project, characters: [{ ...oldPlayer, stats: oldStats }, ...project.characters.slice(1)], sandbox: oldSandbox });
+    const old = legacy({ ...project, characters: [{ ...oldPlayer, stats: oldStats } as PlayerCharacter, ...project.characters.slice(1)] });
+    delete old.sandbox.playerAbilities;
+    const result = validateProject(migrateProject(old));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.project.characters[0]).toEqual(player);
-    expect(result.project.sandbox.playerAbilities).toEqual([]);
+    expect(result.project.world.playtest?.abilities).toEqual([]);
   });
 });

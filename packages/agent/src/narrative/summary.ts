@@ -34,7 +34,7 @@ export function summarizeWiki(project: ProjectSpec): string {
   const gaps = wikiGaps(project);
   lines.push(gaps.length ? `Gaps:\n${gaps.map((g) => `- ${g.message}`).join("\n")}` : "Gaps: none");
   lines.push(
-    "Game cast (characters designed in the arena; ids are what characterId refers to):",
+    "Game cast (characters designed in the studio; ids are what characterId refers to):",
     ...project.characters.map((c) => `- ${c.id} "${c.name}" (${c.kind})`),
   );
   return lines.filter(Boolean).join("\n");

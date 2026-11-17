@@ -7,8 +7,9 @@ import {
   type Condition,
   type EnemyCharacter,
   type MovementAbility,
+  type Playtest,
   type PlayerCharacter,
-  type Spawn,
+  type RoomSpawn,
   type Transition,
 } from "@anomaly/core";
 import type { Session } from "./session.ts";
@@ -76,20 +77,22 @@ const meta = (key: string) => PARAM_META[key] ?? { label: key, unit: "" };
 
 interface Props {
   character: Character;
-  /** This character's spawns in the sandbox. */
-  spawns: Spawn[];
-  defaultSpawn: { x: number; y: number };
+  /** The playtest room (null when the game has none). */
+  roomId: string | null;
+  /** This character's spawns in the playtest room. */
+  spawns: RoomSpawn[];
+  /** Where new spawns go (null without a playtest room). */
+  defaultSpawn: { x: number; y: number } | null;
   session: Session;
   locked: boolean;
   lockHint?: string;
   /** This character's wiki page, if it has one. */
   wikiPageId?: string;
   onOpenWiki?: (pageId: string) => void;
-  /** Movement abilities the player has in arena playtests. */
-  arenaAbilities?: MovementAbility[];
+  playtest: Playtest | null;
 }
 
-export function Inspector({ character, spawns, defaultSpawn, session, locked, lockHint, wikiPageId, onOpenWiki, arenaAbilities = [] }: Props) {
+export function Inspector({ character, roomId, spawns, defaultSpawn, session, locked, lockHint, wikiPageId, onOpenWiki, playtest }: Props) {
   return (
     <section className="inspector">
       <h2 className="inspector-title">
@@ -114,8 +117,12 @@ export function Inspector({ character, spawns, defaultSpawn, session, locked, lo
           onCommit={(v) => session.updateCharacter({ characterId: character.id, changes: { stats: { [stat]: v } } })}
         />
       ))}
-      {character.kind === "player" && <AbilityPanel player={character} inArena={arenaAbilities} session={session} locked={locked} />}
-      <SpawnList character={character} spawns={spawns} defaultSpawn={defaultSpawn} session={session} locked={locked} />
+      {character.kind === "player" && playtest && <AbilityPanel player={character} inArena={playtest.abilities} session={session} locked={locked} />}
+      {character.kind === "player" ? (
+        playtest && <PlaytestSpot playtest={playtest} session={session} locked={locked} />
+      ) : (
+        <SpawnList character={character} roomId={roomId} spawns={spawns} defaultSpawn={defaultSpawn} session={session} locked={locked} />
+      )}
       {character.kind === "enemy" && <BehaviorEditor character={character} session={session} locked={locked} />}
     </section>
   );
@@ -130,14 +137,14 @@ const ABILITY_LABEL: Record<MovementAbility, string> = {
 };
 const TUNING_KEY = { dash: "dash", double_jump: "doubleJump", wall_jump: "wallJump", glide: "glide", ground_pound: "groundPound" } as const;
 
-/** Which abilities the player has in arena playtests, and each one's tuning. */
+/** Which abilities the player has in playtests, and each one's tuning. */
 function AbilityPanel({ player, inArena, session, locked }: { player: PlayerCharacter; inArena: MovementAbility[]; session: Session; locked: boolean }) {
   const toggle = (ability: MovementAbility, on: boolean) =>
-    session.applyOperation("setArenaAbilities", { abilities: on ? [...inArena, ability] : inArena.filter((a) => a !== ability) });
+    session.applyOperation("setPlaytest", { abilities: on ? [...inArena, ability] : inArena.filter((a) => a !== ability) });
   return (
     <>
       <h3>Abilities</h3>
-      <p className="hint">Checked abilities are on in arena playtests. Controls: move A/D, jump Space, attack X, dash C, down + jump in the air to ground pound.</p>
+      <p className="hint">Checked abilities are on in playtests. Controls: move A/D, jump Space, attack X, dash C, down + jump in the air to ground pound.</p>
       {(Object.keys(MOVEMENT_ABILITIES) as MovementAbility[]).map((ability) => {
         const key = TUNING_KEY[ability];
         return (
@@ -171,15 +178,47 @@ function AbilityPanel({ player, inArena, session, locked }: { player: PlayerChar
   );
 }
 
-function SpawnList({ character, spawns, defaultSpawn, session, locked }: Omit<Props, "spawns"> & { spawns: Spawn[] }) {
+/** Where ▶ Play puts the player in the playtest room. */
+function PlaytestSpot({ playtest, session, locked }: { playtest: Playtest; session: Session; locked: boolean }) {
+  return (
+    <>
+      <h3>Playtest start</h3>
+      <div className="spawn" data-testid="playtest-spot">
+        <span className="spawn-id">{playtest.room}</span>
+        {(["x", "y"] as const).map((axis) => (
+          <NumberField
+            key={`${axis}:${playtest[axis]}`}
+            id={`playtest-${axis}`}
+            ariaLabel={`playtest ${axis}`}
+            unit={axis}
+            value={playtest[axis]}
+            disabled={locked}
+            compact
+            onCommit={(v) => session.applyOperation("setPlaytest", { [axis]: v })}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function SpawnList({
+  character,
+  roomId,
+  spawns,
+  defaultSpawn,
+  session,
+  locked,
+}: Pick<Props, "character" | "roomId" | "spawns" | "defaultSpawn" | "session" | "locked">) {
   const report = (result: ChangeResult) => {
     if (!result.ok) session.reportProblem(result.error.message);
     return result;
   };
+  if (!roomId || !defaultSpawn) return <p className="hint">Set a playtest room to place it.</p>;
   return (
     <>
-      <h3>In the arena</h3>
-      {spawns.length === 0 && <p className="hint">Not placed. Add it to the arena to test it.</p>}
+      <h3>In the playtest room</h3>
+      {spawns.length === 0 && <p className="hint">Not placed here. Add it to test it.</p>}
       {spawns.map((spawn) => (
         <div className="spawn" key={spawn.id} data-testid={`spawn-${spawn.id}`}>
           <span className="spawn-id" title={spawn.id}>
@@ -194,33 +233,27 @@ function SpawnList({ character, spawns, defaultSpawn, session, locked }: Omit<Pr
               value={spawn[axis]}
               disabled={locked}
               compact
-              onCommit={(v) => session.applyOperation("moveSpawn", { spawnId: spawn.id, [axis]: v })}
+              onCommit={(v) => session.applyOperation("moveRoomSpawn", { roomId, spawnId: spawn.id, [axis]: v })}
             />
           ))}
-          {character.kind !== "player" && (
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={`remove ${spawn.id}`}
-              disabled={locked}
-              onClick={async () => report(await session.applyOperation("removeSpawn", { spawnId: spawn.id }))}
-            >
-              ✕
-            </button>
-          )}
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`remove ${spawn.id}`}
+            disabled={locked}
+            onClick={async () => report(await session.applyOperation("removeRoomSpawn", { roomId, spawnId: spawn.id }))}
+          >
+            ✕
+          </button>
         </div>
       ))}
-      {character.kind !== "player" && (
-        <button
-          type="button"
-          disabled={locked}
-          onClick={async () =>
-            report(await session.applyOperation("addSpawn", { characterId: character.id, ...defaultSpawn }))
-          }
-        >
-          + Add to arena
-        </button>
-      )}
+      <button
+        type="button"
+        disabled={locked}
+        onClick={async () => report(await session.applyOperation("addRoomSpawn", { roomId, characterId: character.id, ...defaultSpawn }))}
+      >
+        + Add to room
+      </button>
     </>
   );
 }

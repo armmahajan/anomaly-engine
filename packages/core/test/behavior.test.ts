@@ -1,3 +1,4 @@
+import { legacy } from "./legacy.ts";
 import { describe, expect, it } from "vitest";
 import {
   ACTION_TYPES,
@@ -207,8 +208,7 @@ describe("setBehavior", () => {
 describe("migrateProject", () => {
   it("upgrades a v1 project's patrol stats into a behavior", () => {
     const v1 = {
-      ...createDefaultProject(),
-      schemaVersion: 1,
+      ...legacy(createDefaultProject(), 1),
       characters: [
         createDefaultProject().characters[0],
         {
@@ -222,14 +222,14 @@ describe("migrateProject", () => {
       ],
     };
     // v1 spawns had no ids.
-    (v1.sandbox as { spawns: unknown[] }).spawns = v1.sandbox.spawns
-      .filter((s) => s.characterId !== "charger")
-      .map(({ id: _id, ...rest }) => rest);
+    v1.sandbox.spawns = v1.sandbox.spawns
+      .filter((s: { characterId: string }) => s.characterId !== "charger")
+      .map(({ id: _id, ...rest }: { id: string }) => rest);
 
     const result = validateProject(migrateProject(v1));
     if (!result.ok) throw new Error(JSON.stringify(result.issues));
     expect(result.project.schemaVersion).toBe(SCHEMA_VERSION);
-    expect(result.project.sandbox.spawns.map((s) => s.id)).toEqual(["player_1", "crawler_1"]);
+    expect(result.project.world.rooms[0]!.spawns.map((s) => s.id)).toEqual(["crawler_1"]);
     expect(result.project.characters[1]).toMatchObject({
       stats: { knockback: 350 },
       behavior: { initial: "patrol", states: { patrol: { action: { type: "patrol", speed: 150, distance: 300 } } } },

@@ -80,6 +80,12 @@ async function toRuntime(page: Page, message: StudioToRuntime) {
 }
 
 /** Load a project into the runtime directly (no studio edit), e.g. a grid no operation makes yet. */
+/** The project with its first room (the starter arena) re-tiled. */
+const withArenaGrid = (spec: ProjectSpec, grid: TileGrid): ProjectSpec => ({
+  ...spec,
+  world: { ...spec.world, rooms: spec.world.rooms.map((r, i) => (i === 0 ? { ...r, grid } : r)) },
+});
+
 async function loadInRuntime(page: Page, spec: ProjectSpec) {
   await toRuntime(page, { type: "load", project: toRuntimeProject({ ...spec, revision: spec.revision + 1000 }) });
   await expect.poll(async () => (await runtimeState(page)).revision).toBe(spec.revision + 1000);
@@ -102,7 +108,7 @@ test("terrain: plain and dressed arenas, a Worlds room, every tile kind", async 
   await shot(page, "arena-plain");
   await playShot(page, "arena-plain-play");
   const plain = await project(page);
-  await loadInRuntime(page, { ...plain, sandbox: { ...plain.sandbox, grid: trickyGrid() } });
+  await loadInRuntime(page, withArenaGrid(plain, trickyGrid()));
   await shot(page, "tricky-plain");
 
   await page.getByRole("tab", { name: "Worlds" }).click();
@@ -112,14 +118,14 @@ test("terrain: plain and dressed arenas, a Worlds room, every tile kind", async 
   await expect.poll(async () => (await runtimeState(page)).stage, { timeout: 90_000 }).toBe("world");
   await shot(page, "room-worlds");
 
-  await page.getByRole("tab", { name: "Arena" }).click();
+  await page.getByRole("tab", { name: "Playtest" }).click();
   await expect.poll(async () => (await runtimeState(page)).dressed).toBe(true);
   await shot(page, "arena-dressed");
   await playShot(page, "arena-dressed-play");
   const dressed = await project(page);
   const kit = dressed.art.assets.find((a) => a.kind === "biome")!.kit!;
   await toRuntime(page, { type: "images", images: { [kit.ground]: stonePng() } });
-  await loadInRuntime(page, { ...dressed, sandbox: { ...dressed.sandbox, grid: trickyGrid() } });
+  await loadInRuntime(page, withArenaGrid(dressed, trickyGrid()));
   expect((await runtimeState(page)).dressed).toBe(true);
   await shot(page, "tricky-dressed");
 

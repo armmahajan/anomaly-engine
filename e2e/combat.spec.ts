@@ -58,7 +58,7 @@ test("fight the starter Charger with the sword until it dies", async ({ page }) 
   const deadline = Date.now() + 20_000;
   for (;;) {
     const state = await runtimeState(page);
-    const player = find(state, "player_1");
+    const player = find(state, "player");
     const charger = find(state, "charger_1");
     healths.push(charger.health);
     if (charger.health === 0 || Date.now() > deadline) break;
@@ -106,12 +106,12 @@ test("up swing, pogo off an enemy, player health and the restart on death", asyn
     enraged: { action: wait, transitions: [] },
   };
   await api(page, [
-    { name: "removeSpawn", input: { spawnId: "charger_1" } },
-    { name: "removeSpawn", input: { spawnId: "crawler_1" } },
+    { name: "removeRoomSpawn", input: { roomId: "arena", spawnId: "charger_1" } },
+    { name: "removeRoomSpawn", input: { roomId: "arena", spawnId: "crawler_1" } },
     { name: "createCharacter", input: { character: enemy("sword_bat", "flying", { health: 1 }) } },
-    { name: "addSpawn", input: { characterId: "sword_bat", spawnId: "sword_bat_1", x: 160, y: 600 } },
+    { name: "addRoomSpawn", input: { roomId: "arena", characterId: "sword_bat", spawnId: "sword_bat_1", x: 160, y: 600 } },
     { name: "createCharacter", input: { character: enemy("sword_dummy", "ground", { health: 4 }, flinchThenEnrage) } },
-    { name: "addSpawn", input: { characterId: "sword_dummy", spawnId: "sword_dummy_1", x: 700, y: FLOOR } },
+    { name: "addRoomSpawn", input: { roomId: "arena", characterId: "sword_dummy", spawnId: "sword_dummy_1", x: 700, y: FLOOR } },
   ]);
 
   // Up swing: the bat hovering just overhead dies.
@@ -128,7 +128,7 @@ test("up swing, pogo off an enemy, player health and the restart on death", asyn
 
   // Pogo: drop onto the dummy holding down and swinging; each hit bounces the player up.
   // The dummy flinches on the first hit (wasHit) and enrages below 60% health (healthBelow).
-  await api(page, [{ name: "moveSpawn", input: { spawnId: "player_1", x: 700, y: 250 } }]);
+  await api(page, [{ name: "setPlaytest", input: { x: 700, y: 250 } }]);
   await play(page);
   await page.keyboard.down("ArrowDown");
   const sampling = sample(page, 2600);
@@ -140,9 +140,9 @@ test("up swing, pogo off an enemy, player health and the restart on death", asyn
   const samples = await sampling;
   const hitAt = samples.findIndex((s) => find(s, "sword_dummy_1").health < 4);
   expect(hitAt).toBeGreaterThan(0);
-  const playerYs = samples.slice(hitAt).map((s) => find(s, "player_1").y);
+  const playerYs = samples.slice(hitAt).map((s) => find(s, "player").y);
   expect(Math.min(...playerYs)).toBeLessThan(playerYs[0]! - 50);
-  expect(samples.some((s) => find(s, "player_1").behaviorState === "slash_down")).toBe(true);
+  expect(samples.some((s) => find(s, "player").behaviorState === "slash_down")).toBe(true);
   const dummyStates = samples.map((s) => find(s, "sword_dummy_1").behaviorState);
   expect(dummyStates).toContain("flinch");
   expect(dummyStates.at(-1)).toBe("enraged");
@@ -156,7 +156,7 @@ test("up swing, pogo off an enemy, player health and the restart on death", asyn
   ]);
   await play(page);
   await expect.poll(async () => (await runtimeState(page)).deaths, { timeout: 5000 }).toBeGreaterThan(0);
-  const restarted = find(await runtimeState(page), "player_1");
+  const restarted = find(await runtimeState(page), "player");
   expect(restarted.health).toBe(1);
   expect(restarted.y).toBeLessThan(FLOOR - 50);
   await stop(page);
