@@ -333,7 +333,7 @@ export const toolset = (specs: ToolSpec[]): Toolset => ({ specs, byName: new Map
 
 const GenerateCharacterArtInput = z.strictObject({
   characterId: Id,
-  brief: z.string().max(2000).optional().describe("Its look; needed the first time."),
+  brief: z.string().max(2000).optional().describe("Its look; needed the first time unless its wiki page describes it."),
 });
 const GenerateWorldInput = z.strictObject({
   theme: z.string().min(3).max(2000).describe("What the place is."),
@@ -369,7 +369,8 @@ const artTools: ToolSpec[] = [
       if (!p.success) return { ok: false, error: { code: "invalid_input", message: p.error.issues.map((i) => i.message).join("; ") } };
       const character = draft.current.characters.find((c) => c.id === p.data.characterId);
       if (!character) return { ok: false, error: { code: "not_found", message: `no character "${p.data.characterId}"` } };
-      const hasBrief = Boolean(p.data.brief?.trim()) || draft.current.art.assets.some((a) => a.id === character.appearance);
+      const hasBrief =
+        Boolean(p.data.brief?.trim()) || draft.current.art.assets.some((a) => a.id === character.appearance) || draft.current.wiki.pages.some((pg) => pg.characterId === character.id);
       if (!hasBrief) return { ok: false, error: { code: "invalid_input", message: "give a brief: what it should look like" } };
       return queue(draft, { stage: "auto", characterId: character.id, brief: p.data.brief?.trim() || undefined }, `art for ${character.name}`);
     },

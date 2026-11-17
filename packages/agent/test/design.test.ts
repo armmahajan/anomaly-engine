@@ -41,6 +41,13 @@ describe("the build assistant reads the design", () => {
     expect(progression.abilities.find((a: any) => a.id === "double_jump").givenAt).toEqual(["sanctum/guardian_1"]);
   });
 
+  it("queues character art without a brief when the wiki describes the character", () => {
+    const draft = new Draft(fixtureReferenceProject(), true);
+    expect(run(draft, "generateCharacterArt", { characterId: "guardian" })).toMatchObject({ ok: true });
+    expect(draft.jobs).toEqual([{ stage: "auto", characterId: "guardian" }]);
+    expect(run(new Draft(createDefaultProject(), true), "generateCharacterArt", { characterId: "charger" }).error.message).toContain("give a brief");
+  });
+
   it("builds a region from the documents in a scripted turn", async () => {
     let project = documentsOnly();
     const events: AgentEvent[] = [];
