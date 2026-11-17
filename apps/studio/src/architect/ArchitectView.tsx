@@ -1,35 +1,33 @@
 import type { ArchitectState, ProjectSpec } from "@anomaly/core";
 import type { Session } from "../session.ts";
+import { PlanView } from "./PlanView.tsx";
+import { RunPanel } from "./RunPanel.tsx";
+import "./architect.css";
 
 /**
- * The Architect tab (agent N owns this folder): the plan as an editable document
- * (game guidance, region notes, room cards, links, pins, pause-after toggles) and
- * the run's stage progress. Edits go through the plan operations
- * (session.applyOperation), runs through session.startArchitect / cancelArchitect.
+ * The Architect tab: the plan as an editable document in the main pane (game
+ * guidance, region notes, room cards, links, pins) and the run in the sidebar
+ * (build/continue/stop, stages with pause-after toggles, issues, activity).
+ * Edits go through the plan operations (session.applyOperation: one undo step
+ * each), runs through session.startArchitect / cancelArchitect.
+ *
+ * The creator's involvement is theirs to choose: one click builds the whole
+ * game; or start the plan from the progression, shape any room, pin the ones
+ * made by hand, pause after any stage to review, rebuild one room.
  */
 export interface ArchitectProps {
   project: ProjectSpec;
   architect: ArchitectState;
   session: Session;
   locked: boolean;
+  /** Show a built world room in the Rooms tab (App switches tabs); without it the button is hidden. */
+  onOpenRoom?: (roomId: string) => void;
 }
 
-export function ArchitectMain({ project }: ArchitectProps) {
-  return (
-    <div className="architect-main" data-testid="architect-main">
-      <h2>Architect</h2>
-      <p>{project.architect.rooms.length} planned rooms.</p>
-    </div>
-  );
+export function ArchitectMain(props: ArchitectProps) {
+  return <PlanView {...props} />;
 }
 
-export function ArchitectSidebar({ architect, session, locked }: ArchitectProps) {
-  return (
-    <section data-testid="architect-sidebar">
-      <h2>Build game</h2>
-      <button type="button" disabled={locked || architect.running !== null} onClick={() => void session.startArchitect({})}>
-        Build game
-      </button>
-    </section>
-  );
+export function ArchitectSidebar({ project, architect, session, locked }: ArchitectProps) {
+  return <RunPanel project={project} architect={architect} session={session} locked={locked} />;
 }
