@@ -78,12 +78,16 @@ export function defaultStageRunners(options: { art?: ArtService | null; override
     screens: sync(screensStage),
     verify: sync((p) => verifyStage(p)),
     pacing: sync((p) => pacingStage(p)),
-    art: async ({ project, log }) => {
+    art: async ({ project, log, signal }) => {
       if (!art || !art.getState().available) return { project, issues: [], summary: "no art models configured; skipped" };
-      const started = await art.start({ stage: "gameArt" });
+      // The run holds the AI lock; the art job works inside it. Stop cancels the job too.
+      const started = await art.start({ stage: "gameArt" }, { underLock: true });
       if (!started.ok) return { project, issues: [{ stage: "art", code: "art-refused", message: started.error.message }], summary: `art refused: ${started.error.message}` };
       log("drawing the game (game-art job)");
+      const stop = () => art.cancel();
+      signal.addEventListener("abort", stop);
       await art.idle();
+      signal.removeEventListener("abort", stop);
       const job = art.getState().jobs.at(-1);
       return { project, issues: [], summary: job ? `art ${job.outcome}, $${job.cost.toFixed(3)}` : "art done" };
     },
@@ -218,6 +222,7 @@ export class ArchitectService {
           continue;
         }
         if (blocking) return this.finish("failed", stage, outcome.issues, `${stage} found issues`);
+        if (signal.aborted) return this.finish("cancelled", stage, outcome.issues);
         const paused = this.store.getState().project.architect.pauseAfter.includes(stage) && i < queue.length - 1;
         if (paused) return this.finish("paused", stage, outcome.issues);
         if (i === queue.length - 1) return this.finish("finished", stage, outcome.issues);

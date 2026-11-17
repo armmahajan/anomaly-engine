@@ -108,7 +108,7 @@ describe("the Architect run", () => {
     architect.cancel();
     release();
     await architect.idle();
-    expect(architect.getState().last).toMatchObject({ outcome: "cancelled", stage: "geometry" });
+    expect(architect.getState().last).toMatchObject({ outcome: "cancelled", stage: "layout" });
     expect(project().architect.stages.layout!.status).toBe("done");
     expect(project().architect.stages.geometry).toBeUndefined();
   });

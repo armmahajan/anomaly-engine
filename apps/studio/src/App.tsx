@@ -329,7 +329,16 @@ export function App({ session }: { session: Session }) {
 
       {tab === "architect" && (
         <main className="wiki-pane architect-pane">
-          <ArchitectMain project={project} architect={state.architect} session={session} locked={locked} />
+          <ArchitectMain
+            project={project}
+            architect={state.architect}
+            session={session}
+            locked={locked}
+            onOpenRoom={(id) => {
+              setRoomsUi((ui) => ({ ...ui, roomId: id, spot: null, propId: null }));
+              openTab("rooms");
+            }}
+          />
         </main>
       )}
 

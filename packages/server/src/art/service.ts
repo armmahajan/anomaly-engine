@@ -69,6 +69,8 @@ interface Running {
   done: Promise<void>;
   /** USD this job may spend (gameArt gets its plan's estimate, with headroom). */
   budget?: number;
+  /** False when the job runs inside a lock someone else holds (an Architect run): it mustn't release it. */
+  ownsLock: boolean;
 }
 
 type Step = { stage: Exclude<ArtStage, "auto">; run: () => Promise<StageResult> };
@@ -147,7 +149,8 @@ export class ArtService {
   }
 
   /** Start a job; it runs in the background and reports through events. */
-  async start(request: unknown): Promise<Result> {
+  /** Start a job. `underLock`: the caller already holds the AI lock (an Architect run) and keeps it. */
+  async start(request: unknown, options: { underLock?: boolean } = {}): Promise<Result> {
     const parsed = ArtJobRequest.safeParse(request);
     if (!parsed.success) return fail("invalid_request", "malformed art job request", toIssues(parsed.error));
     if (!this.options.models) {
@@ -161,10 +164,14 @@ export class ArtService {
     if (biomeId !== undefined && !project.art.assets.some((a) => a.id === biomeId && a.kind === "biome")) {
       return fail("not_found", `no biome "${biomeId}"`);
     }
-    const lock = await this.store.beginAiTurn();
-    if (!lock.ok) return lock;
+    if (this.running) return fail("locked", "an art job is already running");
+    if (!options.underLock) {
+      const lock = await this.store.beginAiTurn();
+      if (!lock.ok) return lock;
+    }
 
     const running: Running = {
+      ownsLock: !options.underLock,
       id: `art_${Date.now().toString(36)}`,
       request: parsed.data,
       biomeId: parsed.data.biomeId,
@@ -454,7 +461,7 @@ export class ArtService {
       revisions: running.revisions,
       activity: running.activity,
     };
-    this.store.endAiTurn();
+    if (running.ownsLock) this.store.endAiTurn();
     this.running = null;
     this.totalCost += running.cost;
     this.jobs = [...this.jobs, summary].slice(-RECENT_JOBS);
