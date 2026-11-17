@@ -58,6 +58,7 @@ func _ready() -> void:
 	hud_layer.layer = 2  # above room frames
 	add_child(hud_layer)
 	_hud = HudScript.new()
+	_hud.main = self
 	_hud.visible = false
 	hud_layer.add_child(_hud)
 	_render_service = RenderService.new()
@@ -299,8 +300,13 @@ func _restart_run() -> void:
 
 
 func _hit_stop() -> void:
-	if _mode == "play":
-		_freeze = HIT_STOP_FRAMES
+	hit_stop(HIT_STOP_FRAMES)
+
+
+## Freeze the room for `frames` physics frames (play only).
+func hit_stop(frames: int) -> void:
+	if _mode == "play" and _world != null:
+		_freeze = maxi(_freeze, frames)
 		_world.process_mode = Node.PROCESS_MODE_DISABLED
 
 

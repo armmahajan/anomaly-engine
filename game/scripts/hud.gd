@@ -2,6 +2,8 @@ extends Node2D
 ## Play-mode HUD: the player's health as a row of pips, and enemy health bars (agent F).
 
 var player: Node2D = null
+## main.gd (the current room and its enemies: main._run.current_room(), main._world).
+var main: Node = null
 
 
 func _process(_delta: float) -> void:

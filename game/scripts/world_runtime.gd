@@ -49,8 +49,14 @@ func _init() -> void:
 	events = EventsScript.new(self)
 
 
+var _project := {}
+var _start_message := {}
+
+
 ## Start a run from a play message's `world` ({room, x, y, abilities, continue}). Returns a problem or "".
 func start(project: Dictionary, start: Dictionary) -> String:
+	_project = project
+	_start_message = start.duplicate()
 	var world: Dictionary = project.get("world", {})
 	_rooms = {}
 	for room in world.get("rooms", []):
@@ -77,6 +83,23 @@ func start(project: Dictionary, start: Dictionary) -> String:
 	_enter(from.room, from.at, null)
 	events.flush()
 	return ""
+
+
+## Begin again from where this run began, as a fresh game (no saved run), e.g. after the game ends.
+func restart() -> void:
+	clear_save()
+	var fresh := _start_message.duplicate()
+	fresh.erase("continue")
+	start(_project, fresh)
+
+
+## Forget the run saved in this browser (or in memory, headless).
+func clear_save() -> void:
+	var storage = _storage()
+	if storage != null:
+		storage.removeItem(_save_key)
+	else:
+		_memory_store.erase(_save_key)
 
 
 func stop() -> void:
@@ -202,6 +225,7 @@ func save_run() -> void:
 	var data := JSON.stringify({
 		"room": room_id, "entry": {"x": entry.x, "y": entry.y}, "abilities": abilities, "visited": visited,
 		"flags": events.flags.keys(), "items": events.items, "checkpoint": events.checkpoint,
+		"modals": main._modals.save_data(),
 	})
 	var storage = _storage()
 	if storage != null:
@@ -229,6 +253,8 @@ func load_run() -> Dictionary:
 			events.items[str(item)] = int(data.items[item])
 	if typeof(data.get("checkpoint")) == TYPE_DICTIONARY:
 		events.checkpoint = data.checkpoint
+	if typeof(data.get("modals")) == TYPE_DICTIONARY:
+		main._modals.load_data(data.modals)
 	return {"room": str(data.room), "at": Vector2(float(data.entry.x), float(data.entry.y))}
 
 

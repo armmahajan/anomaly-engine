@@ -148,6 +148,9 @@ export class Session {
         void this.sendImages([biome.kit.backdrop, biome.kit.ground, ...biome.kit.pieces.map((p) => p.file)]);
       }
     }
+    // Modal images too (shown over the game).
+    const modalImages = project.world.modals.flatMap((m) => (m.image ? [m.image] : []));
+    if (modalImages.length > 0) void this.sendImages(modalImages);
   }
 
   // --- runtime lifecycle ---

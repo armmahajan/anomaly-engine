@@ -164,6 +164,19 @@ export function HandlerEditor({ handlers, onChange, scope, project, room, locked
   );
 }
 
+/** A list of effects on its own (e.g. a modal button's). */
+export function EffectList({ effects, onChange, project, room, locked, label }: { effects: Effect[]; onChange: (effects: Effect[]) => void; project: ProjectSpec; room?: WorldRoom | null; locked: boolean; label: string }) {
+  return <List title="do" items={effects} options={EFFECTS} project={project} room={room} locked={locked} label={label} onChange={(items) => onChange(items as Effect[])} />;
+}
+
+/** One condition on its own (e.g. a prop's solid or visible). */
+export function ConditionField({ value, onChange, project, room, locked, label }: { value: GameCondition; onChange: (condition: GameCondition) => void; project: ProjectSpec; room?: WorldRoom | null; locked: boolean; label: string }) {
+  return <Fields value={value} options={CONDITIONS} project={project} room={room} locked={locked} label={label} onChange={(c) => onChange(c as GameCondition)} />;
+}
+
+/** A fresh condition (a flag check) for editors that start one. */
+export const newCondition = (): GameCondition => ({ type: "flag", flag: "flag_name", is: true });
+
 interface ListProps {
   title: string;
   items: object[];

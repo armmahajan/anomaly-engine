@@ -40,3 +40,12 @@ func map_open() -> bool:
 ## Stop / a new run: close everything, forget revealed rooms.
 func reset() -> void:
 	pass
+
+
+## What this saves with the run (e.g. rooms revealed on the map); given back by load_data on Continue.
+func save_data() -> Dictionary:
+	return {}
+
+
+func load_data(_data: Dictionary) -> void:
+	pass
