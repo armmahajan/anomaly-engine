@@ -299,8 +299,8 @@ bones. The art direction (style words, palette, outline) is project-wide.
 **Worlds** mode makes places. A **biome** (an art asset) is paid for once: a
 painted backdrop made seamless, a 3x3 sheet of large structures and one of props
 (transparent, sliced and labelled automatically) and a ground texture (about
-$0.016 at **draft** quality; **final** spends more on the backdrop and pieces,
-about $0.035-0.05). A **room** is cheap data composed from the kit (about $0.006,
+$0.017 at **draft** quality; **final** spends more on the backdrop and pieces,
+about $0.035-0.05). A **room** is cheap data composed from the kit (about $0.004,
 including its review):
 placements on five parallax layers (far, mid, back, play, front), palette, fog,
 lights, light shafts and dust. The runtime adds the depth for free
@@ -333,7 +333,7 @@ player is behind them.
 
 ## Art jobs, settings and storage
 
-- **Cost:** about $0.015-0.02 per character and $0.016 per draft biome with the
+- **Cost:** about $0.015-0.02 per character and $0.017 per draft biome with the
   defaults (`openai/gpt-image-1-mini` at low quality for images,
   `anthropic/claude-haiku-5.5` for everything else). Each job has a budget
   (`STUDIO_ART_BUDGET`, default $0.25) and the sidebars show what was spent.
