@@ -216,15 +216,16 @@ test("pause after plan: the run stops for review, an edit, then Continue carries
   const sidebar = page.getByTestId("architect-sidebar");
   const chip = (stage: string) => sidebar.getByTestId(`stage-chip-${stage}`);
 
-  await sidebar.getByLabel("Pause after plan").check();
+  await sidebar.getByLabel("Pause after plan").click(); // controlled by the project: it ticks once the server has it
   await expect.poll(() => page.evaluate(() => window.studio!.getProject().architect.pauseAfter)).toEqual(["plan"]);
+  await expect(sidebar.getByLabel("Pause after plan")).toBeChecked();
   await expect(sidebar.getByTestId("architect-stage-plan")).toContainText("pauses here for review");
 
   await sidebar.getByRole("button", { name: "Build game" }).click();
   await expect(chip("plan")).toHaveText("paused", { timeout: 30_000 });
   await expect(sidebar.getByTestId("architect-run-hint")).toContainText("Paused after plan");
   await expect(chip("layout")).toHaveText("pending");
-  await expect(sidebar.getByTestId("architect-stage-plan")).toContainText("kept the plan (9 rooms)");
+  await expect(sidebar.getByTestId("architect-stage-plan")).toContainText("planned 9 rooms");
 
   // Review: change the plan while paused.
   await page.getByLabel("Game guidance").fill("Short and tense.");
