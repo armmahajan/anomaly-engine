@@ -299,7 +299,7 @@ func _update_rig() -> void:
 		slots = ["slash_" + _slash, "attack"]
 	elif _stun > 0.0:
 		slots = ["hurt"]
-	elif not is_on_floor():
+	elif not _on_floor:
 		slots = ["jump"] if velocity.y < 0.0 else ["fall", "jump"]
 	elif absf(velocity.x) > 1.0:
 		slots = ["run", "walk"]

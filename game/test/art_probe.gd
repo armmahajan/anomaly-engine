@@ -2,7 +2,7 @@ extends SceneTree
 ## Headless probe for game/test/art_phases.test.ts: which clip an enemy's rig plays each frame,
 ## next to its behavior state and attack phase (as run_state() reports them).
 ##   godot --headless --fixed-fps 60 --path game --script res://test/art_probe.gd -- in.json out.json
-## in.json: {"project", "spawn", "frames", "hitAt"?: frame, "hit"?: damage}
+## in.json: {"project", "spawn" (a spawn id, or "player"), "frames", "hitAt"?: frame, "hit"?: damage}
 
 
 func _initialize() -> void:
@@ -17,7 +17,7 @@ func _run() -> void:
 	main.handle_message({"type": "load", "project": input.project})
 	main.handle_message({"type": "play", "seed": 1})
 	await physics_frame
-	var enemy: Node = null
+	var enemy: Node = main._player if input.spawn == "player" else null
 	for child in main._world.get_children():
 		if child is CharacterBody2D and "spawn_id" in child and child.spawn_id == input.spawn:
 			enemy = child

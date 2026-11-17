@@ -25,7 +25,7 @@ function withArt(project: ProjectSpec, characterId: string): ProjectSpec {
     chosen: null,
     rig: exampleRig(),
     preview: null,
-    clips: { idle: clips.idle, run: clips.walk, windup: clips.windup, strike: clips.attack, slam: clips.attack, leap: clips.attack, recover: clips.idle },
+    clips: { idle: clips.idle, run: clips.walk, jump: clips.walk, fall: clips.walk, windup: clips.windup, strike: clips.attack, slam: clips.attack, leap: clips.attack, recover: clips.idle },
     clipPreviews: {},
     stateClips: {},
   };
@@ -87,5 +87,12 @@ describe("attack clips by phase (headless runtime)", () => {
     const out = probe(toads, "quake_toad_1", 240);
     expect(story(out.frames, "hop").slice(0, 2)).toEqual(["windup:windup", "active:leap"]);
     expect(story(out.frames, "stomp").slice(0, 2)).toEqual(["windup:windup", "active:slam"]);
+  }, 90_000);
+
+  it("a player standing on the floor plays idle, not fall (the rig follows the player's own floor contact)", () => {
+    const project = withArt(showcaseArena([], [], [120, ARENA_FLOOR]), "player");
+    const out = probe(project, "player", 60);
+    expect(out.hasRig).toBe(true);
+    expect(out.frames.slice(-30).map((f) => f.clip)).toEqual(Array(30).fill("idle"));
   }, 90_000);
 });
