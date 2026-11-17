@@ -4,6 +4,7 @@ import { progressionReport } from "../progression/report.ts";
 import { checkGame, type CheckResult } from "../world/logic/check.ts";
 import { abilityChecks, gateChecks } from "../world/logic/gates.ts";
 import type { ArchitectStage } from "./plan.ts";
+import { gateLeaks } from "./planCheck.ts";
 import type { StageIssue, StageOutcome } from "./stages.ts";
 
 /** Which stage fixes a lint warning (by code); anything else goes back to population. */
@@ -59,10 +60,12 @@ export function verifyStage(project: ProjectSpec): StageOutcome & { verdict: Ver
       const last = d.path.at(-1);
       issues.push({ stage: "population", code: "dead-state", message: `${d.fromSave ? "a Continue " : ""}dead state: ${d.why}`, ...(last ? { roomId: last.room } : {}) });
     }
+    // A gate the plan's own links lead around is the plan's to fix; otherwise the rooms leak.
+    const planLeaks = new Set(gateLeaks(project).map((l) => l.connection));
     for (const g of gateChecks(project, check)) {
       if (!g.holdsWithout) {
         gatesHold = false;
-        issues.push({ stage: "geometry", code: "gate-bypassed", message: `the gate ${g.connection} (${g.from} -> ${g.to}) can be passed without ${g.needs.join(", ")}`, linkId: g.connection });
+        issues.push({ stage: planLeaks.has(g.connection) ? "plan" : "geometry", code: "gate-bypassed", message: `the gate ${g.connection} (${g.from} -> ${g.to}) can be passed without ${g.needs.join(", ")}`, linkId: g.connection });
       }
       if (!g.reachableWith) issues.push({ stage: "geometry", code: "gate-closed", message: `${g.to} can't be reached through ${g.connection} even with ${g.needs.join(", ")}`, linkId: g.connection });
     }

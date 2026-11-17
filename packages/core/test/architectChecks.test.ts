@@ -27,6 +27,26 @@ describe("plan checks", () => {
     expect(codes(cut)).toEqual(expect.arrayContaining(["missing-join", "unlinked"]));
   });
 
+  it("finds routes around a gate: a gated shortcut back is open from its b side; a one-way shortcut is fine", () => {
+    // The reference progression: undercroft -(hatch_key)-> spire <-(double_jump)-> summit.
+    const plan = (extra: object) => withPlan((p) => ({ ...p, links: [...p.links, extra as ArchitectPlan["links"][number]] }));
+    const summit = (p: ProjectSpec) => p.architect.rooms.find((r) => r.regionId === "summit")!.id;
+    const spire = (p: ProjectSpec) => p.architect.rooms.find((r) => r.regionId === "spire")!.id;
+    const base = withPlan((x) => x);
+    // A "shortcut" from the summit back to the spire, gated a (summit) -> b (spire): from the spire it's open.
+    const leaky = plan({ id: "back", a: { room: summit(base) }, b: { room: spire(base) }, requires: ["double_jump"], oneWay: false });
+    expect(planIssues(leaky).issues).toContainEqual(expect.objectContaining({ code: "gate-bypass-route", roomId: summit(base) }));
+    // The same shortcut one-way from the summit down to the spire is fine.
+    const oneWay = plan({ id: "back", a: { room: summit(base) }, b: { room: spire(base) }, requires: [], oneWay: true });
+    expect(codes(oneWay)).not.toContain("gate-bypass-route");
+    // An either/or route the progression itself designs isn't a leak.
+    const either = ProjectSpec.parse({
+      ...leaky,
+      progression: { ...leaky.progression, connections: [...leaky.progression.connections, { id: "climb", from: "spire", to: "summit", requires: [], oneWay: false, status: "draft" }] },
+    });
+    expect(codes(either)).not.toContain("gate-bypass-route");
+  });
+
   it("lists enemies the cast stage must create, and cramped arenas", () => {
     const project = withPlan((p) => ({
       ...p,

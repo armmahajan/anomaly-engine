@@ -202,7 +202,7 @@ export class ArchitectService {
         });
         const blocking = outcome.blocking ?? (stage === "verify" && outcome.issues.length > 0);
         // Repairs: a failed verify goes back to the stage that caused it; a game off its play-time target goes back to the plan.
-        const repair = blocking && stage === "verify" ? repairFor(before, outcome.issues) : stage === "pacing" && this.repairPacing && outcome.issues.length > 0 ? { from: "plan" as const, reseed: [], rooms: undefined } : null;
+        const repair = blocking ? repairFor(before, outcome.issues) : stage === "pacing" && this.repairPacing && outcome.issues.length > 0 ? { from: "plan" as const, reseed: [], rooms: undefined } : null;
         const canRepair = repair !== null && repairs < this.maxRepairs;
         const status: StageStatus = { status: blocking ? "failed" : "done", summary: outcome.summary, at: new Date().toISOString() };
         const committed = await this.store.commitStage(stage, (current) => {
@@ -277,7 +277,8 @@ export function repairFor(project: ProjectSpec, issues: StageIssue[]): { from: A
   const from = ARCHITECT_STAGES.find((s) => fixable.some((i) => i.stage === s))!;
   const roomOf = (i: StageIssue) => i.roomId ?? (i.linkId ? project.architect.links.find((l) => l.id === i.linkId)?.a.room : undefined);
   const atFrom = fixable.filter((i) => i.stage === from);
-  const rooms = atFrom.every((i) => roomOf(i)) ? [...new Set(atFrom.map((i) => roomOf(i)!))].filter((id) => project.architect.rooms.some((r) => r.id === id && !r.pinned)) : undefined;
+  // A new plan can change any room: rebuild them all.
+  const rooms = from !== "plan" && atFrom.every((i) => roomOf(i)) ? [...new Set(atFrom.map((i) => roomOf(i)!))].filter((id) => project.architect.rooms.some((r) => r.id === id && !r.pinned)) : undefined;
   const reseed = from === "geometry" ? (rooms ?? project.architect.rooms.filter((r) => !r.pinned).map((r) => r.id)) : [];
   return { from, rooms: rooms?.length ? rooms : undefined, reseed };
 }

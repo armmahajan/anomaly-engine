@@ -75,6 +75,13 @@ export function planIssues(project: ProjectSpec): { issues: StageIssue[]; toCast
     }
   }
 
+  // Routes around a gate. Built links gate only the a -> b direction (from b you just drop or walk back
+  // through), and one-way links go a -> b only. A region a connection gates must stay unreachable without
+  // its requirements, whichever links lead there.
+  for (const leak of gateLeaks(project)) {
+    issue("gate-bypass-route", `${leak.to} can be reached without ${leak.requires.join(" + ")} (connection "${leak.connection}") through link${leak.links.length > 1 ? "s" : ""} ${leak.links.join(", ")}: a link back to an earlier region must be oneWay from the later room (a) down to the earlier room (b), or gated in that direction`, leak.roomId);
+  }
+
   const characters = new Set(project.characters.map((c) => c.id));
   const toCast = [...new Set(plan.rooms.flatMap((r) => r.contents.flatMap((c) => (c.kind === "enemy" && !characters.has(c.characterId) ? [c.characterId] : []))))];
   for (const room of plan.rooms) {
@@ -83,4 +90,57 @@ export function planIssues(project: ProjectSpec): { issues: StageIssue[]; toCast
     }
   }
   return { issues, toCast };
+}
+
+/**
+ * Progression connections whose gate the plan's links get around: the `to` region is reachable from the
+ * start region without the connection's requirements (everything else allowed), walking the plan's links
+ * as geometry builds them. `links` are the region-crossing links used on the way in.
+ */
+export function gateLeaks(project: ProjectSpec): { connection: string; to: string; requires: string[]; links: string[]; roomId?: string }[] {
+  const plan = project.architect;
+  const p = project.progression;
+  const start = plan.rooms.find((r) => r.contents.some((c) => c.kind === "start"));
+  if (!start) return [];
+  const region = new Map(plan.rooms.map((r) => [r.id, r.regionId]));
+  const leaks: { connection: string; to: string; requires: string[]; links: string[]; roomId?: string }[] = [];
+  for (const c of p.connections.filter((c) => c.requires.length > 0)) {
+    const lacking = new Set(c.requires);
+    // Breadth first over rooms; remember the region-crossing link that first reached each room.
+    const via = new Map<string, string | null>([[start.id, null]]);
+    const queue = [start.id];
+    for (let i = 0; i < queue.length; i++) {
+      const here = queue[i]!;
+      for (const l of plan.links) {
+        const forward = l.a.room === here && !l.requires.some((r) => lacking.has(r));
+        const backward = l.b.room === here && !l.oneWay;
+        if (!forward && !backward) continue;
+        const next = forward ? l.b.room : l.a.room;
+        if (via.has(next)) continue;
+        via.set(next, region.get(next) !== region.get(here) ? l.id : via.get(here)!);
+        queue.push(next);
+      }
+    }
+    // The progression itself may offer another way in (either/or connections): not a leak then.
+    const designed = new Set(p.start ? [p.start] : []);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const o of p.connections) {
+        if (o.requires.some((r) => lacking.has(r))) continue;
+        for (const [x, y] of o.oneWay ? [[o.from, o.to]] : [[o.from, o.to], [o.to, o.from]]) {
+          if (designed.has(x!) && !designed.has(y!)) {
+            designed.add(y!);
+            grew = true;
+          }
+        }
+      }
+    }
+    const inside = [...via.keys()].find((id) => region.get(id) === c.to);
+    if (inside && region.get(start.id) !== c.to && !designed.has(c.to)) {
+      const used = via.get(inside);
+      const link = plan.links.find((l) => l.id === used);
+      leaks.push({ connection: c.id, to: c.to, requires: c.requires, links: used ? [used] : [], ...(link ? { roomId: link.a.room } : {}) });
+    }
+  }
+  return leaks;
 }
