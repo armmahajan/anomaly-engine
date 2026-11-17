@@ -52,7 +52,11 @@ export const PlaytestRequest = z.strictObject({
   clientId: z.string().min(1).max(100),
 });
 
-export const ResetRequest = z.strictObject({ baseRevision: z.number().int().min(0) });
+export const ResetRequest = z.strictObject({
+  baseRevision: z.number().int().min(0),
+  /** Start from the starter project (default) or the example game (the fixture slice). */
+  from: z.enum(["starter", "example"]).default("starter"),
+});
 
 export const ChatRequest = z.strictObject({ message: z.string().trim().min(1).max(4000) });
 

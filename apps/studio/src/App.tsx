@@ -114,6 +114,11 @@ export function App({ session }: { session: Session }) {
     if (report(await session.applyOperation("deleteCharacter", { characterId: selected.id }))) setSelectedId("player");
   };
 
+  const loadExample = async () => {
+    if (!window.confirm("Replace the project with the example game? The current project and chat are backed up first.")) return;
+    if (report(await session.resetProject("example"))) setSelectedId("player");
+  };
+
   const resetProject = async () => {
     if (!window.confirm("Start over from the starter project? The current project and chat are backed up first.")) return;
     if (report(await session.resetProject())) setSelectedId("crawler");
@@ -238,6 +243,9 @@ export function App({ session }: { session: Session }) {
         </button>
         <button type="button" onClick={() => void resetProject()} disabled={locked}>
           Reset…
+        </button>
+        <button type="button" onClick={() => void loadExample()} disabled={locked} title="A small game made from the primitives: props, items, modals, a sealed fight, an ability gate">
+          Example…
         </button>
         <span className={`status status-${state.runtimeStatus}`} data-testid="runtime-status">
           {aiBusy ? "AI is editing…" : statusText(state.runtimeStatus, state.mode)}

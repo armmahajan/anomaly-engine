@@ -44,3 +44,15 @@ test("Game tab: rules are presets, and a game handler built in the editor runs i
   await expect(page.getByTestId("handlers-room arena")).toBeVisible();
   expect(consoleErrors).toEqual([]);
 });
+
+test("Example… loads the example game, and ▶ Play starts it on its title", async ({ page }) => {
+  await openStudio(page);
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Example…" }).click();
+  await expect.poll(async () => (await project(page)).world.rooms.map((r) => r.id)).toContain("summit");
+  await expect.poll(async () => (await runtimeState(page)).room).toBe("entrance");
+  await page.getByRole("button", { name: "▶ Play" }).click();
+  await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
+  await expect.poll(async () => (await runtimeState(page)).modal).toBe("title");
+  await page.getByRole("button", { name: "■ Stop" }).click();
+});

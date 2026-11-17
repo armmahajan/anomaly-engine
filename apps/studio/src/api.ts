@@ -38,7 +38,7 @@ export async function fetchProject(): Promise<ProjectState> {
 export const applyOperation = (request: OperationRequest) => post<ChangeResult>("/api/ops", request);
 export const applyBatch = (request: BatchRequest) => post<ChangeResult>("/api/batch", request);
 export const undo = (request: UndoRequest) => post<ChangeResult>("/api/undo", request);
-export const resetProject = (baseRevision: number) => post<ChangeResult>("/api/reset", { baseRevision });
+export const resetProject = (baseRevision: number, from: "starter" | "example" = "starter") => post<ChangeResult>("/api/reset", { baseRevision, from });
 export const sendChat = (agent: AgentId, message: string) => post<{ ok: true }>(`/api/chat?agent=${agent}`, { message });
 export const cancelChat = (agent: AgentId) => post<{ ok: true }>(`/api/chat/cancel?agent=${agent}`, {});
 export const startArtJob = (request: ArtJobRequest) => post<{ ok: true; jobId: string }>("/api/art/jobs", request);

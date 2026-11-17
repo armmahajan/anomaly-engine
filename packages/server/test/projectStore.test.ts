@@ -164,6 +164,16 @@ describe("ProjectStore", () => {
   });
 });
 
+describe("ProjectStore reset", () => {
+  it("starts over from the starter project or the example game", async () => {
+    const store = await open();
+    expectOk(await store.reset({ baseRevision: 0, from: "example" }));
+    expect(store.getState().project.world.rooms.map((r) => r.id)).toContain("summit");
+    expectOk(await store.reset({ baseRevision: 1 }));
+    expect(store.getState().project.world.rooms.map((r) => r.id)).toEqual(["arena"]);
+  });
+});
+
 describe("ProjectStore migrations", () => {
   it("upgrades a v1 project on open and can undo into migrated snapshots", async () => {
     const v1 = {

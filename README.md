@@ -351,7 +351,8 @@ event happens and every condition holds, the effects run in order.
   - a save spot, then a sanctum sealed while its guardian (a heavy enemy with a health bar) lives;
   - beating it unseals the sanctum and grants double jump (the guardian stays beaten: a conditional spawn);
   - a summit only that ability reaches (checked by the traversal checker), whose altar ends the game.
-  `game/test/slice.test.ts` plays it from the title to the ending with scripted input.
+  `game/test/slice.test.ts` plays it from the title to the ending with scripted input. In the
+  studio, **Example…** (toolbar) replaces the project with it (backing up first); ▶ Play starts it.
   `game/test/readiness.test.ts` has the build assistant (a scripted model) build a lock-and-key
   through its tools alone, then plays it.
 - **No roles in code.** Keys, locked barriers, switches, save spots and boss

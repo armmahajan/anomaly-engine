@@ -296,11 +296,11 @@ export class Session {
     return s.runtimeStatus === "ready" && s.mode === "edit" && !this.aiBusy() && s.loadedRevision === s.project.revision;
   }
 
-  /** Back up the project on the server and start over from the starter project. */
-  resetProject = async (): Promise<ChangeResult> => {
+  /** Back up the project on the server and start over from the starter project (or the example game). */
+  resetProject = async (from: "starter" | "example" = "starter"): Promise<ChangeResult> => {
     const blocked = this.editBlocked();
     if (blocked) return blocked;
-    const result = await api.resetProject(this.state.project.revision);
+    const result = await api.resetProject(this.state.project.revision, from);
     if (result.ok) this.receiveProject(result);
     return result;
   };

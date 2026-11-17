@@ -195,6 +195,8 @@ export function fixtureSliceProject(guardian: unknown = sliceGuardian()): Projec
         { id: "ending", title: "The End", body: "You reached the summit. Thanks for playing." },
       ],
       handlers: [{ on: { type: "gameStarted" }, do: [{ type: "showModal", modal: "title" }] }],
+      // ▶ Play plays the whole game from its start.
+      playtest: { room: base.world.start!.room, x: base.world.start!.x, y: base.world.start!.y, abilities: [] },
       map: { enabled: true },
     },
   });
