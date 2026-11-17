@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import agentBuilt from "./fixtures/agentBuiltRun.json" with { type: "json" };
-import { abilityChecks, checkGame, progressionReport, ProjectSpec } from "../src/index.ts";
+import { abilityChecks, checkGame, migrateProject, progressionReport, ProjectSpec } from "../src/index.ts";
 
 // A game the agents built from a pitch with the real models (scripts/agent-build.ts, art removed):
 // the director's progression gates the pump key on dash, and the build assistant used a gate room.
 
 describe("an agent-built game", () => {
-  const project = ProjectSpec.parse(agentBuilt);
+  const project = ProjectSpec.parse(migrateProject(agentBuilt));
 
   it("is beatable with no dead states, and dash is really needed", () => {
     const result = checkGame(project);

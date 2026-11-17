@@ -7,6 +7,7 @@ import { AbilityTuning } from "./movement/params.ts";
 import { ArtSection, defaultArtSection } from "./art/asset.ts";
 import { Dressing } from "./art/world.ts";
 import { World, worldIssues } from "./world/world.ts";
+import { ArchitectPlan, architectIssues, defaultArchitectPlan } from "./architect/plan.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -14,7 +15,7 @@ import { World, worldIssues } from "./world/world.ts";
  * are the character's feet (bottom-centre).
  */
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 
 const Size = z.strictObject({
@@ -101,9 +102,12 @@ export const ProjectSpec = z
     art: ArtSection.default(defaultArtSection),
     /** The game's rooms, doors and rules. Older projects get an empty world. */
     world: World.prefault({}),
+    /** The Architect's plan for building the world from the progression. Older projects get an empty one. */
+    architect: ArchitectPlan.default(defaultArchitectPlan),
   })
   .superRefine((project, ctx) => {
     for (const issue of progressionIssues(project.progression, project.characters)) ctx.addIssue({ code: "custom", ...issue });
+    for (const issue of architectIssues(project.architect, project.progression)) ctx.addIssue({ code: "custom", ...issue });
     const enemies = new Set(project.characters.filter((c) => c.kind === "enemy").map((c) => c.id));
     for (const issue of worldIssues(project.world, enemies)) ctx.addIssue({ code: "custom", ...issue });
     const regions = new Set(project.progression.regions.map((r) => r.id));

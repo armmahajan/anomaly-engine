@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AgentId, fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
 import type { ArtService } from "./art/service.ts";
+import type { ArchitectService } from "./architect/service.ts";
 import { FILE_MEDIA_TYPES, type FileStore } from "./art/files.ts";
 import type { ChatService } from "./chat.ts";
 import type { ProjectStore } from "./projectStore.ts";
@@ -33,11 +34,11 @@ export interface ArtApi {
   files: FileStore;
 }
 
-export function createApiHandler(store: ProjectStore, chats: Chats = {}, art?: ArtApi): Middleware {
+export function createApiHandler(store: ProjectStore, chats: Chats = {}, art?: ArtApi, architect?: ArchitectService): Middleware {
   return (req, res, next) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return next();
-    route(store, chats, art, req, res, url).catch((error: unknown) => {
+    route(store, chats, art, architect, req, res, url).catch((error: unknown) => {
       console.error("[project-server]", error);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: { code: "internal", message: String(error), issues: [] } });
       else res.end();
@@ -49,6 +50,7 @@ async function route(
   store: ProjectStore,
   chats: Chats,
   art: ArtApi | undefined,
+  architect: ArchitectService | undefined,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -60,7 +62,7 @@ async function route(
     case "GET /api/history":
       return sendJson(res, 200, { entries: store.getHistory() });
     case "GET /api/events":
-      return openEventStream(store, chats, art, req, res, url.searchParams.get("clientId"));
+      return openEventStream(store, chats, art, architect, req, res, url.searchParams.get("clientId"));
     case "POST /api/ops":
       return respond(res, await withBody(req, (body) => store.applyOperation(body)));
     case "POST /api/batch":
@@ -74,6 +76,7 @@ async function route(
       if (result.ok) {
         await Promise.all(Object.values(chats).map((c) => c.reset()));
         await art?.service.reset();
+        architect?.reset();
       }
       return respond(res, result);
     }
@@ -88,6 +91,16 @@ async function route(
         return respond(res, await withBody(req, (body) => chat.send(body)));
       case "POST /api/chat/cancel":
         return respond(res, chat.cancel());
+    }
+  }
+  if (architect) {
+    switch (key) {
+      case "GET /api/architect":
+        return sendJson(res, 200, architect.getState());
+      case "POST /api/architect/run":
+        return respond(res, await withBody(req, (body) => architect.start(body)));
+      case "POST /api/architect/cancel":
+        return respond(res, architect.cancel());
     }
   }
   if (art) {
@@ -160,6 +173,7 @@ function openEventStream(
   store: ProjectStore,
   chats: Chats,
   art: ArtApi | undefined,
+  architect: ArchitectService | undefined,
   req: IncomingMessage,
   res: ServerResponse,
   clientId: string | null,
@@ -170,18 +184,21 @@ function openEventStream(
   send({ type: "project", ...store.getState(), cause: null });
   for (const chat of Object.values(chats)) send({ type: "chat", agent: chat.agent.id, chat: chat.getState() });
   if (art) send({ type: "art", art: art.service.getState() });
+  if (architect) send({ type: "architect", architect: architect.getState() });
 
   const unsubscribeProject = store.subscribe(send);
   const unsubscribeChats = Object.values(chats).map((chat) =>
     chat.subscribe((state) => send({ type: "chat", agent: chat.agent.id, chat: state })),
   );
   const unsubscribeArt = art?.service.subscribe((state) => send({ type: "art", art: state }));
+  const unsubscribeArchitect = architect?.subscribe((state) => send({ type: "architect", architect: state }));
   const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), HEARTBEAT_MS);
   req.on("close", () => {
     clearInterval(heartbeat);
     unsubscribeProject();
     for (const unsubscribe of unsubscribeChats) unsubscribe();
     unsubscribeArt?.();
+    unsubscribeArchitect?.();
     if (clientId) store.releasePlaytest(clientId);
   });
 }

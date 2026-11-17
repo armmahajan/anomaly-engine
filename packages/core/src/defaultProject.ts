@@ -1,6 +1,7 @@
 import { SCHEMA_VERSION, type EnemyCharacter, type ProjectSpec } from "./schema.ts";
 import { defaultWiki } from "./wiki/wiki.ts";
 import { defaultProgression } from "./progression/progression.ts";
+import { defaultArchitectPlan } from "./architect/plan.ts";
 import { defaultAbilityTuning } from "./movement/params.ts";
 import { borderedGrid, fillTiles, TILE, type TileGrid } from "./world/tiles.ts";
 import { defaultWorld } from "./world/world.ts";
@@ -87,6 +88,7 @@ export function createDefaultProject(): ProjectSpec {
     ],
     wiki: defaultWiki(),
     progression: defaultProgression(),
+    architect: defaultArchitectPlan(),
     art: defaultArtSection(),
     world: {
       ...defaultWorld(),

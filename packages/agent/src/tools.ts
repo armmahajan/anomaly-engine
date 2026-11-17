@@ -31,6 +31,7 @@ import {
   type OperationName,
   type ProjectSpec,
   type ProgressionOperationName,
+  type ArchitectOperationName,
   type WikiOperationName,
 } from "@anomaly/core";
 import { describeCharacter, describeRoom, summarizeProject } from "./summary.ts";
@@ -86,8 +87,8 @@ export interface ToolSpec {
 /** Art operations only the art pipeline runs (concepts, whole rigs); the build assistant uses art jobs instead. */
 export const PIPELINE_ONLY_OPERATIONS = ["createAsset", "addConcept", "chooseConcept", "setRig", "setBiomeKit", "addRoom", "setRoomComposition"] as const;
 
-/** The build assistant's write tools: every operation except the wiki's and progression's (the director's) and pipeline-only art ones. */
-type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOperationName | (typeof PIPELINE_ONLY_OPERATIONS)[number]>;
+/** The build assistant's write tools: every operation except the wiki's and progression's (the director's), the Architect's plan ones and pipeline-only art ones. */
+type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOperationName | ArchitectOperationName | (typeof PIPELINE_ONLY_OPERATIONS)[number]>;
 
 const writeDescriptions: Record<BuildOperation, string> = {
   createCharacter:

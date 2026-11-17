@@ -161,6 +161,9 @@ const steps: Record<number, (project: Json) => Json> = {
 
   /** v6 -> v7: props, items, modals and handlers arrive empty (schema defaults); nothing to convert. */
   6: (project) => ({ ...project, schemaVersion: 7 }),
+
+  /** v7 -> v8: the Architect's plan arrives empty (schema default); nothing to convert. */
+  7: (project) => ({ ...project, schemaVersion: 8 }),
 };
 
 export function migrateProject(raw: unknown): unknown {

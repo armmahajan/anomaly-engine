@@ -1180,7 +1180,8 @@ button.toggled {
 }
 
 .studio.mode-wiki,
-.studio.mode-progression {
+.studio.mode-progression,
+.studio.mode-architect {
   grid-template-areas:
     "bar bar bar bar"
     "stage stage side chat"

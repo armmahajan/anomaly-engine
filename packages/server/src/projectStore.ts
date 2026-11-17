@@ -155,6 +155,27 @@ export class ProjectStore {
     });
   }
 
+  /**
+   * Commit a whole-project change made by a job step (an Architect stage) as one
+   * revision by the AI: `change` gets the project as it is now and returns the next
+   * one (validated here). One undo step restores the project from before it.
+   */
+  commitStage(stage: string, change: (project: ProjectSpec) => { project: ProjectSpec; summary: string }): Promise<ChangeResult> {
+    return this.exclusive(async () => {
+      const blocked = this.checkEditable(this.project.revision, "ai");
+      if (blocked) return blocked;
+      let next: { project: ProjectSpec; summary: string };
+      try {
+        next = change(this.project);
+      } catch (e) {
+        return fail("invalid_result", `architect ${stage} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      const validated = validateProject({ ...next.project, revision: this.project.revision + 1 });
+      if (!validated.ok) return fail("invalid_result", `architect ${stage} would leave the project invalid: ${validated.issues.map((i) => i.message).slice(0, 5).join("; ")}`, validated.issues);
+      return this.commit(validated.project, "ai", { kind: "stage", stage, summary: next.summary });
+    });
+  }
+
   /** Take or release the playtest lock. While held, all edits are rejected. */
   setPlaytest(request: unknown): Promise<PlaytestResult> {
     return this.exclusive(async () => {

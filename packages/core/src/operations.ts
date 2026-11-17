@@ -4,6 +4,7 @@ import { Id } from "./common.ts";
 import type { Transition } from "./behavior.ts";
 import { wikiOperations } from "./wiki/operations.ts";
 import { progressionOperations, withoutEnemy } from "./progression/operations.ts";
+import { architectOperations } from "./architect/operations.ts";
 import { artOperations } from "./art/operations.ts";
 import { worldOperations } from "./art/worldOperations.ts";
 import { withoutRoomSpawns, worldRoomOperations } from "./world/operations.ts";
@@ -382,6 +383,7 @@ const operations = {
   duplicateCharacter,
   ...wikiOperations,
   ...progressionOperations,
+  ...architectOperations,
   ...artOperations,
   ...worldOperations,
   ...worldRoomOperations,

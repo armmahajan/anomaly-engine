@@ -10,6 +10,8 @@ import {
   type ArtJobRequest,
   type Stage,
   type ArtState,
+  type ArchitectRunRequest,
+  type ArchitectState,
   type ChangeResult,
   type ChatState,
   type EntityState,
@@ -41,6 +43,8 @@ export interface SessionState {
   /** Seed of the current or most recent playtest. */
   seed: number | null;
   art: ArtState;
+  /** The Architect's run (stage progress, last outcome, activity). The plan itself is project.architect. */
+  architect: ArchitectState;
   /** Worlds mode: the piece the creator clicked in the runtime (null = none), and where the camera looks. */
   worldPick: string | null;
   worldCameraX: number | null;
@@ -89,6 +93,7 @@ export class Session {
       chats: { build: idleChat, narrative: idleChat },
       seed: null,
       art: { available: false, models: { image: "", vision: "" }, budget: 0, running: null, jobs: [], queued: 0, totalCost: 0 },
+      architect: { running: null, last: null, log: [] },
       worldPick: null,
       worldCameraX: null,
       room: null,
@@ -118,6 +123,7 @@ export class Session {
       (event) => {
         if (event.type === "project") this.receiveProject(event);
         else if (event.type === "chat") this.set({ chats: { ...this.state.chats, [event.agent]: event.chat } });
+        else if (event.type === "architect") this.set({ architect: event.architect });
         else this.set({ art: event.art });
       },
       (connected) => {
@@ -259,7 +265,7 @@ export class Session {
   /** Apply any named core operation through the server. */
   /** True while an AI turn or art job runs: the project is locked to everyone but the AI. */
   aiBusy = (): boolean =>
-    Object.values(this.state.chats).some((c) => c.running !== null) || this.state.art.running !== null;
+    Object.values(this.state.chats).some((c) => c.running !== null) || this.state.art.running !== null || this.state.architect.running !== null;
 
   private editBlocked(): ChangeResult | null {
     if (this.state.mode !== "edit") return locked("stop the playtest before editing");
@@ -341,6 +347,26 @@ export class Session {
     const result = await api.startArtJob(request);
     if (!result.ok) this.reportProblem(`art: ${result.error.message}`);
     return result.ok;
+  };
+
+  /** Run the Architect (all stages, a range, or some rooms). A running playtest is stopped first. */
+  startArchitect = async (request: ArchitectRunRequest = {}): Promise<boolean> => {
+    if (this.state.mode === "play") {
+      this.stop();
+      if (!(await this.waitFor(() => this.state.mode === "edit", STOP_TIMEOUT_MS))) {
+        this.reportProblem("could not stop the playtest to run the Architect");
+        return false;
+      }
+    }
+    await this.releasing;
+    const result = await api.startArchitect(request);
+    if (!result.ok) this.reportProblem(`architect: ${result.error.message}`);
+    return result.ok;
+  };
+
+  /** Stop the Architect after its current stage. */
+  cancelArchitect = async (): Promise<void> => {
+    await api.cancelArchitect();
   };
 
   cancelArtJob = async (): Promise<void> => {

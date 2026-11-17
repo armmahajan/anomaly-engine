@@ -4,6 +4,7 @@ import type { OperationError } from "./operations.ts";
 import { ProjectSpec } from "./schema.ts";
 import { FileRef } from "./art/fileRef.ts";
 import { Id } from "./common.ts";
+import { ArchitectStage } from "./architect/plan.ts";
 
 /**
  * HTTP API of the local project server (shared by server and clients).
@@ -262,5 +263,54 @@ export type ArtState = z.infer<typeof ArtState>;
 export const ArtEvent = z.object({ type: z.literal("art"), art: ArtState });
 export type ArtEvent = z.infer<typeof ArtEvent>;
 
-export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent, ArtEvent]);
+// --- the Architect ---------------------------------------------------------------
+//   GET  /api/architect                        -> ArchitectState
+//   POST /api/architect/run  ArchitectRunRequest -> { ok } (runs in the background; progress via `architect` events)
+//   POST /api/architect/cancel                 -> { ok } (stops after the current stage)
+// Stage results are committed to the project as revisions (undoable); stage status lives in project.architect.stages.
+
+export const ArchitectRunRequest = z.strictObject({
+  /** First stage to run (default: the first stage that isn't done, or "plan"). */
+  from: ArchitectStage.optional(),
+  /** Last stage to run (default: "art"). Pauses in the plan's pauseAfter still apply. */
+  to: ArchitectStage.optional(),
+  /** Only these plan rooms (regenerate one room or a region); default all unpinned rooms. */
+  rooms: z.array(Id).max(200).optional(),
+});
+export type ArchitectRunRequest = z.infer<typeof ArchitectRunRequest>;
+
+export const ArchitectLogEntry = z.object({ at: z.string(), stage: ArchitectStage, text: z.string() });
+export type ArchitectLogEntry = z.infer<typeof ArchitectLogEntry>;
+
+export const ArchitectIssueView = z.object({ stage: ArchitectStage, code: z.string(), message: z.string(), roomId: z.string().optional(), linkId: z.string().optional() });
+
+export const ArchitectState = z.object({
+  running: z
+    .object({
+      stage: ArchitectStage,
+      /** The stages this run will go through, in order. */
+      stages: z.array(ArchitectStage),
+      startedAt: z.string(),
+      rooms: z.array(z.string()).optional(),
+    })
+    .nullable(),
+  /** How the last run ended. */
+  last: z
+    .object({
+      outcome: z.enum(["finished", "paused", "failed", "cancelled"]),
+      stage: ArchitectStage,
+      at: z.string(),
+      error: z.string().optional(),
+      issues: z.array(ArchitectIssueView),
+    })
+    .nullable(),
+  /** Recent activity, newest last. */
+  log: z.array(ArchitectLogEntry),
+});
+export type ArchitectState = z.infer<typeof ArchitectState>;
+
+export const ArchitectEvent = z.object({ type: z.literal("architect"), architect: ArchitectState });
+export type ArchitectEvent = z.infer<typeof ArchitectEvent>;
+
+export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent, ArtEvent, ArchitectEvent]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

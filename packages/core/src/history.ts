@@ -10,7 +10,9 @@ export type Change =
   | { kind: "operation"; name: string; input: unknown }
   /** Several operations applied atomically as one revision. */
   | { kind: "batch"; operations: { name: string; input: unknown }[] }
-  | { kind: "undo"; undoes: number };
+  | { kind: "undo"; undoes: number }
+  /** One stage of an Architect run, committed as one revision (undo restores the project before it). */
+  | { kind: "stage"; stage: string; summary: string };
 
 /**
  * One append-only history record. `before` is a full snapshot: projects are
@@ -66,5 +68,7 @@ export function summarizeChange(change: Change): string {
       return `batch: ${change.operations.map((o) => o.name).join(", ")}`;
     case "operation":
       return change.name;
+    case "stage":
+      return `architect ${change.stage}: ${change.summary}`;
   }
 }

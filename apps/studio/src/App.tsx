@@ -5,6 +5,7 @@ import { Inspector } from "./Inspector.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { WikiMain, WikiSidebar, type WikiNav } from "./WikiView.tsx";
 import { ProgressionMain, ProgressionSidebar, type ProgressionNav } from "./ProgressionView.tsx";
+import { ArchitectMain, ArchitectSidebar } from "./architect/ArchitectView.tsx";
 import { ArtPanel } from "./ArtPanel.tsx";
 import { CharacterBench } from "./CharacterBench.tsx";
 import { currentWorld, WorldBench, type WorldUi } from "./WorldBench.tsx";
@@ -15,10 +16,12 @@ import { fileUrl } from "./api.ts";
 import { useChatOpen, useSidebarWidth } from "./layout.ts";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
-type Tab = "playtest" | "characters" | "worlds" | "rooms" | "game" | "wiki" | "progression";
-const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Worlds", rooms: "Rooms", game: "Game", wiki: "Wiki", progression: "Progression" };
+type Tab = "playtest" | "characters" | "worlds" | "rooms" | "game" | "wiki" | "progression" | "architect";
+const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Worlds", rooms: "Rooms", game: "Game", wiki: "Wiki", progression: "Progression", architect: "Architect" };
 /** Design documents (the director's tabs): the game is hidden and the chat is the director's. */
 const DESIGN_TABS: readonly Tab[] = ["wiki", "progression"];
+/** Tabs that show a document instead of the game. */
+const DOCUMENT_TABS: readonly Tab[] = [...DESIGN_TABS, "architect"];
 
 const ENEMY_COLORS = ["#5f9e6e", "#d08c3a", "#4f8fbf", "#b8577d", "#9c9a3f"];
 
@@ -174,9 +177,11 @@ export function App({ session }: { session: Session }) {
     game: 0,
     wiki: project.wiki.pages.filter((p) => p.status === "draft").length,
     progression: [...progression.regions, ...progression.abilities, ...progression.connections, ...progression.beats].filter((i) => i.status === "draft").length,
+    architect: 0,
   };
   const checks = tab === "progression" ? progressionReport(project) : null;
   const design = DESIGN_TABS.includes(tab);
+  const documentTab = DOCUMENT_TABS.includes(tab);
   const agent = design ? "narrative" : "build";
   const problem = state.lastProblem && (
     <div className="problem" role="alert">
@@ -260,7 +265,7 @@ export function App({ session }: { session: Session }) {
       </header>
 
       {/* The game stays mounted (and sized) in every mode so it never reboots; modes only move it. */}
-      <main className={`viewport${design ? " offstage" : ""}`} aria-hidden={design}>
+      <main className={`viewport${documentTab ? " offstage" : ""}`} aria-hidden={documentTab}>
         <iframe ref={frameRef} src="/game/index.html" title="Game" className="game-frame" />
         {tab === "playtest" && !playing && state.runtimeStatus === "ready" && (
           <div className="edit-badge">Edit mode — press Play to test</div>
@@ -322,7 +327,18 @@ export function App({ session }: { session: Session }) {
         </main>
       )}
 
-      {tab === "wiki" ? (
+      {tab === "architect" && (
+        <main className="wiki-pane architect-pane">
+          <ArchitectMain project={project} architect={state.architect} session={session} locked={locked} />
+        </main>
+      )}
+
+      {tab === "architect" ? (
+        <aside className="sidebar">
+          <ArchitectSidebar project={project} architect={state.architect} session={session} locked={locked} />
+          {problem}
+        </aside>
+      ) : tab === "wiki" ? (
         <aside className="sidebar">
           <WikiSidebar project={project} nav={wikiNav} setNav={setWikiNav} locked={locked} />
           {problem}

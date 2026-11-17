@@ -2,6 +2,7 @@ import {
   fail,
   type AgentId,
   type ArtJobRequest,
+  type ArchitectRunRequest,
   type BatchRequest,
   ServerEvent,
   type ChangeResult,
@@ -43,6 +44,8 @@ export const sendChat = (agent: AgentId, message: string) => post<{ ok: true }>(
 export const cancelChat = (agent: AgentId) => post<{ ok: true }>(`/api/chat/cancel?agent=${agent}`, {});
 export const startArtJob = (request: ArtJobRequest) => post<{ ok: true; jobId: string }>("/api/art/jobs", request);
 export const cancelArtJob = () => post<{ ok: true }>("/api/art/cancel", {});
+export const startArchitect = (request: ArchitectRunRequest) => post<{ ok: true }>("/api/architect/run", request);
+export const cancelArchitect = () => post<{ ok: true }>("/api/architect/cancel", {});
 /** URL of a stored image (concept sheets, renders). */
 export const fileUrl = (ref: string) => `/api/files/${ref}`;
 export const setPlaytest = (active: boolean, clientId: string) =>
