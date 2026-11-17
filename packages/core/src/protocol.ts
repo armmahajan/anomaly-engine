@@ -17,7 +17,7 @@ import type { RuntimeProject } from "./world/runtime.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -179,6 +179,8 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     healthBars: z.array(z.string()).default([]),
     /** Props in the current room as the run sees them (id, visible, solid). */
     props: z.array(z.object({ id: z.string(), visible: z.boolean(), solid: z.boolean() })).default([]),
+    /** Where the camera looks (room px, the view's centre) and its zoom (screen px per room px). */
+    camera: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).nullable().default(null),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
   /** Play: the player entered a room (at the start of the run, through a door, or on respawn). */

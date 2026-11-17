@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { worldRoomFor, worldSceneFor, type BiomeAsset, type ProjectSpec, type WorldLayer } from "@anomaly/core";
+import { kitFiles, worldRoomFor, worldSceneFor, type BiomeAsset, type ProjectSpec, type WorldLayer } from "@anomaly/core";
 import { fileUrl } from "./api.ts";
 import type { Session } from "./session.ts";
 
@@ -73,7 +73,7 @@ export function WorldBench({ project, session, ui, setUi, selected, locked, onPl
         selected,
         editable: !locked,
       },
-      [scene.backdrop, scene.ground, ...scene.pieces.map((p) => p.file)],
+      kitFiles(scene),
       { biomeId: biome.id, roomId: room.id },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,17 +145,19 @@ export function WorldBench({ project, session, ui, setUi, selected, locked, onPl
             ? `${biome.name} has no kit yet: paint it from the sidebar.`
             : biome
               ? `Compose a room for ${biome.name} from the sidebar.`
-              : "Describe a place in the sidebar and paint its kit: a backdrop, two sheets of pieces and a ground texture for about $0.017. Rooms built from it cost about $0.004 each."}
+              : "Describe a place in the sidebar and paint its kit: layered background planes, two sheets of pieces and a ground texture for about $0.07. Rooms built from it cost about $0.006 each."}
         </div>
       )}
 
       <div className="bench-bottom">
         {biome?.kit && (
           <div className="kit-shelf" aria-label="Kit">
-            <figure title="Backdrop (far layer)">
-              <img src={fileUrl(biome.kit.backdrop)} alt="backdrop" className="kit-wide" />
-              <figcaption>backdrop</figcaption>
-            </figure>
+            {(biome.kit.backgrounds?.length ? biome.kit.backgrounds : [{ name: "backdrop", file: biome.kit.backdrop, depth: 0.12 }]).map((plane) => (
+              <figure key={plane.name} title={`Background plane "${plane.name}" (scrolls at ${plane.depth} of the camera)`}>
+                <img src={fileUrl(plane.file)} alt={plane.name} className="kit-wide" />
+                <figcaption>{plane.name}</figcaption>
+              </figure>
+            ))}
             <figure title="Ground texture">
               <img src={fileUrl(biome.kit.ground)} alt="ground" />
               <figcaption>ground</figcaption>

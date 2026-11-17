@@ -45,6 +45,45 @@ export const WorldPiece = z.strictObject({
 });
 export type WorldPiece = z.infer<typeof WorldPiece>;
 
+/**
+ * A painted background plane: one wide image drawn across the whole view,
+ * standing on the view's bottom edge, scrolling at `depth` against the camera
+ * on both axes (it sinks as the camera climbs). Planes are sized to the view,
+ * not the room, so a big room doesn't stretch them. A kit's planes go back to
+ * front: an opaque sky, then transparent silhouettes nearer and nearer.
+ */
+export const BackgroundPlane = z.strictObject({
+  /** What it shows, e.g. "sky", "far", "near" (repaints and the kit view go by it). */
+  name: z.string().min(1).max(40),
+  file: FileRef,
+  /** Image size in px. */
+  width: z.number().int().min(1),
+  height: z.number().int().min(1),
+  /** Parallax: how fast it scrolls relative to the camera (0 = still, 1 = with the play layer). */
+  depth: z.number().min(0).max(0.9),
+  /** Drawn height as a share of the view's height. */
+  span: z.number().min(0.1).max(1.6),
+  /** Covers the whole view (a sky): it stops sinking once its top reaches the view's top. Transparent planes show the ones behind. */
+  opaque: z.boolean().default(false),
+  /** Softness, in pixels of the image (0 = sharp): distance reads as atmosphere, not as enlarged pixels. */
+  blur: z.number().min(0).max(16).default(0),
+  /** Washed toward the room's fog color (0-1). */
+  haze: z.number().min(0).max(1).default(0),
+  /** Extra fog toward its base (0-1), so it sinks into mist. */
+  mist: z.number().min(0).max(1).default(0),
+});
+export type BackgroundPlane = z.infer<typeof BackgroundPlane>;
+
+/** What drifts in a biome's air (the runtime draws it at several depths, some in front of the play layer). */
+export const ParticleKind = z.enum(["dust", "embers", "spores", "snow", "ash", "none"]);
+export type ParticleKind = z.infer<typeof ParticleKind>;
+
+/** A biome's air: what drifts in it. Rooms set how much and its color (`dust`). */
+export const Atmosphere = z.strictObject({
+  particles: ParticleKind.default("dust"),
+});
+export type Atmosphere = z.infer<typeof Atmosphere>;
+
 const X = z.number().min(-2000).max(20_000);
 const Y = z.number().min(-2000).max(4000);
 
@@ -55,6 +94,9 @@ export const WorldScene = z.strictObject({
   width: z.number().min(960).max(20_000),
   height: z.number().min(360).max(4000),
   backdrop: FileRef,
+  /** Layered background planes (back to front); without them, `backdrop` is the only one. */
+  backgrounds: z.array(BackgroundPlane).max(6).optional(),
+  atmosphere: Atmosphere.optional(),
   ground: FileRef,
   pieces: z.array(WorldPiece).max(64),
   palette: z.strictObject({
@@ -105,9 +147,15 @@ export type WorldScene = z.infer<typeof WorldScene>;
 export const PlatformRect = z.strictObject({ x: X, y: Y, width: z.number().min(8).max(20_000), height: z.number().min(8).max(4000) });
 export type PlatformRect = z.infer<typeof PlatformRect>;
 
-/** A biome's paid-for images: a seamless backdrop, a ground texture and sliced pieces. */
+/**
+ * A biome's paid-for images: background planes, a ground texture and sliced
+ * pieces. Older kits have one seamless `backdrop` and no `backgrounds` (drawn
+ * as before); in a layered kit `backdrop` is its farthest plane (the sky).
+ */
 export const BiomeKit = z.strictObject({
   backdrop: FileRef,
+  backgrounds: z.array(BackgroundPlane).max(6).optional(),
+  atmosphere: Atmosphere.optional(),
   ground: FileRef,
   pieces: z.array(WorldPiece).max(64),
   /** draft: cheapest images; final: better piece sheets. */
@@ -142,3 +190,8 @@ export const Dressing = z.strictObject({
   tiles: z.string().optional(),
 });
 export type Dressing = z.infer<typeof Dressing>;
+
+/** Every image a kit draws with (send them all to the runtime before showing its rooms). */
+export function kitFiles(kit: Pick<BiomeKit, "backdrop" | "ground" | "pieces" | "backgrounds">): FileRef[] {
+  return [...new Set([kit.backdrop, ...(kit.backgrounds ?? []).map((p) => p.file), kit.ground, ...kit.pieces.map((p) => p.file)])];
+}

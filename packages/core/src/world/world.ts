@@ -133,6 +133,19 @@ export const Playtest = z.strictObject({
 });
 export type Playtest = z.infer<typeof Playtest>;
 
+/** Tiles the play view shows top to bottom by default: a 14-row room just fills it. */
+export const DEFAULT_VIEW_ROWS = 14;
+
+export const Camera = z.strictObject({
+  rows: z
+    .number()
+    .min(6)
+    .max(40)
+    .default(DEFAULT_VIEW_ROWS)
+    .describe("How many tiles tall the play view is (its zoom); the width follows the window (about 25 at 16:9 with 14; never under 1.6x the height). Rooms bigger than the view scroll; smaller ones are centred."),
+});
+export type Camera = z.infer<typeof Camera>;
+
 export const World = z.strictObject({
   gravity: z.number().min(0).max(10_000).default(1800).describe("px/s^2, for every room."),
   backgroundColor: Color.default("#1b2030").describe("Behind rooms without a dressing."),
@@ -150,6 +163,8 @@ export const World = z.strictObject({
   modals: z.array(Modal).max(100).default([]),
   /** An optional map screen (M) of the rooms the player has visited or had revealed. */
   map: z.strictObject({ enabled: z.boolean().default(false) }).prefault({}),
+  /** The play camera: a fixed zoom, following the player through rooms bigger than the view. */
+  camera: Camera.prefault({}),
 });
 export type World = z.infer<typeof World>;
 

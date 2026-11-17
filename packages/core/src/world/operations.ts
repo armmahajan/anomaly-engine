@@ -8,7 +8,7 @@ import type { OperationResult } from "../operations.ts";
 import type { ProjectSpec } from "../schema.ts";
 import { checkInside, commit, fail, findRoom, known, parse, withRoom, withWorld, type Fail } from "./opHelpers.ts";
 import { Dressing } from "../art/world.ts";
-import { DoorSide, GameRules, OPPOSITE, RoomSpawn, World, type Door, type WorldRoom } from "./world.ts";
+import { Camera, DoorSide, GameRules, OPPOSITE, RoomSpawn, World, type Door, type WorldRoom } from "./world.ts";
 import { GameCondition } from "../events/events.ts";
 import { borderedGrid, gridCols, gridRows, TILE, TILE_CHAR, TILE_KINDS, TileGrid, type TileKind } from "./tiles.ts";
 
@@ -493,6 +493,15 @@ export function setLedgeThickness(project: ProjectSpec, input: unknown): Operati
   return withWorld(project, { ledgeThickness: p.data.thickness });
 }
 
+export const SetCameraInput = z.strictObject({ rows: Camera.shape.rows.unwrap().optional() });
+
+export function setCamera(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(SetCameraInput, input, "setCamera");
+  if (!p.ok) return p;
+  if (p.data.rows === undefined) return fail("invalid_input", "nothing to change: give rows (tiles the view shows top to bottom)");
+  return withWorld(project, { camera: { ...project.world.camera, rows: p.data.rows } });
+}
+
 /** A room's spawns of one character removed (deleteCharacter). */
 export const withoutRoomSpawns = (world: World, characterId: string): World => ({
   ...world,
@@ -517,4 +526,5 @@ export const worldRoomOperations = {
   setPlaytest,
   setGameRules,
   setLedgeThickness,
+  setCamera,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;

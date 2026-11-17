@@ -7,6 +7,12 @@ import {
   PlatformRect,
   RoomComposition,
   snapPlacements,
+  checkPlaneScales,
+  kitFiles,
+  ParticleKind,
+  PLANE_RECIPE,
+  type BackgroundPlane,
+  type PlaneRecipe,
   clearPassages,
   dressingOutOfDate,
   borderedGrid,
@@ -28,24 +34,33 @@ import {
   type WorldRoom,
 } from "@anomaly/core";
 import { parseReply } from "./json.ts";
+import { pngSize } from "./frame.ts";
+import { decodePng } from "./match.ts";
 import type { VisionContent, VisionRequest } from "./models.ts";
 import { StageError, type ArtContext, type StageResult } from "./stages.ts";
 
 /**
- * World stages. A biome's kit is paid for once: a painted backdrop, a 3x3
- * sheet of big structures, a 3x3 sheet of props (both transparent, sliced
- * automatically) and a ground texture, then one call labels the pieces.
+ * World stages. A biome's kit is paid for once: layered background planes (a
+ * sky and two bands of silhouettes, core PLANE_RECIPE, at medium quality), a
+ * 3x3 sheet of big structures, a 3x3 sheet of props (both transparent, sliced
+ * automatically) and a ground texture, then one call labels the pieces (and
+ * names what drifts in the air).
  * Rooms are cheap text calls that compose the kit around a layout. The
  * runtime adds the depth (parallax, fog, lights, shafts, dust) for free.
  */
 
 export type WorldQuality = "draft" | "final";
-export type KitPart = "backdrop" | "structures" | "props" | "ground";
+/** `backgrounds`: every background plane; `backdrop`: an old kit's one backdrop, or a layered kit's sky. */
+export type KitPart = "backdrop" | "backgrounds" | "structures" | "props" | "ground";
+type PaintPart = "backdrop" | "plane" | "structures" | "props" | "ground";
 
-/** Per-image quality knob: draft = cheapest; final spends a little more on the pieces and backdrop. */
-const QUALITY: Record<WorldQuality, Record<KitPart, string>> = {
-  draft: { backdrop: "low", structures: "low", props: "low", ground: "low" },
-  final: { backdrop: "medium", structures: "medium", props: "medium", ground: "low" },
+/**
+ * Per-image quality knob: draft = cheapest; final spends a little more on the pieces. Background
+ * planes are always medium: they cover the whole screen, so they are what looks cheap first.
+ */
+const QUALITY: Record<WorldQuality, Record<PaintPart, string>> = {
+  draft: { backdrop: "low", plane: "medium", structures: "low", props: "low", ground: "low" },
+  final: { backdrop: "medium", plane: "medium", structures: "medium", props: "medium", ground: "low" },
 };
 
 export const style = (d: ArtDirection) =>
@@ -74,6 +89,8 @@ const PieceLabels = z.object({
       }),
     )
     .max(18),
+  /** What drifts in the biome's air. */
+  particles: ParticleKind.optional(),
 });
 
 export async function ask<T extends z.ZodType>(ctx: ArtContext, schema: T, request: VisionRequest, label: string): Promise<z.infer<T>> {
@@ -107,26 +124,85 @@ export function findBiome(project: ProjectSpec, biomeId: string): BiomeAsset {
   return asset;
 }
 
-async function paint(ctx: ArtContext, part: KitPart, prompt: string, quality: WorldQuality): Promise<Buffer> {
+async function paint(ctx: ArtContext, part: PaintPart, prompt: string, quality: WorldQuality, options: { transparent?: boolean; label?: string } = {}): Promise<Buffer> {
+  if (ctx.signal?.aborted) throw new StageError("cancelled");
   const img = await ctx.image.generate({
     prompt,
-    aspectRatio: part === "backdrop" ? "3:2" : "1:1",
-    transparent: part === "structures" || part === "props",
+    aspectRatio: part === "backdrop" || part === "plane" ? "3:2" : "1:1",
+    transparent: options.transparent ?? (part === "structures" || part === "props"),
     quality: QUALITY[quality][part],
     signal: ctx.signal,
   });
   ctx.spend(img.usage);
   const file = await ctx.files.put(img.image, img.ext);
-  ctx.log({ text: `${part} (${img.model}, ${QUALITY[quality][part]})`, cost: img.usage.cost, file });
+  ctx.log({ text: `${options.label ?? part} (${img.model}, ${QUALITY[quality][part]})`, cost: img.usage.cost, file });
   return img.image;
 }
 
-/** Slice sheets and label their pieces; existing ids are kept per cell so rooms keep working after a repaint. */
+/** Share of the top quarter of a PNG that is see-through (1 for a non-PNG we can't read: trust it). */
+function topClearShare(png: Buffer): number {
+  let pixels;
+  try {
+    pixels = decodePng(png);
+  } catch {
+    return 1;
+  }
+  const rows = Math.max(1, Math.floor(pixels.height / 4));
+  let clear = 0;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < pixels.width; x++) if (pixels.data[(y * pixels.width + x) * 4 + 3]! < 32) clear++;
+  return clear / (rows * pixels.width);
+}
+
+/**
+ * Paint the kit's background planes (core PLANE_RECIPE), each made tileable left to right. A
+ * silhouette plane that comes back without a see-through sky would hide the planes behind it, so
+ * it is left out. Each plane gets at least the blur its enlargement on the biggest screen needs.
+ */
+async function paintPlanes(ctx: ArtContext, theme: string, direction: ArtDirection, quality: WorldQuality, feedback?: string): Promise<BackgroundPlane[]> {
+  const painted = await Promise.all(
+    PLANE_RECIPE.map(async (recipe) => ({ recipe, image: await paint(ctx, "plane", planePrompt(recipe, theme, direction, feedback), quality, { transparent: recipe.transparent, label: `${recipe.name} plane` }) })),
+  );
+  const out: BackgroundPlane[] = [];
+  for (const { recipe, image: first } of painted) {
+    let image = first;
+    if (recipe.transparent && topClearShare(image) < 0.5) {
+      // Image models sometimes paint a whole scene, sky and all: ask once more, plainly.
+      ctx.log({ text: `the ${recipe.name} plane came back without a see-through sky; painting it again` });
+      const again = `${planePrompt(recipe, theme, direction, feedback)} The upper part of the image must be empty and fully transparent (alpha 0): only the silhouettes are painted.`;
+      image = await paint(ctx, "plane", again, quality, { transparent: true, label: `${recipe.name} plane, again` });
+      if (topClearShare(image) < 0.5) {
+        ctx.log({ text: `the ${recipe.name} plane came back without a see-through sky again; leaving it out` });
+        continue;
+      }
+    }
+    const tiled = await ctx.renderer.tileableX(image);
+    const { width, height } = pngSize(tiled);
+    const { transparent: _t, prompt: _p, ...plane } = recipe;
+    const drawn: BackgroundPlane = { ...plane, file: await ctx.files.put(tiled, "png"), width, height };
+    const [check] = checkPlaneScales([drawn]);
+    if (check && !check.ok) drawn.blur = Math.min(16, Math.max(drawn.blur, Math.ceil(check.blurNeeded * 10) / 10));
+    out.push(drawn);
+  }
+  if (!out.some((p) => p.opaque)) throw new StageError("the sky plane came back unusable");
+  return out;
+}
+
+function planePrompt(recipe: PlaneRecipe, theme: string, direction: ArtDirection, feedback?: string): string {
+  const extra = feedback?.trim() ? ` Creator's direction: ${feedback.trim()}.` : "";
+  const look = recipe.transparent ? " Seamless left to right, side view, no perspective floor, on a fully transparent background." : " Seamless left to right.";
+  return `${recipe.prompt} Setting: ${theme}.${look}${extra} ${style(direction)}`;
+}
+
+/**
+ * Slice sheets and label their pieces; existing ids are kept per cell so rooms keep working after a
+ * repaint. The same call names what drifts in the biome's air (`particles`).
+ */
 async function piecesFrom(
   ctx: ArtContext,
   sheets: Partial<Record<"structures" | "props", Buffer>>,
   previous: WorldPiece[],
-): Promise<WorldPiece[]> {
+  theme?: string,
+): Promise<{ pieces: WorldPiece[]; particles?: ParticleKind }> {
   const sliced: Partial<Record<"structures" | "props", { png: Buffer; width: number; height: number; cell: number }[]>> = {};
   for (const sheet of ["structures", "props"] as const) {
     const image = sheets[sheet];
@@ -141,8 +217,11 @@ async function piecesFrom(
       `Image${which.length > 1 ? "s" : ""}: ${which.map((s, i) => `${i + 1} = the '${s}' sheet`).join(", ")}; each is a 3x3 grid, cells 0-8 in reading order.`,
       `Non-empty cells: ${which.map((s) => `${s} ${sliced[s]!.map((p) => p.cell).join(", ")}`).join("; ")}.`,
       "For every non-empty cell give: a short name; kind (structure = big architecture or plant mass, decor = small thing on the ground, light = gives off light, hanging = hangs down from the ceiling, span = ONLY a bare horizontal beam, plank, lintel or log with nothing under it, meant to rest across two supports; anything with its own legs, posts or base is a structure); size = its natural on-screen height in px (characters are 40px tall, the room is 720px tall: pillars ~300-600, lanterns ~40-60, mushrooms ~20-60); glow = '#rrggbb' light color for anything that glows.",
-      'Reply with JSON only: {"pieces": [{"sheet": "structures"|"props", "cell": 0-8, "name", "kind", "size", "glow"?}]}',
-    ].join("\n"),
+      theme ? `The biome: ${theme}. Also say what drifts in its air (particles): dust, embers, spores, snow, ash or none.` : "",
+      `Reply with JSON only: {"pieces": [{"sheet": "structures"|"props", "cell": 0-8, "name", "kind", "size", "glow"?}]${theme ? ', "particles"' : ""}}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   });
   const labels = await ask(
     ctx,
@@ -180,7 +259,7 @@ async function piecesFrom(
       ...(label.glow ? { glow: label.glow } : {}),
     });
   }
-  return out;
+  return { pieces: out, ...(labels.particles ? { particles: labels.particles } : {}) };
 }
 
 // --- stage: kit ---------------------------------------------------------------------
@@ -217,17 +296,20 @@ export async function worldKitStage(ctx: ArtContext, input: WorldKitInput): Prom
   }
 
   const prompts = worldPrompts(theme, project.art.direction, input.feedback);
-  const [backdrop, structures, props, ground] = await Promise.all(
-    (["backdrop", "structures", "props", "ground"] as const).map((part) => paint(ctx, part, prompts[part], quality)),
-  );
-  const pieces = await piecesFrom(ctx, { structures: structures!, props: props! }, biome?.kit?.pieces ?? []);
+  const [backgrounds, [structures, props, ground]] = await Promise.all([
+    paintPlanes(ctx, theme, project.art.direction, quality, input.feedback),
+    Promise.all((["structures", "props", "ground"] as const).map((part) => paint(ctx, part, prompts[part], quality))),
+  ]);
+  const { pieces, particles } = await piecesFrom(ctx, { structures: structures!, props: props! }, biome?.kit?.pieces ?? [], theme);
   const kit: BiomeKit = {
-    backdrop: await ctx.files.put(await ctx.renderer.tileableX(backdrop!), "png"),
+    backdrop: backgrounds.find((p) => p.opaque)!.file,
+    backgrounds,
+    atmosphere: { particles: particles ?? biome?.kit?.atmosphere?.particles ?? "dust" },
     ground: await ctx.files.put(await ctx.renderer.tileableX(ground!, 0.12), "png"),
     pieces,
     quality,
   };
-  ctx.log({ text: `kit ready: ${pieces.length} pieces` });
+  ctx.log({ text: `kit ready: ${backgrounds.length} background planes, ${pieces.length} pieces, ${kit.atmosphere!.particles} in the air` });
   operations.push({ name: "setBiomeKit", input: { assetId: biomeId, kit } });
   return { operations, biomeId, summary: `painted the ${quality} kit for ${name}` };
 }
@@ -244,12 +326,19 @@ export async function worldRepaintStage(ctx: ArtContext, input: WorldRepaintInpu
   const project = ctx.project();
   const biome = findBiome(project, input.biomeId);
   if (!biome.kit) throw new StageError(`paint ${biome.name}'s kit first`);
-  const prompt = worldPrompts(biome.brief, project.art.direction, input.feedback)[input.part];
-  const image = await paint(ctx, input.part, prompt, biome.kit.quality);
   let kit: BiomeKit = biome.kit;
-  if (input.part === "backdrop") kit = { ...kit, backdrop: await ctx.files.put(await ctx.renderer.tileableX(image), "png") };
-  else if (input.part === "ground") kit = { ...kit, ground: await ctx.files.put(await ctx.renderer.tileableX(image, 0.12), "png") };
-  else kit = { ...kit, pieces: await piecesFrom(ctx, { [input.part]: image }, kit.pieces) };
+  // Background planes (a layered kit's sky too): repainted together, which also upgrades an old single-backdrop kit.
+  if (input.part === "backgrounds" || (input.part === "backdrop" && kit.backgrounds?.length)) {
+    const backgrounds = await paintPlanes(ctx, biome.brief, project.art.direction, kit.quality, input.feedback);
+    kit = { ...kit, backdrop: backgrounds.find((p) => p.opaque)!.file, backgrounds, atmosphere: kit.atmosphere ?? { particles: "dust" } };
+    return { operations: [{ name: "setBiomeKit", input: { assetId: biome.id, kit } }], summary: `repainted ${biome.name}'s background planes` };
+  }
+  const part = input.part as Exclude<KitPart, "backgrounds">;
+  const prompt = worldPrompts(biome.brief, project.art.direction, input.feedback)[part];
+  const image = await paint(ctx, part, prompt, kit.quality);
+  if (part === "backdrop") kit = { ...kit, backdrop: await ctx.files.put(await ctx.renderer.tileableX(image), "png") };
+  else if (part === "ground") kit = { ...kit, ground: await ctx.files.put(await ctx.renderer.tileableX(image, 0.12), "png") };
+  else kit = { ...kit, pieces: (await piecesFrom(ctx, { [part]: image }, kit.pieces)).pieces };
   return { operations: [{ name: "setBiomeKit", input: { assetId: biome.id, kit } }], summary: `repainted ${biome.name}'s ${input.part}` };
 }
 
@@ -318,7 +407,7 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
         "You are a level art director for a 2D side-scrolling platformer. You compose beautiful, deep, atmospheric rooms from a kit of sprites by writing scene data. You value negative space, clear silhouettes and a readable play area.",
       content: [
         { type: "image", image: backdrop },
-        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback, doors) },
+        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback, doors, project.world.camera.rows * TILE) },
       ],
       maxTokens: 12000,
     },
@@ -455,9 +544,9 @@ function reviewCameras(room: SnapRoom): number[] {
 async function renderRoom(ctx: ArtContext, input: ReviewInput, composition: Composition, labels: boolean): Promise<Buffer> {
   const { kit, room } = input;
   const used = new Set(composition.placements.map((p) => p.piece));
-  const refs = [kit.backdrop, kit.ground, ...kit.pieces.filter((p) => used.has(p.id)).map((p) => p.file)];
+  const refs = kitFiles({ ...kit, pieces: kit.pieces.filter((p) => used.has(p.id)) });
   const images = Object.fromEntries(await Promise.all([...new Set(refs)].map(async (ref) => [ref, (await ctx.files.get(ref)).toString("base64")] as const)));
-  const scene = { name: "review", width: room.width, height: room.height, backdrop: kit.backdrop, ground: kit.ground, pieces: kit.pieces, platforms: room.platforms, ...composition };
+  const scene = { name: "review", width: room.width, height: room.height, backdrop: kit.backdrop, ...(kit.backgrounds ? { backgrounds: kit.backgrounds } : {}), ...(kit.atmosphere ? { atmosphere: kit.atmosphere } : {}), ground: kit.ground, pieces: kit.pieces, platforms: room.platforms, ...composition };
   const shot = await ctx.renderer.renderWorld({ scene, images, cameras: reviewCameras(room), ...REVIEW_FRAME, labels });
   return shot.png;
 }
@@ -574,14 +663,17 @@ function composePrompt(
   platforms: { x: number; y: number; width: number; height: number }[] | null,
   feedback?: string,
   doors: DoorOpening[] = [],
+  /** Height (px) of the play camera's view. */
+  view = 14 * TILE,
 ): string {
+  const viewWidth = Math.round((view * 16) / 9);
   const list = pieces.map((p) => `- ${p.id}: ${p.name} (${p.kind}, ${p.size}px tall, ${(p.width / p.height).toFixed(2)} w/h${p.glow ? `, glows ${p.glow}` : ""})`);
   const layout = platforms
     ? `The walkable layout is FIXED (do not output platforms): ${platforms.map((r) => `[x ${r.x}, y ${r.y}, w ${r.width}, h ${r.height}]`).join(", ")}. Platforms outside 0..${width} are walls and can be ignored. Dress around it: props sit ON these surfaces.`
     : `Also design the walkable layout ("platforms"): a floor spanning the whole width (y around ${height - 110}, height 110+) plus 3-5 floating ledges or steps a 40px character could jump between (jumps ~150px high), inside the room and away from the ceiling.`;
   return [
     `The image is this biome's painted backdrop. Biome: ${theme}.`,
-    `Compose one room ${width}px wide and ${height}px tall (x right, y DOWN, 0,0 = top-left). The camera shows about 960px of width at a time and pans across it.`,
+    `Compose one room ${width}px wide and ${height}px tall (x right, y DOWN, 0,0 = top-left). The play camera shows about ${viewWidth}x${view}px of it at a time and follows the player both ways${width > viewWidth * 1.2 || height > view * 1.2 ? " (this room is bigger than one view: dress all of it, not just one screen)" : ""}.`,
     layout,
     doorsText(doors, { width, height }),
     "Layers, back to front (the runtime draws them with parallax, fog between them, depth tint and lighting):",
@@ -590,7 +682,7 @@ function composePrompt(
     "'span' pieces (beams, lintels, logs) rest across two supports: put one between two structures of the same layer (x midway between them, y at their tops, scaled so its ends reach them) or across a gap between two ledges. Pieces are snapped onto their supports afterwards. Use each span piece at least once (in the mid or back layer between two structures, or in the play layer over a gap).",
     `Kit pieces:\n${list.join("\n")}`,
     "Budget per layer (this matters most; crowding kills depth):",
-    "  mid: 5-8 big structures (scale 1.2-2.5), spaced 300-600px apart, standing on the floor line, some flipped;",
+    `  mid: 5-8 big structures (scale 1.2-2.5, but none taller than about ${Math.round(view * 1.1)}px once scaled: the view's height), spaced 300-600px apart, standing on the floor line, some flipped;`,
     "  back: at most 4 structures (scale 0.5-1.0, only at the room's ends or between ledges, never behind a ledge) plus 6-12 small decor pieces on the floor;",
     "  play: 12-25 props sitting ON surfaces (floor or ledge tops): lights on ledges and along the path, plants clustered at bases, a few hanging pieces from the ceiling;",
     "  front: 5-9 silhouettes: hanging pieces at y 0 near the room's ends and every ~700px, and tall structures standing at the bottom edge (cut off by it), scale 1.2-2.",

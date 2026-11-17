@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { applyBatch, createDefaultProject, gridPlatforms, worldSceneFor, type BiomeAsset, type FileRef, type OperationCall, type ProjectSpec } from "@anomaly/core";
+import { applyBatch, checkPlaneScales, createDefaultProject, kitFiles, gridPlatforms, worldSceneFor, type BiomeAsset, type FileRef, type OperationCall, type ProjectSpec } from "@anomaly/core";
 import {
   FakeImageModel,
   FakeRenderer,
@@ -49,25 +49,55 @@ function harness() {
 }
 
 describe("world stages", () => {
-  it("paints a kit for a new biome: four images, two transparent sheets, labelled pieces", async () => {
+  it("paints a kit for a new biome: three background planes, two transparent sheets, a ground, labelled pieces", async () => {
     const h = harness();
     const kit = await worldKitStage(h.ctx, { theme: "a fungal cathedral", quality: "draft" });
     expect(kit.operations.map((o) => o.name)).toEqual(["createAsset", "setBiomeKit"]);
     h.commit(kit.operations);
-    expect(h.image.requests).toHaveLength(4);
-    expect(h.image.requests.filter((r) => r.transparent)).toHaveLength(2);
-    expect(h.image.requests.every((r) => r.quality === "low")).toBe(true);
+    expect(h.image.requests).toHaveLength(6);
+    // the planes: landscape, medium quality, the silhouettes on a transparent background
+    const planes = h.image.requests.filter((r) => r.aspectRatio === "3:2");
+    expect(planes.map((r) => [r.quality, Boolean(r.transparent)])).toEqual([["medium", false], ["medium", true], ["medium", true]]);
+    expect(h.image.requests.filter((r) => r.aspectRatio !== "3:2").every((r) => r.quality === "low")).toBe(true);
+    expect(h.image.requests.filter((r) => r.transparent)).toHaveLength(4);
+    const layered = h.biome().kit!;
+    expect(layered.backgrounds!.map((p) => p.name)).toEqual(["sky", "far", "near"]);
+    expect(layered.backdrop).toBe(layered.backgrounds![0]!.file);
+    expect(layered.atmosphere).toEqual({ particles: "spores" });
+    // tiny fake images would be enlarged a lot: even the near plane is given blur for it
+    expect(checkPlaneScales(layered.backgrounds!).every((c) => !c.sharp)).toBe(true);
     const biome = h.biome();
     expect(biome).toMatchObject({ id: "a_fungal_cathedral", brief: "a fungal cathedral" });
     expect(biome.kit?.pieces.map((p) => p.id)).toEqual(["s0_tall_pillar", "s1_root_curtain", "s2_fallen_beam", "p0_lantern", "p1_mushrooms"]);
     expect(biome.kit?.pieces.find((p) => p.id === "s2_fallen_beam")?.kind).toBe("span");
-    for (const ref of [biome.kit!.backdrop, biome.kit!.ground, ...biome.kit!.pieces.map((p) => p.file)]) expect(h.files.has(ref)).toBe(true);
+    for (const ref of kitFiles(biome.kit!)) expect(h.files.has(ref)).toBe(true);
   });
 
-  it("final quality spends more on the backdrop and piece sheets only", async () => {
+  it("final quality spends more on the piece sheets too", async () => {
     const h = harness();
     await worldKitStage(h.ctx, { theme: "t", quality: "final" });
-    expect(h.image.requests.map((r) => r.quality).sort()).toEqual(["low", "medium", "medium", "medium"]);
+    expect(h.image.requests.map((r) => r.quality).sort()).toEqual(["low", "medium", "medium", "medium", "medium", "medium"]);
+  });
+
+  it("repainting the backgrounds upgrades an old single-backdrop kit to planes; its pieces stay", async () => {
+    const h = harness();
+    h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
+    const { backgrounds: _b, atmosphere: _a, ...old } = h.biome().kit!;
+    h.commit([{ name: "setBiomeKit", input: { assetId: h.biome().id, kit: old } }]);
+    expect(h.biome().kit!.backgrounds).toBeUndefined();
+    const repaint = await worldRepaintStage(h.ctx, { biomeId: h.biome().id, part: "backgrounds" });
+    h.commit(repaint.operations);
+    expect(h.biome().kit!.backgrounds).toHaveLength(3);
+    expect(h.biome().kit!.pieces).toEqual(old.pieces);
+  });
+
+  it("leaves out a silhouette plane that came back without a see-through sky", async () => {
+    const h = harness();
+    const generate = h.image.generate.bind(h.image);
+    h.image.generate = async (r) => (r.transparent && r.aspectRatio === "3:2" && r.prompt.includes("nearer silhouettes") ? { ...(await generate({ ...r, transparent: false })) } : generate(r));
+    h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
+    expect(h.biome().kit!.backgrounds!.map((p) => p.name)).toEqual(["sky", "far"]);
+    expect(h.image.requests.filter((r) => r.prompt.includes("nearer silhouettes"))).toHaveLength(2); // asked once more first
   });
 
   it("composes a room around the arena's platforms, or suggests a layout", async () => {

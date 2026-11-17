@@ -368,4 +368,4 @@ func _place(player: Node, at: Vector2, velocity: Vector2) -> void:
 	player._vy = velocity.y
 	player.position = at
 	player.velocity = velocity
-	player.camera.reset_smoothing()
+	player.camera.snap()
