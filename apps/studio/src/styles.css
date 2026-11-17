@@ -1809,6 +1809,27 @@ body.resizing iframe {
 /* Over the room painter: the props overlay (PropsOverlay.tsx) covers the room exactly. */
 .props-overlay { position: absolute; }
 
+/* Props and items */
+.props-svg { display: block; overflow: visible; }
+.props-svg.active { cursor: crosshair; }
+.prop-shape rect:first-child { fill-opacity: 0.25; stroke: #ffffff; stroke-opacity: 0.6; }
+.prop-shape.conditional rect:first-child { stroke-dasharray: 4 3; }
+.prop-shape.selected rect:first-child { stroke: var(--accent); stroke-opacity: 1; fill-opacity: 0.35; }
+.props-svg.active .prop-shape rect:first-child { cursor: move; }
+.prop-shape text { fill: #ffffff; opacity: 0.75; pointer-events: none; user-select: none; }
+.prop-handle { fill: var(--accent); cursor: nwse-resize; }
+.prop-new { fill: var(--accent); fill-opacity: 0.2; stroke: var(--accent); }
+.prop-editor { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; }
+.prop-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.prop-row > label:first-child { width: 52px; font-size: 12px; color: var(--muted); }
+.prop-row select, .prop-row input[type="color"] { font: inherit; font-size: 12px; max-width: 10rem; }
+.prop-text { flex: 1; width: auto; margin-bottom: 0; }
+.prop-list .swatch { width: 10px; height: 10px; }
+.item-row { margin-bottom: 8px; }
+.item-row .item-name { flex: 1; width: auto; margin-bottom: 0; }
+.items-add { margin: 0 0 12px; }
+.items-add .art-text { margin-bottom: 0; }
+
 /* Modals and map */
 .modal-list { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .modal-chip.selected { border-color: var(--accent); color: var(--accent); }

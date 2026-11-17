@@ -350,6 +350,48 @@ event happens and every condition holds, the effects run in order.
   enemy spawn's health bar and handlers. All of these are edited with the shared
   `HandlerEditor`, whose forms come from the core schemas.
 
+## Props and items
+
+A **prop** (`world.rooms[].props`, schema in `world/world.ts`) is a rectangle in a
+room: drawn as its color or a biome kit piece (`art`), `solid` and `visible` each
+always, never or while a condition holds, `health` (sword hits until it fires
+`destroyed`), `bounce` (a downward strike bounces the player), a `prompt` and its
+handlers. An **item** (`world.items`) is something the player carries, counted.
+Operations (`props/operations.ts`): addProp, updateProp, removeProp, createItem,
+updateItem, deleteItem (refused, naming the uses, while anything still names the
+item). Lint (`props/lint.ts`): props outside their room, never visible (and so
+handlers that never run), solid over the start or the playtest spot.
+
+Runtime (`game/scripts/props.gd`, one node per built room):
+
+- **Present** = visible holds and not destroyed this visit. Hidden props are gone: not
+  drawn, not solid, no events. `refresh()` re-checks every prop when flags, items or
+  abilities change (same frame) and on every room build.
+- **Solid** props add `{x, y, w, h, kind: "solid", group: null, body}` to the room's
+  `solids` (the player collides exactly as with a tile solid) and a StaticBody2D on
+  layer 1 (enemies). A prop turning solid around the player waits until they have
+  stepped out of it, so nobody is trapped.
+- **Events:** touch when the player starts overlapping (touching an edge counts, so
+  standing on it does); interact on Up / W while overlapping a prop with an interact
+  handler (its prompt, or an arrow, shows above it meanwhile; the runtime state
+  reports it as `prompt`); hit when the sword strikes it (each prop is a
+  `player.targets` entry); destroyed when its health runs out, after which it is
+  gone until the room is built again.
+- Edit mode and the Rooms stage draw every prop, faded if it depends on the run.
+
+Roles are recipes. `game/test/props.test.ts` plays each in the headless runtime:
+a pickup (touch: giveItem + setFlag; visible while the flag is not set) gone for
+good after re-entering, dying and Continue; a barrier that opens on interact while
+holding an item; a switch in one room opening a barrier in another; a save spot
+(interact: setCheckpoint, heal, saveRun, with onDeath "checkpoint"); a wall broken
+by three hits that stays broken (destroyed: setFlag; visible while not set); and a
+pickup that grants an ability.
+
+Studio: with **▭ Prop** in Rooms, drag on empty space to draw a prop (8 px snap),
+click to select, drag to move, drag the corner handle to resize (one edit each);
+the sidebar edits the selected prop (name, rect, color or art, solid, visible,
+health, bounce, prompt, handlers). Items are in the **Game** tab.
+
 ## Modals and the map
 
 A **modal** (`world.modals`) is a screen over the game: a title, text, an optional
