@@ -118,7 +118,12 @@ export function CharacterBench({ character, project, art, session }: Props) {
 
   const steps: { id: Step; label: string; status: string; ready: boolean }[] = [
     { id: "concepts", label: "① Concepts", status: sheets.length ? `${sheets.length} sheet${sheets.length > 1 ? "s" : ""}` : "none yet", ready: true },
-    { id: "rig", label: "② Rig", status: asset?.preview?.score !== undefined ? `${asset.preview.score}/10` : asset?.rig ? "built" : "none yet", ready: Boolean(asset?.chosen) },
+    {
+      id: "rig",
+      label: "② Rig",
+      status: asset?.preview?.match ? `${percent(asset.preview.match.silhouette)} match` : asset?.preview?.score !== undefined ? `${asset.preview.score}/10` : asset?.rig ? "built" : "none yet",
+      ready: Boolean(asset?.chosen),
+    },
     { id: "animation", label: "③ Animation", status: clipIds.length ? `${clipIds.length} clips` : "none yet", ready: Boolean(asset?.rig) },
   ];
 
@@ -200,6 +205,13 @@ export function CharacterBench({ character, project, art, session }: Props) {
                 Chosen design · the live rig is on the right
                 {asset.preview?.score !== undefined && ` · critic ${asset.preview.score}/10`}
                 {asset.rig && ` · ${asset.rig.parts.length} parts`}
+                {asset.rig && ` · ${asset.rig.mode ?? "vector"}`}
+                {asset.preview?.match && (
+                  <span className="bench-match" data-testid="rig-match" title="Measured likeness of the rig at rest to the design: silhouette overlap and color">
+                    {" "}
+                    · match {percent(asset.preview.match.silhouette)} shape, {percent(asset.preview.match.color)} color
+                  </span>
+                )}
               </figcaption>
               {asset.preview && <img className="bench-hidden-preview" src={fileUrl(asset.preview.file)} alt="rig render" data-testid="rig-preview" />}
             </figure>
@@ -279,6 +291,8 @@ export function CharacterBench({ character, project, art, session }: Props) {
     </div>
   );
 }
+
+const percent = (n: number) => `${Math.round(n * 100)}%`;
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="bench-empty">{children}</div>;

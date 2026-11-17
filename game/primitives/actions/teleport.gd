@@ -3,18 +3,24 @@ extends RefCounted
 ## home, a random spot within `range` of home, or `range` px past the player
 ## (on the player's far side). Reappears after the windup. Done on reappearing.
 
+const Attack := preload("res://scripts/combat/attack.gd")
 const PARAMS := {"to": "enum:home|random|behindPlayer", "range": "number", "windup": "number", "color": "color"}
 
 
 static func enter(actor, params: Dictionary) -> void:
 	actor.vanish(_destination(actor, params), Color(params.color))
+	Attack.set_phase(actor, "windup")
 
 
 static func tick(actor, params: Dictionary, _delta: float) -> void:
 	actor.velocity = Vector2.ZERO
-	if not actor.action_done and actor.state_time >= float(params.windup):
+	if actor.action_done:
+		Attack.after_instant(actor)
+	elif actor.state_time >= float(params.windup):
 		actor.appear()
 		actor.face_player()
+		actor.memory.at = actor.state_time
+		Attack.set_phase(actor, "active")
 		actor.action_done = true
 
 

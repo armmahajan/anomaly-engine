@@ -12,13 +12,16 @@ const PARAMS := {
 
 static func enter(actor, _params: Dictionary) -> void:
 	actor.face_player()
+	Attack.set_phase(actor, "windup")
 
 
 static func tick(actor, params: Dictionary, _delta: float) -> void:
 	actor.velocity = Vector2(0.0, actor.velocity.y if not actor.flying else 0.0)
 	if actor.action_done:
+		Attack.after_instant(actor)
 		return
 	if actor.state_time < float(params.windup):
+		Attack.set_phase(actor, "windup")
 		Attack.warn(actor, params.color)
 		return
 	Attack.unwarn(actor)
@@ -43,4 +46,6 @@ static func tick(actor, params: Dictionary, _delta: float) -> void:
 		shot.color = Color(params.color)
 		shot.player = actor.player
 		actor.get_parent().add_child(shot)
+	actor.memory.at = actor.state_time
+	Attack.set_phase(actor, "active")
 	actor.action_done = true

@@ -7,3 +7,5 @@ export * from "./frame.ts";
 export * from "./world.ts";
 export * from "./gameStages.ts";
 export * from "./match.ts";
+export * from "./cutout.ts";
+export * from "./rigFixtures.ts";

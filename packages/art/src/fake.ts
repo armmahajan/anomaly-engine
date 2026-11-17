@@ -1,5 +1,8 @@
 import { crc32, deflateSync } from "node:zlib";
 import { exampleClips, exampleRig } from "@anomaly/core";
+import { pngSize } from "./frame.ts";
+import { encodePng } from "./match.ts";
+import { creaturePlan, drawCreatureSheet } from "./rigFixtures.ts";
 import type { ImageModel, ImageRequest, GeneratedImage, VisionModel, VisionReply, VisionRequest } from "./models.ts";
 
 /**
@@ -84,7 +87,8 @@ export class FakeImageModel implements ImageModel {
   async generate(request: ImageRequest): Promise<GeneratedImage> {
     this.requests.push(request);
     // Each request gets different pixels (like a real model), unless a fixed image was given.
-    const image = this.image === TINY_PNG ? solidPng(64, 64, [this.requests.length % 256, 120, 140]) : this.image;
+    const image =
+      this.image !== TINY_PNG ? this.image : isConceptSheet(request.prompt) ? fakeConceptSheet(this.requests.length) : solidPng(64, 64, [this.requests.length % 256, 120, 140]);
     return { image, ext: "png", usage: { cost: 0.002, promptTokens: 100, completionTokens: 272 }, model: this.id };
   }
 }
@@ -111,6 +115,8 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("Score how well the render matches")) reply = { score: 8, issues: ["horn a bit small"], rig: exampleRig() };
     else if (prompt.includes("Write these clips")) reply = { clips: exampleClips(), notes: "ok" };
     else if (prompt.includes("Score the animation")) reply = { score: 8, issues: [], clips: exampleClips() };
+    else if (prompt.includes("Plan the cutout rig")) reply = fakeCutoutPlan(request);
+    else if (prompt.includes("Review the cutout rig")) reply = { score: 8, issues: ["the head could turn further"], plan: null };
     else if (prompt.includes("Non-empty cells")) {
       reply = {
         pieces: [
@@ -161,4 +167,20 @@ export function fakeGameReply(prompt: string): unknown {
         : { id: p.id, piece: pieces[0]!.id },
     ),
   };
+}
+
+// --- cutout rigs (character art) ---------------------------------------------------
+// Concept sheets show a drawn creature (rigFixtures.ts) so a cutout has something to cut out;
+// the cutout plan is that creature's, sized to the image the model was shown.
+
+const isConceptSheet = (prompt: string) => prompt.startsWith("Concept art sheet");
+
+function fakeConceptSheet(n: number): Buffer {
+  return encodePng(drawCreatureSheet(256, (n * 7) % 40));
+}
+
+function fakeCutoutPlan(request: VisionRequest): unknown {
+  const shown = request.content.find((c) => c.type === "image");
+  const { width, height } = shown?.type === "image" ? pngSize(shown.image) : { width: 512, height: 512 };
+  return { ...creaturePlan(width, height), notes: "body, head, two legs" };
 }

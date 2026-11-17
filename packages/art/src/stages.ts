@@ -3,7 +3,6 @@ import {
   wantedClipSlots,
   Clip,
   Id,
-  PLAYER_CLIP_SLOTS,
   Rig,
   uniqueId,
   type CharacterAsset,
@@ -13,15 +12,21 @@ import {
   type OperationCall,
   type ProjectSpec,
   type RenderRigRequest,
+  type RigMode,
 } from "@anomaly/core";
-import { fitFrame, frameForCanvas, pngSize, toCanvasSpace, toRigSpace, type Frame } from "./frame.ts";
+import { CutoutPlan, cutCharacter, cutoutRig, partsView, placeCutout, planFromRig, type Cutout } from "./cutout.ts";
+import { fitBounds, fitFrame, frameForCanvas, pngSize, toCanvasSpace, toRigSpace, type Frame } from "./frame.ts";
 import { parseReply } from "./json.ts";
+import { decodePng, encodePng, flatten, matchScore, matchValue, type MatchScore, type Pixels } from "./match.ts";
 import type { ImageModel, ModelUsage, VisionContent, VisionModel, VisionRequest } from "./models.ts";
 import {
   animCritiquePrompt,
   animPrompt,
   animSystemPrompt,
   conceptPrompt,
+  cutoutAuthorPrompt,
+  cutoutCritiquePrompt,
+  cutoutSystemPrompt,
   FACING_PROMPT,
   PICK_SYSTEM,
   pickPrompt,
@@ -173,7 +178,9 @@ const text = (t: string): VisionContent => ({ type: "text", text: t });
 
 async function renderRest(ctx: ArtContext, rig: Rig, size = 384): Promise<{ png: Buffer; warnings: string[] }> {
   checkAbort(ctx);
+  const images = await rigImages(ctx, rig);
   return ctx.renderer.renderRig({
+    ...(images ? { images } : {}),
     rig,
     direction: ctx.project().art.direction,
     clips: {},
@@ -323,17 +330,58 @@ export interface RigInput {
   characterId: string;
   /** Revise the existing rig with this direction instead of building from scratch. */
   feedback?: string;
+  /** Vector shapes or cutout pieces of the design (default: the art direction's rigMode, else vector). */
+  rigMode?: RigMode;
 }
 
 const RigReply = z.object({ rig: Rig, notes: z.string().optional() });
 const Critique = z.object({ score: z.number().min(0).max(10), issues: z.array(z.string()).default([]), rig: z.unknown() });
+const CutoutCritique = z.object({ score: z.number().min(0).max(10), issues: z.array(z.string()).default([]), plan: z.unknown().optional() });
 
 const GRID = 64;
+/** Match values closer than this are a tie (the critic's score decides). */
+const MATCH_TIE = 0.02;
 
-/** Render a canvas-space rig in the concept's framing: alone, and laid over the concept. */
-async function canvasViews(ctx: ArtContext, canvasRig: Rig, frame: Frame, concept: Buffer, size: { width: number; height: number }) {
+/** One rig attempt in the critique loop. */
+interface Attempt {
+  rig: Rig;
+  frame: Frame;
+  score: number;
+  notes: string;
+  match?: MatchScore;
+}
+
+/** The better attempt: the measured likeness first, the critic's score on a tie (or when nothing was measured). */
+function better(best: Attempt | null, next: Attempt): Attempt {
+  if (!best) return next;
+  if (best.match && next.match && Math.abs(matchValue(next.match) - matchValue(best.match)) > MATCH_TIE) {
+    return matchValue(next.match) > matchValue(best.match) ? next : best;
+  }
+  return next.score > best.score ? next : best;
+}
+
+/** A cutout rig's source image for the renderer (base64 by file ref). */
+async function rigImages(ctx: ArtContext, rig: Rig): Promise<Record<string, string> | undefined> {
+  if (!rig.source) return undefined;
+  return { [rig.source.file]: (await ctx.files.get(rig.source.file)).toString("base64") };
+}
+
+/**
+ * Render a canvas-space rig in the concept's framing: alone (on the pipeline background) and
+ * laid over the concept. With a reference (the concept cut out, on the same background), also
+ * how closely the render matches it.
+ */
+async function canvasViews(
+  ctx: ArtContext,
+  canvasRig: Rig,
+  frame: Frame,
+  concept: Buffer,
+  size: { width: number; height: number },
+  reference: Pixels | null,
+) {
   checkAbort(ctx);
   const direction = ctx.project().art.direction;
+  const images = await rigImages(ctx, canvasRig);
   const drawn = await ctx.renderer.renderRig({
     rig: canvasRig,
     // Outline widths are game px; one canvas px is `scale` game px.
@@ -345,13 +393,21 @@ async function canvasViews(ctx: ArtContext, canvasRig: Rig, frame: Frame, concep
     columns: 1,
     background: null,
     fit: false,
+    ...(images ? { images } : {}),
   });
   const [render, overlay] = await Promise.all([
     ctx.renderer.compose({ ...size, background: BACKGROUND, layers: [{ image: drawn.png }] }),
     ctx.renderer.compose({ ...size, layers: [{ image: concept }, { image: drawn.png, alpha: 0.6 }], grid: GRID }),
   ]);
-  return { render, overlay, warnings: drawn.warnings };
+  let match: MatchScore | undefined;
+  if (reference) {
+    const pixels = decodePng(drawn.png);
+    if (pixels.width === reference.width && pixels.height === reference.height) match = matchScore(flatten(pixels, BACKGROUND), reference, BACKGROUND);
+  }
+  return { render, overlay, warnings: drawn.warnings, match };
 }
+
+const matchText = (m: MatchScore | undefined) => (m ? `match ${Math.round(m.silhouette * 100)}% shape, ${Math.round(m.color * 100)}% color` : "");
 
 export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageResult> {
   const project = ctx.project();
@@ -360,12 +416,48 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
   if (!asset.chosen) throw new StageError(`choose a concept design for "${character.name}" first`);
   const concept = await ctx.files.get(asset.chosen.file);
   const size = pngSize(concept);
-  const system = rigSystemPrompt(project.art.direction, size);
+  // The design cut out of its background: the cutout rig's image, and what every attempt is measured against.
+  const cut = cutCharacter(decodePng(concept));
+  const reference = cut ? flatten(placeCutout(cut, size), BACKGROUND) : null;
+  const mode = input.rigMode ?? project.art.direction.rigMode ?? "vector";
+  const best =
+    mode === "cutout"
+      ? await cutoutAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim() })
+      : await vectorAttempts(ctx, { character, asset, concept, size, reference, feedback: input.feedback?.trim() });
+
+  const preview = await ctx.files.put((await renderRest(ctx, best.rig)).png, "png");
+  return {
+    operations: [
+      {
+        name: "setRig",
+        input: {
+          assetId: asset.id,
+          rig: best.rig,
+          preview: { file: preview, score: best.score, notes: best.notes.slice(0, 2000), frame: best.frame, ...(best.match ? { match: best.match } : {}) },
+        },
+      },
+    ],
+    summary: `built ${character.name}'s ${mode} rig (score ${best.score}/10${best.match ? `, ${matchText(best.match)}` : ""})`,
+  };
+}
+
+interface AttemptInput {
+  character: Character;
+  asset: CharacterAsset;
+  concept: Buffer;
+  size: { width: number; height: number };
+  reference: Pixels | null;
+  feedback?: string;
+}
+
+/** Vector rig: the model traces flat shapes; render over the concept, score, revise. Keeps the best attempt. */
+async function vectorAttempts(ctx: ArtContext, { character, asset, concept, size, reference, feedback: direction }: AttemptInput): Promise<Attempt> {
+  const system = rigSystemPrompt(ctx.project().art.direction, size);
   const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: concept }], grid: GRID });
 
   // The model traces in concept pixels ("canvas space"); see frame.ts.
   let canvasRig: Rig;
-  if (input.feedback?.trim() && asset.rig) {
+  if (direction && asset.rig && asset.rig.mode !== "cutout") {
     canvasRig = toCanvasSpace(asset.rig, frameForCanvas(asset.rig, size));
     ctx.log({ text: "revising the current rig" });
   } else {
@@ -378,18 +470,17 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
     canvasRig = authored.rig;
   }
 
-  // Critique loop: render over the concept, score, revise. Keep the best scored rig.
   const rounds = ctx.rigRounds ?? 3;
-  let best: { rig: Rig; score: number; notes: string; frame: Frame } | null = null;
-  let feedback = input.feedback?.trim();
+  let best: Attempt | null = null;
+  let feedback = direction;
   for (let round = 0; round < rounds; round++) {
     const frame = fitFrame(canvasRig, character.size);
     const rig = toRigSpace(canvasRig, frame);
-    const views = await canvasViews(ctx, canvasRig, frame, concept, size);
-    ctx.log({ text: `render ${round + 1}`, file: await ctx.files.put(views.overlay, "png") });
+    const views = await canvasViews(ctx, canvasRig, frame, concept, size, reference);
+    ctx.log({ text: `render ${round + 1}${views.match ? ` (${matchText(views.match)})` : ""}`, file: await ctx.files.put(views.overlay, "png") });
     if (ctx.remaining() < CRITIQUE_RESERVE) {
       ctx.log({ text: "budget nearly used; stopping the critique loop" });
-      if (!best) best = { rig, score: 0, notes: "not reviewed (budget)", frame };
+      best = better(best, { rig, frame, score: 0, notes: "not reviewed (budget)", match: views.match });
       break;
     }
     const prompt = rigCritiquePrompt({ character, brief: asset.brief, rig: canvasRig, warnings: views.warnings, canvas: size });
@@ -411,7 +502,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
     feedback = undefined; // applied once
     const notes = critique.issues.join("; ");
     ctx.log({ text: `score ${critique.score}/10${notes ? `: ${notes}` : ""}` });
-    if (!best || critique.score > best.score) best = { rig, score: critique.score, notes, frame };
+    best = better(best, { rig, frame, score: critique.score, notes, match: views.match });
     if (critique.score >= 8 && round > 0) break;
     const revised = Rig.safeParse(critique.rig);
     if (!revised.success) {
@@ -421,14 +512,96 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
     canvasRig = revised.data;
   }
   if (!best) throw new StageError("no rig was produced");
+  return best;
+}
 
-  const preview = await ctx.files.put((await renderRest(ctx, best.rig)).png, "png");
-  return {
-    operations: [
-      { name: "setRig", input: { assetId: asset.id, rig: best.rig, preview: { file: preview, score: best.score, notes: best.notes.slice(0, 2000), frame: best.frame } } },
-    ],
-    summary: `built ${character.name}'s rig (score ${best.score}/10)`,
-  };
+/** Every non-root bone bent -25° at t=0 and +25° at t=1 (the critic's puppet check). */
+function flexClip(rig: Rig): Clip {
+  return Clip.parse({
+    duration: 1,
+    loop: false,
+    tracks: rig.bones.filter((b) => b.parent !== null).map((b) => ({ bone: b.id, property: "rotate", keys: [[0, -25], [1, 25]], ease: "linear" })),
+  });
+}
+
+/**
+ * Cutout rig: the design itself, cut into pieces. The model plans the skeleton and rough part
+ * regions; code assigns the pixels and traces the parts (cutout.ts), so the rest pose is the
+ * design. The critic sees the split and the bones bent, and may move pivots or regions; an
+ * attempt that looks less like the design never wins.
+ */
+async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cutout | null }): Promise<Attempt> {
+  const { character, asset, size, cut, reference } = input;
+  if (!cut || !reference) throw new StageError("could not find the character on the design's background (it needs a plain, flat background)");
+  const sourcePng = encodePng(cut.image);
+  const file = await ctx.files.put(sourcePng, "png");
+  const images = { [file]: sourcePng.toString("base64") };
+  const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(reference) }], grid: GRID });
+  const system = cutoutSystemPrompt(size);
+  const frame = fitBounds(cut.bounds, character.size);
+
+  let plan: CutoutPlan;
+  const previous = asset.rig?.mode === "cutout" && asset.preview?.frame ? toCanvasSpace(asset.rig, asset.preview.frame) : null;
+  if (input.feedback && previous) {
+    plan = planFromRig(previous);
+    ctx.log({ text: "revising the current rig" });
+  } else {
+    plan = await askJson(
+      ctx,
+      CutoutPlan,
+      { system, content: [image(gridded), text(cutoutAuthorPrompt(character, asset.brief, size))], maxTokens: 8000 },
+      "planning the cutout rig",
+    );
+  }
+
+  const rounds = ctx.rigRounds ?? 3;
+  let best: Attempt | null = null;
+  let feedback = input.feedback;
+  for (let round = 0; round < rounds; round++) {
+    const built = cutoutRig(cut, plan, file);
+    const rig = toRigSpace(built.rig, frame);
+    const views = await canvasViews(ctx, built.rig, frame, input.concept, size, reference);
+    for (const w of built.warnings) ctx.log({ text: w });
+    const parts = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(partsView(cut, built.labels, plan, size)) }], grid: GRID });
+    ctx.log({ text: `cutout ${round + 1}: ${rig.parts.length} parts (${matchText(views.match)})`, file: await ctx.files.put(parts, "png") });
+    if (ctx.remaining() < CRITIQUE_RESERVE) {
+      ctx.log({ text: "budget nearly used; stopping the critique loop" });
+      best = better(best, { rig, frame, score: 0, notes: "not reviewed (budget)", match: views.match });
+      break;
+    }
+    const posed = await ctx.renderer.renderRig({
+      rig,
+      direction: ctx.project().art.direction,
+      clips: { flex: flexClip(rig) },
+      frames: [{ clip: "flex", time: 0 }, { clip: null, time: 0 }, { clip: "flex", time: 1 }],
+      cellWidth: 192,
+      cellHeight: 192,
+      columns: 3,
+      background: BACKGROUND,
+      images,
+    });
+    ctx.log({ text: `bones bent ${round + 1}`, file: await ctx.files.put(posed.png, "png") });
+    const prompt = cutoutCritiquePrompt({ plan, warnings: [...built.warnings, ...views.warnings], canvas: size });
+    const critique = await askJson(
+      ctx,
+      CutoutCritique,
+      { system, content: [image(gridded), image(parts), image(posed.png), text(feedback ? `${prompt}\nCreator's direction: ${feedback}` : prompt)], maxTokens: 8000 },
+      `reviewing cutout ${round + 1}`,
+    );
+    feedback = undefined;
+    const notes = critique.issues.join("; ");
+    ctx.log({ text: `score ${critique.score}/10${notes ? `: ${notes}` : ""}` });
+    best = better(best, { rig, frame, score: critique.score, notes, match: views.match });
+    if ((critique.score >= 8 && round > 0) || critique.plan === undefined || critique.plan === null) break;
+    const revised = CutoutPlan.safeParse(critique.plan);
+    if (!revised.success) {
+      ctx.log({ text: "the revision was invalid; keeping the best so far" });
+      break;
+    }
+    plan = revised.data;
+  }
+  if (!best) throw new StageError("no rig was produced");
+  return best;
 }
 
 // --- stage: animate -----------------------------------------------------------------
@@ -440,7 +613,6 @@ export interface AnimateInput {
   slots?: ClipSlot[];
 }
 
-/** Clip slots needed by every character drawn with this asset. */
 /** The clip slots an asset needs (core wantedClipSlots). */
 export const slotsFor = wantedClipSlots;
 
@@ -452,6 +624,7 @@ async function filmstrips(ctx: ArtContext, rig: Rig, clips: Record<string, Clip>
   const frames = ids.flatMap((id) =>
     Array.from({ length: FILMSTRIP_FRAMES }, (_, i) => ({ clip: id, time: (clips[id]!.duration * i) / FILMSTRIP_FRAMES })),
   );
+  const images = await rigImages(ctx, rig);
   const image = await ctx.renderer.renderRig({
     rig,
     direction: ctx.project().art.direction,
@@ -461,9 +634,13 @@ async function filmstrips(ctx: ArtContext, rig: Rig, clips: Record<string, Clip>
     cellHeight: 128,
     columns: FILMSTRIP_FRAMES,
     background: BACKGROUND,
+    ...(images ? { images } : {}),
   });
   return image.png;
 }
+
+/** Only the wanted slots. */
+const pick = (clips: Record<string, Clip>, slots: readonly string[]) => Object.fromEntries(Object.entries(clips).filter(([id]) => slots.includes(id)));
 
 export async function animate(ctx: ArtContext, input: AnimateInput): Promise<StageResult> {
   const project = ctx.project();
@@ -474,14 +651,27 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
   const slots = input.slots ?? slotsFor(project, asset.id);
   const rest = asset.preview ? await ctx.files.get(asset.preview.file) : (await renderRest(ctx, rig)).png;
   const system = animSystemPrompt();
+  const write = async (wanted: ClipSlot[], label: string) =>
+    pick(
+      (
+        await askJson(
+          ctx,
+          ClipsReply,
+          { system, content: [image(rest), text(animPrompt({ character, brief: asset.brief, rig, slots: wanted, feedback: input.feedback }))], maxTokens: 10000 },
+          label,
+        )
+      ).clips,
+      wanted,
+    );
 
-  const written = await askJson(
-    ctx,
-    ClipsReply,
-    { system, content: [image(rest), text(animPrompt({ character, brief: asset.brief, rig, slots, feedback: input.feedback }))], maxTokens: 10000 },
-    `writing ${slots.join(", ")}`,
-  );
-  let clips = written.clips;
+  let clips = await write(slots, `writing ${slots.join(", ")}`);
+  // Exactly the wanted slots: one more call for any the model skipped.
+  const missing = slots.filter((s) => !clips[s]);
+  if (missing.length > 0 && Object.keys(clips).length > 0) {
+    clips = { ...clips, ...(await write(missing, `writing the missing ${missing.join(", ")}`)) };
+    const still = slots.filter((s) => !clips[s]);
+    if (still.length > 0) ctx.log({ text: `no clip for ${still.join(", ")} (they fall back to other clips)` });
+  }
   let ids = Object.keys(clips);
   if (ids.length === 0) throw new StageError("the model wrote no clips");
 
@@ -503,12 +693,12 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
     ctx.log({ text: `score ${critique.score}/10${critique.issues.length ? `: ${critique.issues.join("; ")}` : ""}` });
     if (critique.score >= 8) break;
     const revised = z.record(Id, Clip).safeParse(critique.clips);
-    if (!revised.success || Object.keys(revised.data).length === 0) {
+    if (!revised.success || Object.keys(pick(revised.data, ids)).length === 0) {
       ctx.log({ text: "the revision was invalid; keeping the clips as written" });
       break;
     }
-    clips = revised.data;
-    ids = Object.keys(clips);
+    // A revision that drops a clip keeps the written one.
+    clips = { ...clips, ...pick(revised.data, ids) };
   }
 
   const operations: OperationCall[] = [];

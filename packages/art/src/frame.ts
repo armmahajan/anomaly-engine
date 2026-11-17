@@ -18,7 +18,11 @@ const round = (n: number) => Math.round(n * 10) / 10;
 
 /** Frame that puts a canvas-space rig's feet at the origin and sizes it to the collision box. */
 export function fitFrame(canvasRig: Rig, box: { width: number; height: number }): Frame {
-  const b = rigBounds(canvasRig);
+  return fitBounds(rigBounds(canvasRig), box);
+}
+
+/** The same for canvas-space bounds (a cutout rig fits its opaque pixels, not its grown polygons). */
+export function fitBounds(b: { minX: number; minY: number; maxX: number; maxY: number }, box: { width: number; height: number }): Frame {
   const w = Math.max(b.maxX - b.minX, 1);
   const h = Math.max(b.maxY - b.minY, 1);
   const scale = Math.min((box.width * ART_OVER_BOX) / w, (box.height * ART_OVER_BOX) / h);
@@ -33,9 +37,16 @@ export function frameForCanvas(rig: Rig, canvas: { width: number; height: number
   return { scale, anchor: [canvas.width / 2 - centerX / scale, canvas.height * 0.85] };
 }
 
-/** Apply a point map (and matching length scale) to every coordinate in a rig. */
-function mapRig(rig: Rig, point: (p: readonly [number, number]) => [number, number], length: number): Rig {
+/** Map every coordinate in a rig by p * k + t (lengths by k). A cutout rig's source moves with it. */
+function mapRig(rig: Rig, k: number, t: readonly [number, number]): Rig {
+  const point = ([x, y]: readonly [number, number]): [number, number] => [round(x * k + t[0]), round(y * k + t[1])];
+  const length = k;
+  // source: space = (image - anchor) * scale; afterwards (image - (anchor - t / (scale * k))) * scale * k.
+  const s = rig.source;
+  const source = s && { ...s, scale: s.scale * k, anchor: [s.anchor[0] - t[0] / (s.scale * k), s.anchor[1] - t[1] / (s.scale * k)] as [number, number] };
   return {
+    ...(rig.mode ? { mode: rig.mode } : {}),
+    ...(source ? { source } : {}),
     bones: rig.bones.map((b) => ({ ...b, pivot: point(b.pivot) })),
     parts: rig.parts.map((part) => {
       const s = part.shape;
@@ -57,12 +68,11 @@ function mapRig(rig: Rig, point: (p: readonly [number, number]) => [number, numb
 
 export function toRigSpace(canvasRig: Rig, frame: Frame): Rig {
   const [ax, ay] = frame.anchor;
-  return mapRig(canvasRig, ([x, y]) => [round((x - ax) * frame.scale), round((y - ay) * frame.scale)], frame.scale);
+  return mapRig(canvasRig, frame.scale, [-ax * frame.scale, -ay * frame.scale]);
 }
 
 export function toCanvasSpace(rig: Rig, frame: Frame): Rig {
-  const [ax, ay] = frame.anchor;
-  return mapRig(rig, ([x, y]) => [round(x / frame.scale + ax), round(y / frame.scale + ay)], 1 / frame.scale);
+  return mapRig(rig, 1 / frame.scale, frame.anchor);
 }
 
 /** Width and height of a PNG (from its header). */

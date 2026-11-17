@@ -26,6 +26,7 @@ export interface RenderedImage {
 }
 
 export interface Renderer {
+  /** A cutout rig's source image travels in `images` (base64 by file ref); without it its parts are not drawn (a warning says so). */
   renderRig(request: Omit<RenderRigRequest, "requestId">): Promise<RenderedImage>;
   /** Crop a region (fractions of the image, 0..1) and scale it to fit `maxSize` px. Returns PNG. */
   crop(image: Buffer, region: { x: number; y: number; width: number; height: number }, maxSize: number): Promise<Buffer>;

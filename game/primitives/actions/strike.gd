@@ -11,6 +11,7 @@ const PARAMS := {
 
 static func enter(actor, _params: Dictionary) -> void:
 	actor.face_player()
+	Attack.set_phase(actor, "windup")
 
 
 static func tick(actor, params: Dictionary, _delta: float) -> void:
@@ -19,15 +20,18 @@ static func tick(actor, params: Dictionary, _delta: float) -> void:
 	var windup := float(params.windup)
 	var end_active := windup + float(params.active)
 	if t < windup:
+		Attack.set_phase(actor, "windup")
 		Attack.warn(actor, params.color)
 		actor.show_attack(_box(actor, params), false, Color(params.color))
 	elif t < end_active:
+		Attack.set_phase(actor, "active")
 		Attack.unwarn(actor)
 		actor.velocity.x = actor.facing * float(params.lunge)
 		var box := _box(actor, params)
 		actor.show_attack(box, true, Color(params.color))
 		Attack.hurt(actor.player, box, actor.position.x, actor.facing, int(params.damage), actor.knockback())
 	else:
+		Attack.set_phase(actor, "recovery")
 		actor.show_attack(null)
 		actor.action_done = t >= end_active + float(params.recovery)
 

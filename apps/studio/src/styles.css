@@ -1855,3 +1855,8 @@ body.resizing iframe {
 .prop-thumb { width: 16px; height: 16px; object-fit: contain; vertical-align: middle; margin-right: 4px; }
 .item-icon { width: 22px; height: 22px; object-fit: contain; }
 .tag.stale { background: #4a3b20; color: #e0af68; }
+
+/* Character art */
+.art-rig-mode { display: flex; gap: 12px; margin: 4px 0 6px; font-size: 12px; }
+.art-rig-mode label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.bench-match { color: var(--accent); }
