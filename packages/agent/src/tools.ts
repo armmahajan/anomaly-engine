@@ -25,6 +25,7 @@ import {
   ApplyRoomLayoutInput,
   Clip,
   ArtJobRequest,
+  type ArchitectRunRequest,
   RoomRef,
   GameRules,
   type OperationCall,
@@ -63,6 +64,8 @@ export class Draft {
   readonly calls: OperationCall[] = [];
   /** Art/world jobs queued this turn; they start after the turn ends (each its own AI change). */
   readonly jobs: ArtJobRequest[] = [];
+  /** Architect runs queued this turn (at most one starts, after the turn ends). */
+  readonly runs: ArchitectRunRequest[] = [];
   /** Whether art generation is configured (else the art tools refuse). */
   artAvailable: boolean;
 

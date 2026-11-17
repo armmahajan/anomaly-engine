@@ -1,4 +1,4 @@
-import type { ArtJobRequest, ChangeResult, OperationCall, ProjectSpec } from "@anomaly/core";
+import type { ArchitectRunRequest, ArtJobRequest, ChangeResult, OperationCall, ProjectSpec } from "@anomaly/core";
 import type { ChatMessage, Usage } from "./messages.ts";
 import type { Draft } from "./tools.ts";
 import type { AgentProfile } from "./profile.ts";
@@ -37,6 +37,8 @@ export interface AgentTurnResult {
   operations: OperationCall[];
   /** Art/world jobs queued this turn, to start after it ends. */
   jobs: ArtJobRequest[];
+  /** Architect runs queued this turn, to start after it ends. */
+  runs?: ArchitectRunRequest[];
   usage: Usage;
 }
 
@@ -64,15 +66,15 @@ export function stopTurn(turn: TurnState, outcome: AgentOutcome, message: string
 /** Save the draft's staged calls as one commit, if any. */
 export async function finishTurn(turn: TurnState): Promise<AgentTurnResult> {
   const { request, draft, messages, usage, reply } = turn;
-  const unchanged = { messages, reply, project: request.project, operations: [], jobs: draft.jobs, usage };
+  const unchanged = { messages, reply, project: request.project, operations: [], jobs: draft.jobs, runs: draft.runs, usage };
   if (!draft.changed) return { outcome: "no_changes", ...unchanged };
 
   const saved = await request.commit(draft.calls, request.project.revision);
   if (!saved.ok) {
     emitter(request)({ type: "error", message: `saving failed: ${saved.error.message}` });
     messages.push({ role: "assistant", content: `(Saving failed: ${saved.error.message}. No changes were saved.)` });
-    return { outcome: "commit_failed", ...unchanged, jobs: [] };
+    return { outcome: "commit_failed", ...unchanged, jobs: [], runs: [] };
   }
   emitter(request)({ type: "committed", revision: saved.project.revision, operations: draft.calls.length });
-  return { outcome: "committed", messages, reply, project: saved.project, operations: draft.calls, jobs: draft.jobs, usage };
+  return { outcome: "committed", messages, reply, project: saved.project, operations: draft.calls, jobs: draft.jobs, runs: draft.runs, usage };
 }

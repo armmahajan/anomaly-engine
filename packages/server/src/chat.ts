@@ -2,6 +2,7 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type ArtJobRequest,
+  type ArchitectRunRequest,
   ChatEntry,
   ChatRequest,
   fail,
@@ -14,6 +15,7 @@ import {
 import { buildAgent, type AgentEvent, type AgentProfile, type ChatMessage, type TurnRunner } from "@anomaly/agent";
 import type { ProjectStore } from "./projectStore.ts";
 import type { ArtService } from "./art/service.ts";
+import type { ArchitectService } from "./architect/service.ts";
 
 const HISTORY_ENTRIES = 20;
 
@@ -27,6 +29,11 @@ interface Running {
 
 /** One agent's conversation about the project and its running turn. One AI turn runs at a time across all agents (the store's lock). */
 /** Plain-language one-liner for a queued art job. */
+export function describeRun(run: ArchitectRunRequest): string {
+  const range = run.from || run.to ? ` (${run.from ?? "start"} to ${run.to ?? "art"})` : "";
+  return `queued a build run${range}${run.rooms?.length ? ` for ${run.rooms.join(", ")}` : ""}`;
+}
+
 export function describeJob(job: ArtJobRequest): string {
   switch (job.stage) {
     case "worldKit":
@@ -49,6 +56,8 @@ export class ChatService {
   private running: Running | null = null;
   /** Art jobs queued by turns go here (set by createProjectServer). */
   art: ArtService | null = null;
+  /** Architect runs queued by turns start here (set by createProjectServer for the Architect's chat). */
+  architect: ArchitectService | null = null;
   private listeners = new Set<(state: ChatState) => void>();
 
   private constructor(store: ProjectStore, runner: TurnRunner, agent: AgentProfile, entries: ChatEntry[]) {
@@ -146,6 +155,7 @@ export class ChatService {
 
     let entry: ChatEntry;
     let queuedJobs: ArtJobRequest[] = [];
+    let queuedRun: ArchitectRunRequest | null = null;
     try {
       const result = await this.runner({
         project: this.store.getState().project,
@@ -158,13 +168,14 @@ export class ChatService {
         artAvailable: this.art?.getState().available ?? false,
       });
       queuedJobs = ["committed", "no_changes"].includes(result.outcome) ? result.jobs : [];
+      queuedRun = ["committed", "no_changes"].includes(result.outcome) ? (result.runs?.[0] ?? null) : null;
       entry = {
         role: "assistant",
         at: new Date().toISOString(),
         text: result.reply,
         outcome: result.outcome,
         revision: result.outcome === "committed" ? result.project.revision : null,
-        changes: [...result.operations.map(describeCall), ...queuedJobs.map(describeJob)],
+        changes: [...result.operations.map(describeCall), ...queuedJobs.map(describeJob), ...(queuedRun ? [describeRun(queuedRun)] : [])],
         usage: result.usage,
         ...(error && ["commit_failed", "step_limit", "model_error"].includes(result.outcome) ? { error } : {}),
       };
@@ -186,6 +197,10 @@ export class ChatService {
     await this.append(entry);
     // Art jobs start now that the turn released the lock.
     if (queuedJobs.length > 0) this.art?.enqueue(queuedJobs);
+    if (queuedRun && this.architect) {
+      const started = await this.architect.start(queuedRun);
+      if (!started.ok) console.warn(`[chat:${this.agent.id}] could not start the Architect run: ${started.error.message}`);
+    }
     const { promptTokens, completionTokens, cost } = entry.usage;
     console.info(
       `[chat:${this.agent.id}] ${entry.outcome}, ${entry.changes.length} change(s), ${promptTokens} in / ${completionTokens} out` +

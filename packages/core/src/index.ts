@@ -59,3 +59,5 @@ export * from "./architect/verify.ts";
 export * from "./architect/geometry/index.ts";
 export * from "./architect/population/index.ts";
 export * from "./combat/difficulty.ts";
+export * from "./architect/planCheck.ts";
+export * from "./architect/pacing.ts";

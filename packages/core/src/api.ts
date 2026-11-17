@@ -62,7 +62,7 @@ export const ResetRequest = z.strictObject({
 export const ChatRequest = z.strictObject({ message: z.string().trim().min(1).max(4000) });
 
 /** The studio's AI agents, each with its own chat: build assistant (the game) and director (wiki and progression). */
-export const AgentId = z.enum(["build", "narrative"]);
+export const AgentId = z.enum(["build", "narrative", "architect"]);
 export type AgentId = z.infer<typeof AgentId>;
 
 export interface ProjectState {

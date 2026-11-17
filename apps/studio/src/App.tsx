@@ -182,7 +182,7 @@ export function App({ session }: { session: Session }) {
   const checks = tab === "progression" ? progressionReport(project) : null;
   const design = DESIGN_TABS.includes(tab);
   const documentTab = DOCUMENT_TABS.includes(tab);
-  const agent = design ? "narrative" : "build";
+  const agent = design ? "narrative" : tab === "architect" ? "architect" : "build";
   const problem = state.lastProblem && (
     <div className="problem" role="alert">
       {state.lastProblem}

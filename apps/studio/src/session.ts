@@ -90,7 +90,7 @@ export class Session {
       runtimeStatus: "booting",
       loadedRevision: null,
       lastProblem: null,
-      chats: { build: idleChat, narrative: idleChat },
+      chats: { build: idleChat, narrative: idleChat, architect: idleChat },
       seed: null,
       art: { available: false, models: { image: "", vision: "" }, budget: 0, running: null, jobs: [], queued: 0, totalCost: 0 },
       architect: { running: null, last: null, log: [] },

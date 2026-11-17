@@ -77,8 +77,23 @@ const fakeBuildFromDesign: TurnRunner = (request) =>
     ]),
   });
 
+/** Scripted Architect: (re)seeds the plan from the progression when asked to plan; "build" also queues a run. */
+const fakeArchitect: TurnRunner = (request) => {
+  const build = /\bbuild\b/i.test(request.userMessage) && !/don't queue a build run/i.test(request.userMessage);
+  const seed = request.project.architect.rooms.length === 0;
+  return runAgentTurn({
+    ...request,
+    model: new FakeModel([
+      callTools(...(seed ? [toolCall("seedArchitectPlan", {})] : []), toolCall("checkPlan", {}), ...(build ? [toolCall("runArchitect", {})] : [])),
+      say(seed ? "Planned the world from the progression." : "The plan looks complete."),
+    ]),
+  });
+};
+
 const fakeBuilder: TurnRunner = (request) => {
   if (/^build from the design/i.test(request.userMessage.trim())) return fakeBuildFromDesign(request);
+  // The Architect's cast stage: nothing to create in the scripted games.
+  if (/^create these enemy characters/i.test(request.userMessage.trim())) return runAgentTurn({ ...request, model: new FakeModel([say("Nothing to create.")]) });
   const world = /^world: (.+)$/i.exec(request.userMessage.trim());
   if (world) {
     return runAgentTurn({
@@ -97,4 +112,5 @@ const fakeBuilder: TurnRunner = (request) => {
 };
 
 /** Scripted chat backend for e2e, one script per agent. */
-export const fakeChatRunner: TurnRunner = (request) => (request.agent?.id === "narrative" ? fakeDirector : fakeBuilder)(request);
+export const fakeChatRunner: TurnRunner = (request) =>
+  (request.agent?.id === "narrative" ? fakeDirector : request.agent?.id === "architect" ? fakeArchitect : fakeBuilder)(request);

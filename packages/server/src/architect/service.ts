@@ -10,6 +10,7 @@ import {
   seedPlan,
   toIssues,
   verifyStage,
+  pacingStage,
   type ArchitectStage,
   type ArchitectState,
   type OperationError,
@@ -36,12 +37,16 @@ export interface StageRunContext {
   rooms?: string[];
   signal: AbortSignal;
   log: (text: string) => void;
+  /** Problems a later stage reported that this stage should fix (the plan stage, on a repair). */
+  feedback?: string[];
 }
 
 export interface StageRunResult {
   project: ProjectSpec;
   issues: StageIssue[];
   summary: string;
+  /** The run can't go on (default: verify with issues). */
+  blocking?: boolean;
 }
 
 export type StageRunner = (ctx: StageRunContext) => Promise<StageRunResult>;
@@ -67,7 +72,7 @@ export function defaultStageRunners(options: { art?: ArtService | null; override
     cast: sync((p) => difficultyStage(p)),
     screens: sync(screensStage),
     verify: sync((p) => verifyStage(p)),
-    pacing: async ({ project }) => ({ project, issues: [], summary: "pacing: not implemented yet" }),
+    pacing: sync((p) => pacingStage(p)),
     art: async ({ project, log }) => {
       if (!art || !art.getState().available) return { project, issues: [], summary: "no art models configured; skipped" };
       const started = await art.start({ stage: "gameArt" });
@@ -93,10 +98,16 @@ export class ArchitectService {
 
   private readonly store: ProjectStore;
   private readonly runners: StageRunners;
+  /** How many times one run may send failures back to an earlier stage. */
+  private readonly maxRepairs: number;
+  /** Send a game off its play-time target back to the plan stage (worth it when the model plans). */
+  private readonly repairPacing: boolean;
 
-  constructor(store: ProjectStore, runners: StageRunners) {
+  constructor(store: ProjectStore, runners: StageRunners, options: { maxRepairs?: number; repairPacing?: boolean } = {}) {
     this.store = store;
     this.runners = runners;
+    this.maxRepairs = options.maxRepairs ?? 3;
+    this.repairPacing = options.repairPacing ?? false;
   }
 
   getState(): ArchitectState {
@@ -159,27 +170,52 @@ export class ArchitectService {
 
   private async run(stages: ArchitectStage[], rooms: string[] | undefined, signal: AbortSignal): Promise<void> {
     let stage: ArchitectStage = stages[0]!;
+    let queue = stages;
+    let only = rooms;
+    let feedback: string[] | undefined;
+    let repairs = 0;
+    const end = stages.at(-1)!;
     try {
-      for (const [i, s] of stages.entries()) {
-        stage = s;
+      for (let i = 0; i < queue.length; i++) {
+        stage = queue[i]!;
         if (signal.aborted) return this.finish("cancelled", stage, []);
         this.running!.stage = stage;
+        this.running!.stages = queue;
         this.note(stage, "started");
         this.emit();
         const before = this.store.getState().project;
-        const outcome = await this.runners[stage]({ project: before, ...(rooms ? { rooms } : {}), signal, log: (text) => this.note(stage, text) });
-        const blocking = stage === "verify" && outcome.issues.length > 0;
+        const outcome = await this.runners[stage]({
+          project: before,
+          ...(only ? { rooms: only } : {}),
+          ...(stage === "plan" && feedback ? { feedback } : {}),
+          signal,
+          log: (text) => this.note(stage, text),
+        });
+        const blocking = outcome.blocking ?? (stage === "verify" && outcome.issues.length > 0);
+        // Repairs: a failed verify goes back to the stage that caused it; a game off its play-time target goes back to the plan.
+        const repair = blocking && stage === "verify" ? repairFor(before, outcome.issues) : stage === "pacing" && this.repairPacing && outcome.issues.length > 0 ? { from: "plan" as const, reseed: [], rooms: undefined } : null;
+        const canRepair = repair !== null && repairs < this.maxRepairs;
         const status: StageStatus = { status: blocking ? "failed" : "done", summary: outcome.summary, at: new Date().toISOString() };
-        const committed = await this.store.commitStage(stage, (current) => ({
-          project: withStatus(current === before ? outcome.project : { ...current, architect: outcome.project.architect }, stage, status),
-          summary: outcome.summary,
-        }));
+        const committed = await this.store.commitStage(stage, (current) => {
+          let next = withStatus(current === before ? outcome.project : { ...current, architect: outcome.project.architect }, stage, status);
+          if (canRepair && repair!.reseed.length) next = reseed(next, repair!.reseed);
+          return { project: next, summary: outcome.summary };
+        });
         if (!committed.ok) throw new Error(committed.error.message);
         this.note(stage, outcome.summary);
-        if (blocking) return this.finish("failed", stage, outcome.issues, "verify found issues");
-        const paused = this.store.getState().project.architect.pauseAfter.includes(stage) && i < stages.length - 1;
+        if (canRepair) {
+          repairs++;
+          queue = ARCHITECT_STAGES.slice(ARCHITECT_STAGES.indexOf(repair!.from), ARCHITECT_STAGES.indexOf(end) + 1);
+          only = repair!.rooms;
+          feedback = outcome.issues.map((x) => x.message);
+          this.note(stage, `repair ${repairs}/${this.maxRepairs}: back to ${repair!.from}${only ? ` for ${only.join(", ")}` : ""}${repair!.reseed.length ? ` (new seeds for ${repair!.reseed.length} room(s))` : ""}`);
+          i = -1;
+          continue;
+        }
+        if (blocking) return this.finish("failed", stage, outcome.issues, `${stage} found issues`);
+        const paused = this.store.getState().project.architect.pauseAfter.includes(stage) && i < queue.length - 1;
         if (paused) return this.finish("paused", stage, outcome.issues);
-        if (i === stages.length - 1) return this.finish("finished", stage, outcome.issues);
+        if (i === queue.length - 1) return this.finish("finished", stage, outcome.issues);
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -218,4 +254,28 @@ export function withStatus(project: ProjectSpec, stage: ArchitectStage, status: 
     }
   }
   return { ...project, architect: { ...project.architect, stages } };
+}
+
+/**
+ * Where a failed verify goes back to: the earliest stage its issues name. Geometry
+ * issues tied to rooms rebuild just those rooms with new seeds (the rooms of a
+ * leaking gate's link included); anything else reruns its stage for every room.
+ */
+export function repairFor(project: ProjectSpec, issues: StageIssue[]): { from: ArchitectStage; rooms: string[] | undefined; reseed: string[] } | null {
+  const fixable = issues.filter((i) => i.stage !== "verify" && i.stage !== "art");
+  if (fixable.length === 0) return null;
+  const from = ARCHITECT_STAGES.find((s) => fixable.some((i) => i.stage === s))!;
+  const roomOf = (i: StageIssue) => i.roomId ?? (i.linkId ? project.architect.links.find((l) => l.id === i.linkId)?.a.room : undefined);
+  const atFrom = fixable.filter((i) => i.stage === from);
+  const rooms = atFrom.every((i) => roomOf(i)) ? [...new Set(atFrom.map((i) => roomOf(i)!))].filter((id) => project.architect.rooms.some((r) => r.id === id && !r.pinned)) : undefined;
+  const reseed = from === "geometry" ? (rooms ?? project.architect.rooms.filter((r) => !r.pinned).map((r) => r.id)) : [];
+  return { from, rooms: rooms?.length ? rooms : undefined, reseed };
+}
+
+/** New geometry seeds for these plan rooms (deterministic: the next seed). */
+export function reseed(project: ProjectSpec, rooms: string[]): ProjectSpec {
+  return {
+    ...project,
+    architect: { ...project.architect, rooms: project.architect.rooms.map((r) => (rooms.includes(r.id) ? { ...r, seed: (r.seed + 7919) % 1_000_000 } : r)) },
+  };
 }

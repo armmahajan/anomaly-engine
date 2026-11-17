@@ -113,3 +113,61 @@ describe("the Architect run", () => {
     expect(project().architect.stages.geometry).toBeUndefined();
   });
 });
+
+describe("repairs and the model stages", () => {
+  it("routes verify failures to the stage that fixes them, with new seeds for rebuilt rooms", async () => {
+    const { repairFor, reseed } = await import("../src/index.ts");
+    await op("seedArchitectPlan", {});
+    const p = project();
+    const [a, b] = p.architect.rooms;
+    const link = p.architect.links[0]!;
+    expect(repairFor(p, [{ stage: "geometry", code: "gate-bypassed", message: "", linkId: link.id }])).toEqual({ from: "geometry", rooms: [link.a.room], reseed: [link.a.room] });
+    expect(repairFor(p, [{ stage: "population", code: "dead-state", message: "", roomId: b!.id }, { stage: "geometry", code: "lint:unstandable_platform", message: "", roomId: a!.id }])).toEqual({ from: "geometry", rooms: [a!.id], reseed: [a!.id] });
+    expect(repairFor(p, [{ stage: "population", code: "no-ending", message: "" }])).toEqual({ from: "population", rooms: undefined, reseed: [] });
+    expect(repairFor(p, [{ stage: "verify", code: "check-crashed", message: "" }])).toBeNull();
+    expect(reseed(p, [a!.id]).architect.rooms[0]!.seed).not.toBe(a!.seed);
+  });
+
+  it("a failed verify sends the run back, then succeeds", async () => {
+    let verifies = 0;
+    const geometry: (string[] | undefined)[] = [];
+    await op("seedArchitectPlan", {});
+    const target = project().architect.rooms[1]!;
+    const architect = service({
+      geometry: async ({ project, rooms }) => (geometry.push(rooms), { project, issues: [], summary: "built" }),
+      verify: async ({ project }) =>
+        ++verifies === 1
+          ? { project, issues: [{ stage: "geometry", code: "lint:unstandable_platform", message: "a ledge under the ceiling", roomId: target.id }], summary: "1 issue" }
+          : { project, issues: [], summary: "ok" },
+    });
+    await architect.start({});
+    await architect.idle();
+    expect(architect.getState().last).toMatchObject({ outcome: "finished" });
+    expect(geometry).toEqual([undefined, [target.id]]);
+    expect(project().architect.rooms[1]!.seed).not.toBe(target.seed);
+    expect(architect.getState().log.map((l) => l.text)).toContain(`repair 1/3: back to geometry for ${target.id} (new seeds for 1 room(s))`);
+  });
+
+  it("the plan stage is an Architect turn on a private copy; the cast stage asks the build assistant for missing enemies", async () => {
+    const { callTools, FakeModel, runAgentTurn, say, toolCall } = await import("@anomaly/agent");
+    const { modelStageRunners } = await import("../src/index.ts");
+    const messages: string[] = [];
+    const runners = modelStageRunners((request) => {
+      messages.push(`${request.agent!.id}: ${request.userMessage.slice(0, 40)}`);
+      const script =
+        request.agent!.id === "architect"
+          ? [callTools(toolCall("updateRoomPlan", { roomId: request.project.architect.rooms[0]!.id, changes: { notes: "the first room", contents: [{ kind: "start" }, { kind: "enemy", characterId: "moth" }] } })), say("Shaped the plan.")]
+          : [callTools(toolCall("createCharacter", { character: { ...request.project.characters.find((c) => c.kind === "enemy")!, id: "moth", name: "Moth" } })), say("Made the moth.")];
+      return runAgentTurn({ ...request, model: new FakeModel(script) });
+    });
+    const ctx = { signal: new AbortController().signal, log: () => {} };
+    const planned = await runners.plan({ ...ctx, project: project() });
+    expect(planned.project.architect.rooms[0]!.notes).toBe("the first room");
+    expect(planned.blocking).toBe(false);
+    expect(project().architect.rooms).toEqual([]); // the store is untouched: the run commits the result
+    const cast = await runners.cast({ ...ctx, project: planned.project });
+    expect(cast.project.characters.some((c) => c.id === "moth")).toBe(true);
+    expect(cast.blocking).toBe(false);
+    expect(messages).toEqual(["architect: Plan the game world now. The plan has be", "build: Create these enemy characters for the wo"]);
+  });
+});

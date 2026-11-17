@@ -11,3 +11,5 @@ export * from "./narrative/summary.ts";
 export * from "./narrative/tools.ts";
 export * from "./narrative/progression.ts";
 export * from "./narrative/prompt.ts";
+export * from "./architect/tools.ts";
+export * from "./architect/prompt.ts";

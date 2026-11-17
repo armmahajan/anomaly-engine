@@ -22,6 +22,11 @@ const AGENT_TEXT: Record<AgentId, { title: string; hint: string; placeholder: st
     hint: "Describe your game: the world, the tone, who the player is, how it ends, how the world opens up. The director fills in the wiki and the progression as drafts for you to review.",
     placeholder: "Describe your game's direction…",
   },
+  architect: {
+    title: "Architect",
+    hint: "Ask for the world you want, e.g. “make the canopy a tall vertical climb” or “build the game”. The Architect plans rooms from the director's design; code builds them and proves the game can be finished.",
+    placeholder: "Guide the world's plan…",
+  },
 };
 
 interface Props {
