@@ -19,7 +19,9 @@ export interface Units {
   topRung: number;
   /** Rows a drop-in chute's walls hang from the ceiling (no plain jump from below them reaches the top). */
   chute: number;
-  /** Width of a ladder: two halves of rungs that zig-zag up. */
+  /** Width of a ladder's rungs; a ladder is two columns of them, a tile apart, that zig-zag up. */
+  half: number;
+  /** Width of a ladder: two halves of rungs and the gap between them (so each rung has a clear edge to drop off). */
   ladder: number;
   /** Width of a top or bottom door. */
   hatch: number;
@@ -39,7 +41,7 @@ export function unitsFor(p: MovementParams): Units {
   const topRung = Math.max(body + 1, Math.floor((model.maxHeight - 40 + p.height / 2) / TILE));
   const chute = Math.ceil((model.maxHeight + p.height / 2 + 48) / TILE);
   const half = Math.max(3, Math.ceil((p.width * 2 + 8) / TILE));
-  u = { rise, body, air, pit, topRung, chute, ladder: half * 2, hatch: Math.max(4, Math.ceil((p.width + 72) / TILE)) };
+  u = { rise, body, air, pit, topRung, chute, half, ladder: half * 2 + 1, hatch: Math.max(4, Math.ceil((p.width + 72) / TILE)) };
   memo.set(key, u);
   return u;
 }
