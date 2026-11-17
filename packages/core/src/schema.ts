@@ -91,6 +91,9 @@ export const EnemyCharacter = z.strictObject({
   death: EnemyDeath.optional().describe(
     `What is left when it dies: it stops hurting and acting at once, plays its death clip (or a pop, flash and shrink without one), stays \`linger\` s, then fades over \`fade\` s. Default linger ${DEATH_DEFAULTS.linger} s, fade ${DEATH_DEFAULTS.fade} s.`,
   ),
+  variantOf: Id.optional().describe(
+    "A tougher copy of another enemy for deeper regions (made by the difficulty stage): same look and behavior, scaled stats. Edit the original; the variants follow when difficulty runs again.",
+  ),
 });
 
 /** A character *type*. Every spawn of it shares these values. */
@@ -176,6 +179,14 @@ export const ProjectSpec = z
         ctx.addIssue({ code: "custom", path: ["characters", i, "id"], message: `duplicate character id "${c.id}"` });
       }
       ids.add(c.id);
+    });
+
+    project.characters.forEach((c, i) => {
+      if (c.kind !== "enemy" || c.variantOf === undefined) return;
+      const base = project.characters.find((o) => o.id === c.variantOf);
+      if (!base || base.kind !== "enemy" || base.variantOf !== undefined || base.id === c.id) {
+        ctx.addIssue({ code: "custom", path: ["characters", i, "variantOf"], message: `"${c.variantOf}" is not an enemy character that isn't itself a variant` });
+      }
     });
 
     const players = project.characters.filter((c) => c.kind === "player").length;

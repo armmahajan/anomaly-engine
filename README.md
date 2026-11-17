@@ -546,6 +546,18 @@ them, and a "phase" is a set of states entered through `healthBelow`.
   optional `death {linger, fade}`, default 0.6 s and 0.4 s) and is gone (hidden, still
   listed with health 0). The body runs on room time, so hit-stops freeze it; a
   rebuilt room has no corpses. `game/test/death.test.ts`.
+- **Difficulty by region** (`packages/core/src/combat/difficulty.ts`, the Architect's
+  cast stage): a region's depth is its place in the progression (spheres, then
+  connections from the start; the start is 0). An enemy as written is its depth-0
+  self; where it spawns deeper, those spawns point at a variant `<id>_d<depth>`
+  (`variantOf` the original: same look, art and behavior) with health ×(1 + 0.3·depth)
+  rounded up (at most ×2.5), contact and attack damage ×(1 + 0.3·depth) rounded (at
+  most ×2), and its own movement speed ×(1 + 0.05·depth) (at most ×1.2); windups,
+  reach, knockback and projectiles stay, so `lintCombat` has nothing new to say.
+  Summoned enemies follow their summoner's depth; enemyKilled handlers naming the
+  original follow its variants. Variants are derived: each run folds them back first,
+  so it is idempotent and edits to the original carry over; art drawn for the
+  original is drawn for its variants; pinned rooms are left alone.
 - **Health bars:** any spawn can show one (`spawn.healthBar {title}`,
   `setSpawnHealthBar`): a titled bar at the top of the screen while it lives in the
   current room, stacked in spawn order (runtime state `healthBars`).

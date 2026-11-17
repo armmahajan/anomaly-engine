@@ -105,7 +105,7 @@ export function createAsset(project: ProjectSpec, input: unknown): OperationResu
     if (!characters.some((c) => c.id === assignTo)) {
       return fail("not_found", `no character with id "${assignTo}"${list(characters.map((c) => c.id))}`);
     }
-    characters = characters.map((c) => (c.id === assignTo ? { ...c, appearance: asset.id } : c));
+    characters = characters.map((c) => (drawnAs(c, assignTo) ? { ...c, appearance: asset.id } : c));
   }
   return commit({ ...project, characters, art: { ...project.art, assets: [...project.art.assets, parsed.data] } });
 }
@@ -160,11 +160,16 @@ export function assignAppearance(project: ProjectSpec, input: unknown): Operatio
     const found = findCharacterAsset(project, assetId);
     if (!found.ok) return found;
   }
-  const { appearance: _old, ...rest } = character;
-  const characters = project.characters.slice();
-  characters[index] = assetId === null ? rest : { ...rest, appearance: assetId };
+  const characters = project.characters.map((c) => {
+    if (!drawnAs(c, characterId)) return c;
+    const { appearance: _old, ...rest } = c;
+    return assetId === null ? rest : { ...rest, appearance: assetId };
+  });
   return commit({ ...project, characters });
 }
+
+/** The character itself, or one of its variants (variantOf): variants are drawn like their original. */
+const drawnAs = (c: ProjectSpec["characters"][number], characterId: string) => c.id === characterId || (c.kind === "enemy" && c.variantOf === characterId);
 
 // --- concept stage -----------------------------------------------------------
 

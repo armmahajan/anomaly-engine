@@ -110,6 +110,10 @@ export function gameArtPlan(project: ProjectSpec, options: GameArtOptions = {}):
   for (const c of project.characters) {
     const asset = c.appearance ? assets.get(c.appearance) : undefined;
     if (!asset || asset.kind !== "character" || !asset.rig) {
+      // A variant (variantOf) is drawn with its undrawn original: that step's asset is assigned to both.
+      const original = c.kind === "enemy" && c.variantOf ? project.characters.find((o) => o.id === c.variantOf) : undefined;
+      const originalAsset = original?.appearance ? assets.get(original.appearance) : undefined;
+      if (original && !(originalAsset?.kind === "character" && originalAsset.rig)) continue;
       steps.push({
         id: `character:${c.id}`,
         kind: "character",
