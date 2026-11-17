@@ -77,7 +77,8 @@ e2e/            Playwright acceptance test.
   `game/primitives/`, one small file each). The runtime reports its
   primitive list on boot and the studio flags any mismatch.
   - Actions: patrol, wait, chase, charge, telegraph, retreat, returnHome,
-    jump, hover. Conditions: playerWithin, playerBeyond, after, hitWall,
+    jump, hover, and the attacks strike, shoot, leap, slam, summon, teleport
+    (see "Enemy combat primitives"). Conditions: playerWithin, playerBeyond, after, hitWall,
     actionDone, atLedge, onGround, airborne, playerAbove, playerBelow,
     playerLevel, playerInFront, playerBehind, canSeePlayer, wasHit,
     healthBelow, chance.
@@ -419,6 +420,47 @@ and `setMap` (`packages/core/src/modals/`).
   buttons' effects with the shared `EffectList`) and **Map** switch. Tests:
   `game/test/modals.test.ts` (headless, through `game/tests/modal_probe.gd`) and
   `e2e/modals.spec.ts`.
+
+## Enemy combat primitives
+
+Any enemy fights with the same behavior primitives (`behavior.ts`,
+`game/primitives/actions/`); a hard fight is just an enemy that uses more of
+them, and a "phase" is a set of states entered through `healthBelow`.
+
+- **Attacks:** `strike` (a melee hitbox: width x height, offsetX ahead; windup,
+  active, recovery; optional lunge), `shoot` (count projectiles in a fan, aimed at
+  the player or at an angle from facing; speed, gravity, lifetime; they break on
+  solids or the player; `pogo` ones bounce a downward strike), `leap` (lands where
+  the player stood, up to maxDistance), `slam` (hop, crash down, a shockwave runs
+  along the ground both ways: waveSpeed, waveReach, waveHeight; jump it; flyers
+  drop), `summon` (`count` of another enemy beside itself, at most `max` alive),
+  `teleport` (home, random within range, or past the player; untouchable while a
+  marker shows where it will appear). Attack damage is per action; knockback is
+  the enemy's `knockback` stat. Projectiles and shockwaves live in
+  `game/scripts/combat/`.
+- **Fair by construction:** every attack has a `windup` of at least 0.25 s
+  (`MIN_WARNING`; the schema rejects less) in which it flashes its `color` like a
+  telegraph (strikes also outline their hitbox, slams shake). `lintCombat`
+  (`packages/core/src/combat/lint.ts`) flags the rest: a charge entered without a
+  telegraph of at least 0.25 s, a behavior with no state the player can hit back in
+  (`no_opening`), a leap / jump / teleport reaching further than a room it spawns in
+  is wide, summons that summon (caps multiply) or name no enemy, and contact damage
+  with knockback 0.
+- **Armor** (enemy stat, 0..1, default 0) resists the push of sword hits.
+- **Health bars:** any spawn can show one (`spawn.healthBar {title}`,
+  `setSpawnHealthBar`): a titled bar at the top of the screen while it lives in the
+  current room, stacked in spawn order (runtime state `healthBars`).
+- **Feedback effects** (`game/scripts/fx.gd`), from any handler: shake (camera),
+  flash (a full-screen color above the HUD, below modals), hitStop (frames) and
+  slowMotion. Slow motion skips physics frames (only `scale` of them run) instead of
+  scaling time, so every step stays the fixed 1/60 s: headless runs are
+  deterministic and movement still matches the model.
+- **Studio:** Rooms → each enemy spawn → *Health bar & handlers* (e.g. on its
+  enemyKilled: shake, slowMotion, setFlag). The Inspector edits the new params.
+- **Tests:** `game/test/combat_primitives.test.ts` plays each primitive and three
+  heavy enemies built from data only (`game/test/fixtures/combatShowcase.ts`): each
+  attack hits a player who stands still, the intended dodge avoids it, and a scripted
+  fight kills it in a stated time.
 
 ## Characters (art)
 

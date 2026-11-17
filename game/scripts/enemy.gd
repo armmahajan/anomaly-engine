@@ -5,6 +5,7 @@ extends CharacterBody2D
 
 const Registry := preload("res://primitives/registry.gd")
 const CharacterArt := preload("res://scripts/art/character_art.gd")
+const Attack := preload("res://scripts/combat/attack.gd")
 
 ## The sword (or anything else) brought its health to 0.
 signal killed
@@ -34,6 +35,10 @@ var max_health := 0
 ## Hit by the player's sword since entering the current state (see wasHit).
 var was_hit := false
 var dead := false
+## Set by slam's windup: hang in the air (no gravity) this frame.
+var hold_air := false
+## Its summons (summon primitive), alive or not.
+var summons: Array = []
 
 const FLASH_TIME := 0.1
 const RECOIL_SPEED := 260.0
@@ -44,6 +49,15 @@ var _interrupts: Array = []
 var _entered := false
 var _knockback := 0.0
 var _contact_damage := 1
+var _armor := 0.0
+var _bounds := {}
+var _summoned := 0
+## A shown attack hitbox (strike): {rect (local), live, color} or null.
+var _attack = null
+## Teleporting: gone (untouchable, harmless) until appear(); the marker is where it will be.
+var _hidden := false
+var _marker := Vector2.ZERO
+var _marker_color := Color.WHITE
 var _flash := 0.0
 var _recoil := Vector2.ZERO
 var _recoil_time := 0.0
@@ -65,6 +79,8 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 	flying = character.get("movement", "ground") == "flying"
 	_knockback = float(character.stats.knockback)
 	_contact_damage = int(character.stats.get("contactDamage", 1))
+	_armor = clampf(float(character.stats.get("armor", 0.0)), 0.0, 1.0)
+	_bounds = bounds
 	max_health = int(character.stats.get("health", 3))
 	health = max_health
 	_size = Vector2(character.size.width, character.size.height)
@@ -109,7 +125,7 @@ func _physics_process(delta: float) -> void:
 		if _flash <= 0.0:
 			queue_redraw()
 
-	if not flying and not is_on_floor():
+	if not flying and not is_on_floor() and not hold_air and not _hidden:
 		velocity.y += _gravity * delta
 	move_and_slide()
 	state_time += delta
@@ -118,7 +134,7 @@ func _physics_process(delta: float) -> void:
 	_check_transitions()
 	_update_rig()
 
-	if shaking:
+	if shaking or _hidden or _attack != null:
 		queue_redraw()
 	if position.y > _kill_y:
 		position = home
@@ -155,13 +171,17 @@ func _enter(state_id: String) -> void:
 	was_hit = false
 	action_done = false
 	shaking = false
+	hold_air = false
 	set_tint(null)
+	show_attack(null)
+	if _hidden:
+		appear(false)
 	var action: Dictionary = _states[state_id].action
 	Registry.ACTIONS[action.type].enter(self, action)
 
 
 func _touch_player() -> void:
-	if player == null or (_knockback <= 0.0 and _contact_damage <= 0) or not rect().intersects(player.rect()):
+	if player == null or _hidden or (_knockback <= 0.0 and _contact_damage <= 0) or not rect().intersects(player.rect()):
 		return
 	var direction := signf(player.position.x - position.x)
 	player.hit(direction if direction != 0.0 else facing, _knockback, _contact_damage)
@@ -169,12 +189,13 @@ func _touch_player() -> void:
 
 ## Struck by the player's sword: flash, get pushed along `push`, maybe die.
 func take_hit(damage: int, push: Vector2) -> void:
-	if dead:
+	if dead or _hidden:
 		return
 	health = maxi(0, health - damage)
 	was_hit = true
 	_flash = FLASH_TIME
-	_recoil = push * RECOIL_SPEED
+	# Armor resists the push, not the damage.
+	_recoil = push * RECOIL_SPEED * (1.0 - _armor)
 	_recoil_time = RECOIL_TIME
 	queue_redraw()
 	if health == 0:
@@ -182,12 +203,15 @@ func take_hit(damage: int, push: Vector2) -> void:
 		visible = false
 		collision_layer = 0
 		set_physics_process(false)
+		show_attack(null)
 		killed.emit()
 
 
 # --- actor API ---
 
 func rect() -> Rect2:
+	if _hidden:
+		return Rect2(-1e6, -1e6, 0.0, 0.0)  # nothing can touch it
 	return Rect2(position.x - _size.x / 2.0, position.y - _size.y, _size.x, _size.y)
 
 
@@ -197,6 +221,100 @@ func center() -> Vector2:
 
 func gravity() -> float:
 	return _gravity
+
+
+func size() -> Vector2:
+	return _size
+
+
+## How hard its touch and attacks throw the player (the knockback stat).
+func knockback() -> float:
+	return _knockback
+
+
+## Show an attack hitbox (world rect; null hides it): outlined while warning, filled while it hurts.
+func show_attack(box, live := false, color := Color.WHITE) -> void:
+	var shown = null if box == null else {"rect": Rect2(box.position - position, box.size), "live": live, "color": color}
+	if shown != _attack:
+		_attack = shown
+		queue_redraw()
+
+
+## Teleport: vanish, marking where it will appear.
+func vanish(at: Vector2, color: Color) -> void:
+	_hidden = true
+	_marker = at
+	_marker_color = color
+	velocity = Vector2.ZERO
+	if _rig != null:
+		_rig.visible = false
+	queue_redraw()
+
+
+## Reappear: at the marker, or where it vanished when `move` is false.
+func appear(move := true) -> void:
+	_hidden = false
+	if move:
+		position = _marker
+	velocity = Vector2.ZERO
+	if _rig != null:
+		_rig.visible = true
+	queue_redraw()
+
+
+## `spot` (feet) kept inside the room and out of solids, else where it stands now.
+func free_spot(spot: Vector2) -> Vector2:
+	var half := _size.x / 2.0
+	spot.x = clampf(spot.x, half, maxf(half, float(_bounds.get("width", spot.x + half)) - half))
+	var body := Rect2(spot - Vector2(half, _size.y), _size).grow(-2.0)
+	for corner in [body.position, body.end, Vector2(body.position.x, body.end.y), Vector2(body.end.x, body.position.y)]:
+		if Attack.solid_at(self, corner):
+			return position
+	return spot
+
+
+## Call up to `count` enemies of `character_id` beside itself, keeping at most `cap` of them alive.
+func summon(character_id: String, count: int, cap: int) -> void:
+	summons = summons.filter(func(s): return is_instance_valid(s) and not s.dead)
+	var main := _main()
+	if main == null:
+		return
+	var character = null
+	for c in main._project.characters:
+		if c.id == character_id and c.kind == "enemy":
+			character = c
+	if character == null:
+		return
+	for i in mini(count, cap - summons.size()):
+		var side := facing if i % 2 == 0 else -facing
+		var gap := (_size.x + float(character.size.width)) / 2.0 + 8.0
+		var spot := free_spot(position + Vector2(side * gap * (floorf(i / 2.0) + 1.0), 0.0))
+		var minion: CharacterBody2D = get_script().new()
+		minion.setup(character, _bounds, spot, main._project.get("art", {}))
+		minion.spawn_id = "%s/%d" % [spawn_id, _summoned]
+		minion.player = player
+		minion.rng.seed = rng.randi()
+		_summoned += 1
+		get_parent().add_child(minion)
+		if player != null:
+			player.enemies.append(minion)
+			if main._run.active:
+				minion.killed.connect(main._run.on_enemy_killed.bind(minion.spawn_id, str(character.id)))
+		summons.append(minion)
+
+
+## A small camera shake (a slam landing), through the feedback effects.
+func shake_screen(strength: float, seconds: float) -> void:
+	var main := _main()
+	if main != null and main._fx != null:
+		main._fx.shake(strength, seconds)
+
+
+## main.gd: enemies live under its world (or a Rooms-stage view).
+func _main() -> Node:
+	var world := get_parent()
+	var main: Node = world.get_parent() if world != null else null
+	return main if main != null and "_project" in main else null
 
 
 ## True when standing on the ground with nothing solid just ahead.
@@ -270,6 +388,18 @@ func _update_rig() -> void:
 
 
 func _draw() -> void:
+	if _attack != null:
+		var box: Rect2 = _attack.rect
+		var color: Color = _attack.color
+		if _attack.live:
+			draw_rect(box, Color(color, 0.55))
+		draw_rect(box, Color(color, 0.9 if _attack.live else 0.5), false, 2.0)
+	if _hidden:
+		var pulse := 0.35 + 0.3 * absf(sin(state_time * 12.0))
+		var marker := Rect2(_marker - position - Vector2(_size.x / 2.0, _size.y), _size)
+		draw_rect(marker, Color(_marker_color, pulse * 0.5))
+		draw_rect(marker, Color(_marker_color, pulse + 0.3), false, 2.0)
+		return
 	if _rig != null:
 		return
 	var offset := Vector2((2.0 if int(state_time * 30.0) % 2 == 0 else -2.0) if shaking else 0.0, 0.0)

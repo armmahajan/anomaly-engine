@@ -28,7 +28,7 @@ function validateWithChargerBehavior(edit: (b: Behavior & Record<string, unknown
 
 describe("behavior schema", () => {
   it("lists the primitive types the runtime must implement", () => {
-    expect(ACTION_TYPES).toEqual(["patrol", "wait", "chase", "charge", "telegraph", "retreat", "returnHome", "jump", "hover"]);
+    expect(ACTION_TYPES).toEqual(["patrol", "wait", "chase", "charge", "telegraph", "retreat", "returnHome", "jump", "hover", "strike", "shoot", "leap", "slam", "summon", "teleport"]);
     expect(CONDITION_TYPES).toEqual([
       "playerWithin",
       "playerBeyond",
@@ -73,7 +73,7 @@ describe("behavior schema", () => {
 
   it("rejects unknown primitives, bad params, and extra params", () => {
     const cases: ((b: Behavior) => void)[] = [
-      (b) => void ((b.states.charge!.action as { type: string }).type = "teleport"),
+      (b) => void ((b.states.charge!.action as { type: string }).type = "dissolve"),
       (b) => void ((b.states.charge!.action as { speed: number }).speed = -10),
       (b) => void ((b.states.charge!.action as Record<string, unknown>).damage = 5),
       (b) => void ((b.states.windup!.action as { color: string }).color = "yellow"),

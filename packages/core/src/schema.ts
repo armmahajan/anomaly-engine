@@ -51,6 +51,7 @@ export const EnemyStats = z.strictObject({
     .max(20)
     .default(1)
     .describe("Damage to the player on touch. With knockback 0 too, touching it is harmless."),
+  armor: z.number().min(0).max(1).optional().describe("0..1 (default 0): how much it resists being pushed back by sword hits; 1 = never budges."),
 });
 
 const characterBase = {

@@ -141,7 +141,10 @@ const doorEnd = z.strictObject({ roomId: z.string(), doorId: z.string() });
 
 /** Precise parameter schemas for the model; the operations themselves accept `unknown` and validate. */
 const writeSchemas: Record<BuildOperation, z.ZodType> = {
-  createCharacter: z.strictObject({ character: EnemyCharacter }),
+  // The behavior's full schema is setBehavior's; repeating it here would double the primitives' share of every turn.
+  createCharacter: z.strictObject({
+    character: EnemyCharacter.extend({ behavior: z.record(z.string(), z.unknown()).describe("A behavior exactly as setBehavior takes it: {initial, states, interrupts}.") }),
+  }),
   duplicateCharacter: DuplicateCharacterInput,
   deleteCharacter: CharacterRef,
   updateCharacter: UpdateCharacterInput,

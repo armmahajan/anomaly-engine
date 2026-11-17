@@ -4,7 +4,7 @@ extends RefCounted
 ##
 ## Action scripts:    const PARAMS; static func enter(actor, params); static func tick(actor, params, delta)
 ## Condition scripts: const PARAMS; static func check(actor, params) -> bool
-## PARAMS maps each parameter to "number", "bool", "color" or "enum:a|b" (checked on load).
+## PARAMS maps each parameter to "number", "bool", "color", "id" (another thing's id) or "enum:a|b" (checked on load).
 
 const ACTIONS := {
 	"patrol": preload("res://primitives/actions/patrol.gd"),
@@ -16,6 +16,12 @@ const ACTIONS := {
 	"returnHome": preload("res://primitives/actions/return_home.gd"),
 	"jump": preload("res://primitives/actions/jump.gd"),
 	"hover": preload("res://primitives/actions/hover.gd"),
+	"strike": preload("res://primitives/actions/strike.gd"),
+	"shoot": preload("res://primitives/actions/shoot.gd"),
+	"leap": preload("res://primitives/actions/leap.gd"),
+	"slam": preload("res://primitives/actions/slam.gd"),
+	"summon": preload("res://primitives/actions/summon.gd"),
+	"teleport": preload("res://primitives/actions/teleport.gd"),
 }
 
 const CONDITIONS := {

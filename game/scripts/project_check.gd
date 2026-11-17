@@ -121,6 +121,8 @@ static func _check_character(c: Variant) -> String:
 		"enemy":
 			if not _all_num(c.stats, ["knockback", "health", "contactDamage"]):
 				return "enemy '%s' needs numeric knockback, health and contactDamage" % c.id
+			if c.stats.has("armor") and not _is_num(c.stats, "armor"):
+				return "enemy '%s' armor must be a number" % c.id
 			if not c.get("movement", "ground") in ["ground", "flying"]:
 				return "enemy '%s' has an unknown movement type" % c.id
 			return _check_behavior(c.id, c.get("behavior"))
@@ -203,6 +205,8 @@ static func _valid_param(kind: String, value: Variant) -> bool:
 			return typeof(value) == TYPE_BOOL
 		"color":
 			return _is_color(value)
+		"id":
+			return typeof(value) == TYPE_STRING and value != ""
 	if kind.begins_with("enum:"):
 		return typeof(value) == TYPE_STRING and value in kind.substr(5).split("|")
 	return false
