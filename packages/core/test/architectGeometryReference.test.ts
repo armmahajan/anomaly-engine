@@ -105,4 +105,22 @@ describe("geometry stage on the reference game", () => {
     const changed = again.project.world.rooms.filter((r) => JSON.stringify(r.grid) !== JSON.stringify(project.world.rooms.find((w) => w.id === r.id)!.grid));
     expect(changed.length).toBeGreaterThan(0);
   });
+
+  it("rebuilds only the rooms asked for, and reports a pinned room without the link's door", () => {
+    const [first, second] = plan.rooms;
+    const reseeded = ProjectSpec.parse({ ...project, architect: { ...plan, rooms: plan.rooms.map((r) => ({ ...r, seed: r.seed + 7 })) } });
+    const one = geometryStage(reseeded, { rooms: [first!.id] });
+    for (const r of one.project.world.rooms) {
+      if (r.id !== first!.id) expect(r, r.id).toEqual(project.world.rooms.find((w) => w.id === r.id));
+    }
+    expect(one.project.world.rooms.find((r) => r.id === first!.id)!.grid).not.toEqual(project.world.rooms.find((r) => r.id === first!.id)!.grid);
+
+    // Pin the second room, but without its doors: the first room's link to it is reported, not invented.
+    const bare = structuredClone(project);
+    bare.world.rooms = bare.world.rooms.map((r) => (r.id === second!.id ? { ...r, doors: [] } : { ...r, doors: r.doors.map((d) => (d.to?.room === second!.id ? { ...d, to: null } : d)) }));
+    bare.architect.rooms = bare.architect.rooms.map((r) => (r.id === second!.id ? { ...r, pinned: true } : r));
+    const out = geometryStage(ProjectSpec.parse(bare));
+    expect(out.issues.map((i) => i.code)).toContain("door-unlinked");
+    expect(out.project.world.rooms.find((r) => r.id === second!.id)).toEqual(bare.world.rooms.find((r) => r.id === second!.id));
+  });
 });

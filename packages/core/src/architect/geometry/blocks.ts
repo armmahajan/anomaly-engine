@@ -29,11 +29,11 @@ export interface Block {
 /** A grid being drawn: starts solid. */
 export class Paint {
   cells: string[][];
-  constructor(
-    readonly cols: number,
-    readonly rows: number,
-    fill = "#",
-  ) {
+  readonly cols: number;
+  readonly rows: number;
+  constructor(cols: number, rows: number, fill = "#") {
+    this.cols = cols;
+    this.rows = rows;
     this.cells = Array.from({ length: rows }, () => new Array<string>(cols).fill(fill));
   }
   static from(grid: TileGrid): Paint {
@@ -256,7 +256,7 @@ export function glideTwoWay(p: MovementParams, u: Units): Chunk {
   // The tunnel over the chasm, ending in a hole above the near ledge.
   c.fill(1, 1, w + stack - 1, tunnel, "empty");
   const ledge = base.openings[0].offset + base.openings[0].size + top;
-  c.fill(1, tunnel + 1, 3, ledge - OPENING - tunnel - 1 - top + top, "empty");
+  c.fill(1, tunnel + 1, 3, ledge - OPENING - tunnel - 1, "empty");
   const entry = { ...base.openings[0], offset: base.openings[0].offset + top };
   const exit = opening("right", exitFloor - OPENING);
   c.fill(cols - 1, 0, 1, rows, "solid");

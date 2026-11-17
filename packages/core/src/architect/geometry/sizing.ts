@@ -32,6 +32,9 @@ export function minimumSize(
       return w + gridCols(b.grid) + 4;
     }, 0);
   const cols = sideWidth("left") + sideWidth("right") + Math.max(edgeWidth("top"), edgeWidth("bottom")) + 2 * (u.ladder + 2) + 10;
+  // Each gate along the top or bottom beyond the first cuts more bands: a band more for each.
+  const edgeGates = [...on("top"), ...on("bottom")].filter((d) => d.gate.length).length;
+  if (edgeGates > 1) rows += (edgeGates - 1) * band;
   // The top band is taller under a chute or a top door's ladder; side doors need a band each below it.
   const first = Math.max(band, on("top").some((d) => d.flow === "in" && !d.gate.length) ? u.chute + 5 : 0, on("top").length ? u.topRung + band + 2 : 0);
   const most = Math.max(on("left").length, on("right").length, 1);

@@ -6,7 +6,7 @@ import type { RoomTerrain } from "../plan.ts";
 import { gateBlock, Paint, rungRows, type Block } from "./blocks.ts";
 import { fixUnstandable } from "./lint.ts";
 import { mixSeed, Rng } from "./rng.ts";
-import { unitsFor, type Units } from "./units.ts";
+import { unitsFor } from "./units.ts";
 
 /**
  * Room composition: a room's tiles and doors from its size, its doors and the
@@ -25,8 +25,9 @@ import { unitsFor, type Units } from "./units.ts";
  * and its entry opens onto a band's floor. Then spike strips (hazards),
  * floating one-way platforms in tiers (density, verticality) and wide flat
  * floor (open, or a fight that locks the room). The knobs: verticality picks
- * shorter bands, bigger floor steps and more ladders and platform tiers;
- * hazards the spike strips; density the platforms and how often the floor
+ * shorter bands, bigger floor steps, terraces (a floor that climbs a jump at a
+ * time where the band has air to spare) and more ladders; hazards the spike
+ * strips; density the platforms (by the band's air) and how often the floor
  * steps; open the widest flat run of floor.
  *
  * Composition can fail (things don't fit); the caller tries other attempts
@@ -234,7 +235,6 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   for (const b of sideBlocks) {
     const cut = cutBands(b.y, b.y + gridRows(b.block.grid));
     for (const k of cut) {
-      if (usedSide.get(b.door.side)!.has(k) && !bands[k]) fail("gates overlap");
       usedSide.get(b.door.side)!.add(k);
       cuts.push({ band: k, c0: b.x, c1: b.x + gridCols(b.block.grid) - 1 });
     }
@@ -269,13 +269,26 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
       const bw = gridCols(probe.grid);
       if (bw + 8 > C) fail(`the ${d.gate.join("+")} gate is ${bw} tiles wide; the room is ${C}`);
       options.push({ x: 0, facing: "right" }, { x: C - bw, facing: "left" });
-      const mid = Math.max(1, Math.min(C - bw - 1, (d.prefer ?? Math.floor((C - bw) / 2)) - 1));
+      const mid = Math.max(6, Math.min(C - bw - 6, (d.prefer ?? Math.floor((C - bw) / 2)) - 1));
       options.push({ x: mid, facing: rng.chance(0.5) ? "left" : "right" });
       // Then anywhere else along the edge.
-      for (const x of rng.shuffle(Array.from({ length: Math.max(0, Math.floor((C - bw - 2) / 3)) }, (_, i) => 1 + i * 3))) options.push({ x, facing: x + bw / 2 < C / 2 ? "right" : "left" });
+      for (const x of rng.shuffle(Array.from({ length: Math.max(0, Math.floor((C - bw - 12) / 3) + 1) }, (_, i) => 6 + i * 3).filter((x) => x + bw <= C - 6))) options.push({ x, facing: x + bw / 2 < C / 2 ? "right" : "left" });
       let done = false;
       const firstTwo = rng.chance(0.5) ? [options[0]!, options[1]!] : [options[1]!, options[0]!];
       for (const o of [...firstTwo, ...options.slice(2)]) {
+        if (o.x < 0 || o.x + bw > C) continue;
+        if (o.x > 0 && o.x + bw < C) {
+          // Off the corners: face the wider stretch of free edge.
+          const leftEnd = Math.max(0, ...taken[s].filter(([, b]) => b < o.x).map(([, b]) => b + 1));
+          const rightStart = Math.min(C, ...taken[s].filter(([a]) => a >= o.x + bw).map(([a]) => a));
+          o.facing = o.x - leftEnd >= rightStart - (o.x + bw) ? "left" : "right";
+          // The entry needs floor in front of it and room for a ladder beside that.
+          if (Math.max(o.x - leftEnd, rightStart - (o.x + bw)) < u.ladder + 8) continue;
+          // Nor squeeze another block's entry: next to a block, leave a ladder's room or none.
+          if ((leftEnd > 0 && o.x - leftEnd < u.ladder + 8) || (rightStart < C && rightStart - (o.x + bw) < u.ladder + 8)) continue;
+          // Next to a wall, room for a side door's floor and a ladder (or none, at the corner).
+          if ((leftEnd === 0 && o.x < 2 * u.ladder + 6) || (rightStart === C && C - (o.x + bw) < 2 * u.ladder + 6)) continue;
+        }
         // Size the riser or dropper so the entry lands on some band's floor.
         const target = edgeTarget.get(d.id);
         const rows: [number, number][] = target === undefined ? [] : [[bandAt(target), target]];
@@ -630,7 +643,6 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   return { grid, doors: doorsOut };
 }
 
-export type { Units };
 
 /**
  * Band bases, top to bottom: each required row can be a floor of some band
