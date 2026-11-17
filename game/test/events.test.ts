@@ -47,6 +47,18 @@ const scenarios = {
     frames: s(1),
     samples: [0, s(1)],
   },
+  // Conditions are judged when the event happens: an earlier handler's effects don't change which later ones run.
+  judged: {
+    project: logic(arena([]), {
+      handlers: [
+        { on: { type: "gameStarted" }, when: [{ type: "flag", flag: "a", is: false }], do: [{ type: "setFlag", flag: "a" }] },
+        { on: { type: "gameStarted" }, when: [{ type: "flag", flag: "a", is: false }], do: [{ type: "setFlag", flag: "b" }] },
+        { on: { type: "gameStarted" }, when: [{ type: "flag", flag: "a" }], do: [{ type: "setFlag", flag: "never" }] },
+      ],
+    }),
+    frames: 2,
+    samples: [1],
+  },
   // A spawn's handler hears its own death; the room's hears it cleared.
   kills: {
     project: logic(
@@ -117,6 +129,10 @@ describe("the game-logic engine", () => {
     expect(start!.flags).toEqual(["rich"]);
     expect(later!.items).toEqual({ coin: 2 });
     expect(later!.flags.sort()).toEqual(["after_shake", "settled"]);
+  });
+
+  it("judges every handler's conditions when the event happens", () => {
+    expect(results.judged[0]!.flags.sort()).toEqual(["a", "b"]);
   });
 
   it("tells a spawn's handlers about its death and the room's about it being cleared", () => {

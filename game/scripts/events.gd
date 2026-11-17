@@ -64,9 +64,11 @@ func flush() -> void:
 	while not _queue.is_empty() and handled < MAX_EVENTS_PER_FLUSH and run.active:
 		var event: Dictionary = _queue.pop_front()
 		handled += 1
-		for found in _handlers_for(event):
-			if found.handler.get("when", []).all(holds):
-				run_effects(found.handler.get("do", []), found.context)
+		# Conditions are judged when the event happens, before any of its handlers run
+		# (so "with the item: open" and "without it: say it's locked" never both fire).
+		var ready := _handlers_for(event).filter(func(found): return found.handler.get("when", []).all(holds))
+		for found in ready:
+			run_effects(found.handler.get("do", []), found.context)
 	if handled >= MAX_EVENTS_PER_FLUSH:
 		push_warning("[events] more than %d events in one frame; the rest were dropped" % MAX_EVENTS_PER_FLUSH)
 		_queue.clear()

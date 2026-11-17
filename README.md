@@ -343,6 +343,17 @@ event happens and every condition holds, the effects run in order.
 - **Rules are presets.** `world.rules` (onDeath, save, hazardDamage) compiles to
   handlers (`ruleHandlers`) that `toRuntimeProject` sends before the world's own,
   so the runtime only knows handlers.
+- **Conditions are judged when the event happens,** before any handler for it runs, so "with
+  the item: open" and "without it: say it's locked" never both fire.
+- **The fixture slice** (`world/fixtureSlice.ts`) is the fixture world turned into a small game
+  from these primitives alone:
+  - a title modal, then an item on a ledge that opens a hatch over the shaft;
+  - a save spot, then a sanctum sealed while its guardian (a heavy enemy with a health bar) lives;
+  - beating it unseals the sanctum and grants double jump (the guardian stays beaten: a conditional spawn);
+  - a summit only that ability reaches (checked by the traversal checker), whose altar ends the game.
+  `game/test/slice.test.ts` plays it from the title to the ending with scripted input.
+  `game/test/readiness.test.ts` has the build assistant (a scripted model) build a lock-and-key
+  through its tools alone, then plays it.
 - **No roles in code.** Keys, locked barriers, switches, save spots and boss
   fights are recipes: props, flags, items, enemies and handlers.
   `game/test/genericity.test.ts` fails if runtime or gameplay code names a role.

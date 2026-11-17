@@ -5,7 +5,8 @@ import { MovementAbility } from "../movement/params.ts";
 /**
  * Game logic is data: *handlers* bind an event to conditions and effects.
  * `{ on, when, do }`: when the event happens and every condition holds, the
- * effects run in order. Handlers live on the world, a room, a prop or an
+ * effects run in order. Conditions are checked when the event happens, before
+ * any handler for it runs. Handlers live on the world, a room, a prop or an
  * enemy spawn; on a room, prop or spawn the event is scoped to it (a room's
  * roomEntered is that room's, a prop's touch is that prop's, a spawn's
  * enemyKilled is that spawn's).

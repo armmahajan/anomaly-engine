@@ -19,32 +19,49 @@ import { WorldRoom } from "./world.ts";
 export const SLICE_GUARDIAN = "guardian";
 export const SLICE_GATE_ABILITY = "double_jump";
 
-/** The guardian until a richer enemy replaces it: a charger that charges faster below half health. */
-export function sliceGuardian(): unknown {
+const go = (to: string, when: object, ...and: object[]) => ({ when, ...(and.length ? { and } : {}), to });
+const after = (seconds: number) => ({ type: "after", seconds });
+const done = { type: "actionDone" };
+const level = { type: "playerLevel", margin: 60 };
+
+/**
+ * The sanctum's guardian: a heavy melee enemy (the Iron Warden of the combat
+ * showcase). It cleaves at close range; below half health it roars, then
+ * lunges and sends quakes along the floor. Plain data on the generic primitives.
+ */
+export function sliceGuardian(health = 10): unknown {
   return {
     id: SLICE_GUARDIAN,
     kind: "enemy",
     name: "Guardian",
-    color: "#a05a8c",
-    size: { width: 56, height: 72 },
-    stats: { knockback: 380, health: 8, contactDamage: 1 },
-    movement: "ground",
+    color: "#7d8a99",
+    size: { width: 48, height: 64 },
+    stats: { knockback: 420, health, contactDamage: 1, armor: 0.8 },
     behavior: {
-      initial: "watch",
+      initial: "stalk",
       states: {
-        watch: { action: { type: "wait" }, transitions: [{ when: { type: "after", seconds: 0.8 }, to: "windup" }] },
-        windup: { action: { type: "telegraph", color: "#ffd27a", shake: true }, transitions: [{ when: { type: "after", seconds: 0.6 }, to: "charge" }] },
-        charge: { action: { type: "charge", speed: 520 }, transitions: [{ when: { type: "actionDone" }, to: "rest" }] },
-        rest: {
-          action: { type: "wait" },
-          transitions: [
-            { when: { type: "healthBelow", fraction: 0.5 }, to: "rage_windup" },
-            { when: { type: "after", seconds: 1 }, to: "windup" },
-          ],
+        stalk: {
+          action: { type: "chase", speed: 110, stopDistance: 70 },
+          transitions: [go("roar", { type: "healthBelow", fraction: 0.5 }), go("cleave", { type: "playerWithin", distance: 100 }, level)],
         },
-        rage_windup: { action: { type: "telegraph", color: "#ff6a5a", shake: true }, transitions: [{ when: { type: "after", seconds: 0.45 }, to: "rage_charge" }] },
-        rage_charge: { action: { type: "charge", speed: 700 }, transitions: [{ when: { type: "actionDone" }, to: "rage_rest" }] },
-        rage_rest: { action: { type: "wait" }, transitions: [{ when: { type: "after", seconds: 0.7 }, to: "rage_windup" }] },
+        cleave: {
+          action: { type: "strike", windup: 0.55, active: 0.2, recovery: 0.9, width: 80, height: 56, offsetX: 52, color: "#ffb347" },
+          transitions: [go("stalk", done)],
+        },
+        roar: { action: { type: "telegraph", color: "#ff5a3d", shake: true }, transitions: [go("quake", after(0.8))] },
+        quake: {
+          action: { type: "slam", windup: 0.45, height: 0, waveSpeed: 480, waveReach: 700, waveHeight: 30, color: "#ff5a3d" },
+          transitions: [go("rest", done)],
+        },
+        rest: { action: { type: "wait" }, transitions: [go("lunge", after(0.6), { type: "playerWithin", distance: 110 }, level), go("rush", after(0.6))] },
+        rush: {
+          action: { type: "chase", speed: 180, stopDistance: 80 },
+          transitions: [go("lunge", { type: "playerWithin", distance: 110 }, level), go("quake", after(1.5))],
+        },
+        lunge: {
+          action: { type: "strike", windup: 0.4, active: 0.25, recovery: 0.8, width: 80, height: 56, offsetX: 52, lunge: 100, color: "#ff5a3d" },
+          transitions: [go("quake", done)],
+        },
       },
       interrupts: [],
     },
@@ -61,7 +78,7 @@ export function fixtureSliceProject(guardian: unknown = sliceGuardian()): Projec
       case "entrance":
         return {
           ...room,
-          props: [{ id: "key", name: "Key", x: 9 * TILE + 4, y: 8 * TILE - 28, width: 24, height: 24, color: "#e8c547", visible: flag("got_key", false), handlers: [{ on: { type: "touch" }, do: [{ type: "giveItem", item: "key" }, { type: "setFlag", flag: "got_key" }] }] }],
+          props: [{ id: "key", name: "Key", x: 11 * TILE + 16, y: 8 * TILE - 28, width: 24, height: 24, color: "#e8c547", visible: flag("got_key", false), handlers: [{ on: { type: "touch" }, do: [{ type: "giveItem", item: "key" }, { type: "setFlag", flag: "got_key" }] }] }],
         };
       case "hall":
         return {
@@ -118,7 +135,7 @@ export function fixtureSliceProject(guardian: unknown = sliceGuardian()): Projec
               x: 22 * TILE,
               y: 12 * TILE,
               when: flag("guardian_beaten", false),
-              healthBar: { title: "The Guardian" },
+              healthBar: { title: "The Iron Guardian" },
               handlers: [
                 {
                   on: { type: "enemyKilled" },

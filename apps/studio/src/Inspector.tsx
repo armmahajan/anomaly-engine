@@ -430,6 +430,22 @@ function ParamField({ id, ariaLabel, param, value, locked, onCommit }: ParamFiel
           </select>
         </div>
       );
+    case "text":
+      return (
+        <div className="field">
+          <label htmlFor={id}>{label}</label>
+          <input
+            id={id}
+            key={String(value ?? "")}
+            aria-label={ariaLabel}
+            className="art-text"
+            defaultValue={String(value ?? "")}
+            disabled={locked}
+            onBlur={(e) => e.currentTarget.value !== value && void onCommit(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          />
+        </div>
+      );
     default:
       return null;
   }

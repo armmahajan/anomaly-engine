@@ -86,7 +86,7 @@ export const UpdateCharacterInput = z.strictObject({
       .record(z.string(), z.unknown())
       .optional()
       .describe(
-        "Stats to change. Player: runSpeed, jumpVelocity, health, attackDamage, attackReach, attackCooldown, pogoVelocity, maxFallSpeed, coyoteTime, jumpBuffer. Enemy: knockback, health, contactDamage.",
+        "Stats to change. Player: runSpeed, jumpVelocity, health, attackDamage, attackReach, attackCooldown, pogoVelocity, maxFallSpeed, coyoteTime, jumpBuffer. Enemy: knockback, health, contactDamage, armor (0-1: resists being pushed back by sword hits).",
       ),
     abilities: z
       .record(z.string(), z.record(z.string(), z.unknown()))
