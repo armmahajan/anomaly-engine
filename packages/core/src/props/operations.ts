@@ -115,7 +115,7 @@ export function createItem(project: ProjectSpec, input: unknown): OperationResul
 
 export const UpdateItemInput = z.strictObject({
   itemId: Id,
-  changes: z.strictObject({ name: Item.shape.name.optional(), description: z.string().max(400).optional(), color: Color.optional() }),
+  changes: z.strictObject({ name: Item.shape.name.optional(), description: z.string().max(400).optional(), color: Color.optional(), icon: Item.shape.icon.describe("A picture of it, a file in the project's asset store (the item art job draws these).") }),
 });
 
 export function updateItem(project: ProjectSpec, input: unknown): OperationResult {
