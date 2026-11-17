@@ -8,15 +8,18 @@ const PARAMS := {"windup": "number", "height": "number", "maxDistance": "number"
 
 static func enter(actor, _params: Dictionary) -> void:
 	actor.face_player()
+	Attack.set_phase(actor, "windup")
 
 
 static func tick(actor, params: Dictionary, delta: float) -> void:
 	if actor.flying:
+		Attack.set_phase(actor, "")
 		actor.action_done = true
 		return
 	if not actor.memory.has("vx"):
 		actor.velocity.x = 0.0
 		if actor.state_time < float(params.windup):
+			Attack.set_phase(actor, "windup")
 			Attack.warn(actor, params.color)
 			return
 		Attack.unwarn(actor)
@@ -35,9 +38,11 @@ static func tick(actor, params: Dictionary, delta: float) -> void:
 			return
 		actor.velocity.y = -vy
 		actor.memory.vx = dx / (2.0 * vy / g + delta)
+		Attack.set_phase(actor, "active")
 		actor.memory.airborne = false
 	if not actor.is_on_floor():
 		actor.memory.airborne = true
 	elif actor.memory.airborne:
 		actor.action_done = true
+		Attack.set_phase(actor, "recovery")
 	actor.velocity.x = 0.0 if actor.action_done else actor.memory.vx

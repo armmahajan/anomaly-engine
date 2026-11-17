@@ -1,4 +1,5 @@
 import {
+  ACTION_PHASE_SLOTS,
   CLIP_SLOTS,
   exampleClips,
   exampleRig,
@@ -146,6 +147,52 @@ export function rigCritiquePrompt(input: {
     .join("\n");
 }
 
+// --- cutout rig ----------------------------------------------------------------
+
+const CUTOUT_SPEC = `A cutout rig animates the concept image itself: it is cut into pieces (parts), each moved by a bone. The pipeline cuts the character out of the background and traces every part's exact outline itself; you only decide the skeleton and roughly where each part is.
+
+Coordinates: PIXELS OF THE IMAGE. Origin (0,0) at the top-left, x to the right, y DOWN (the pink grid lines are labelled in pixels). The character faces right.
+
+Reply: {"bones": Bone[], "parts": Part[], "notes": "<one sentence>"}
+Bone: {"id": "snake_case", "parent": "<bone id>" | null, "pivot": [x, y]}
+  Exactly one root bone (parent null), at the feet/ground contact under the body. Every other bone's pivot is its JOINT: where the piece attaches to its parent (hip, shoulder, neck, base of a tail or wing), placed on the seam between the two pieces.
+Part: {"id": "snake_case", "bone": "<bone id>", "z": int, "region": [[x,y], ...3-48]}
+  region: a ROUGH polygon around the piece (a few points is enough; it may spill onto the background). Every pixel of the character goes to the part whose region holds it (the smallest region where they overlap), else to the nearest part, so regions only need to separate the pieces.
+  z: draw order where pieces overlap when they move (higher = in front): far-side limbs lowest, body, head, near-side limbs highest.`;
+
+export function cutoutSystemPrompt(canvas: { width: number; height: number }): string {
+  return [
+    "You are a 2D game character rigger. You split a character drawing into pieces on bones so the game can animate the drawing itself (like a paper cutout puppet).",
+    CUTOUT_SPEC,
+    `The image is ${canvas.width}x${canvas.height} pixels.`,
+    "Guidelines:",
+    "- One part per piece that should move on its own: head, torso, each leg / arm / wing, tail, antennae, a weapon. A body that should flex may be split into two parts on two bones. 4-16 parts is typical.",
+    "- Pieces that move together (eyes on a head, a mask on a face) belong to the same part: do not cut them out separately.",
+    "- Pivots decide how the pieces swing: put each one at the joint, never in the middle of a limb.",
+  ].join("\n\n");
+}
+
+export function cutoutAuthorPrompt(character: Character, brief: string, canvas: { width: number; height: number }): string {
+  return [
+    `Plan the cutout rig for the character in the image (${canvas.width}x${canvas.height}px): ${brief}.`,
+    `It is a ${roleOf(character)}, about ${character.size.width}x${character.size.height}px in the game.`,
+    'Reply with JSON only: {"bones": [...], "parts": [...], "notes": "<one sentence>"}',
+  ].join("\n");
+}
+
+export function cutoutCritiquePrompt(input: { plan: unknown; warnings: string[]; canvas: { width: number; height: number } }): string {
+  return [
+    "Review the cutout rig. Image 1 is the character (with a pixel grid). Image 2 shows how the pixels were split: each part tinted its own color, bone pivots as white squares (same grid). Image 3 shows the rig with every bone bent one way, then the other: pieces should swing at their joints like a puppet's, nothing should tear, float off or reveal holes.",
+    `Coordinates are pixels of the ${input.canvas.width}x${input.canvas.height} image.`,
+    input.warnings.length > 0 ? `Pipeline warnings: ${input.warnings.join("; ")}` : "",
+    `Current plan:\n${JSON.stringify(input.plan)}`,
+    "Score how well it will animate (0-10): pieces split where the character bends, pivots on the joints, sensible draw order. Then fix the biggest problems: move pivots onto joints, split or merge parts, adjust regions, fix z. The drawing itself never changes.",
+    'Reply with JSON only: {"score": 0-10, "issues": ["<short>", ...], "plan": <the full improved plan, same format> | null (null = keep it)}',
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 // --- animation ----------------------------------------------------------------
 
 const CLIP_SPEC = `A clip is JSON: {"duration": seconds, "loop": bool, "tracks": Track[], "motions": Motion[], "visibility": PartVisibility[]}.
@@ -164,7 +211,7 @@ PartVisibility: {"part", "keys": [[t, true|false], ...]}  show/hide a part (blin
 
 export function animSystemPrompt(): string {
   return [
-    "You are a 2D game animator. You write animation clips for a vector rig as JSON. Clips must read clearly at small size: strong poses, clear timing, anticipation before attacks.",
+    "You are a 2D game animator. You write animation clips for a rig as JSON (flat vector shapes or cut-out pieces of a drawing; both move only by their bones). Clips must read clearly at small size: strong poses, clear timing, anticipation before attacks.",
     CLIP_SPEC,
     `Example clips for the example beetle rig (bones root, body, head, horn, leg_front, leg_mid, leg_back):\n${JSON.stringify(exampleClips())}`,
   ].join("\n\n");
@@ -180,6 +227,9 @@ export function rigSummary(rig: Rig): string {
   return `Bones (pivot in rest pose; parts each bone moves):\n${bones.join("\n")}`;
 }
 
+/** The slots of an attack's hit and recovery (core ACTION_PHASE_SLOTS). */
+const PHASE_SLOTS = new Set<string>(Object.values(ACTION_PHASE_SLOTS).flatMap((phases) => [phases.active[0]!, phases.recovery[0]!]));
+
 export function animPrompt(input: { character: Character; brief: string; rig: Rig; slots: ClipSlot[]; feedback?: string }): string {
   const { character, rig, slots } = input;
   const behavior =
@@ -192,7 +242,10 @@ export function animPrompt(input: { character: Character; brief: string; rig: Ri
     `The image shows the rig at rest. Character: ${input.brief}. A ${roleOf(character)}, ${character.size.width}x${character.size.height}px.`,
     behavior,
     rigSummary(rig),
-    `Write these clips: ${slots.map((s) => `"${s}" (${CLIP_SLOTS[s]})`).join("; ")}.`,
+    `Write exactly these clips, named by slot: ${slots.map((s) => `"${s}" (${CLIP_SLOTS[s]})`).join("; ")}.`,
+    slots.some((s) => PHASE_SLOTS.has(s))
+      ? "An attack plays its clips in a row: windup (anticipation, held as it loops), then the hit itself (strike / shoot / leap / slam / cast: short, fast, loop false, ending in the extended pose), then recover (loop false, from that pose back to rest). Make each clip start where the one before it ends."
+      : "",
     "Keep motion believable for this body: legs alternate, heavy parts move less, wind-ups lean back before striking. Only animate bones listed above.",
     input.feedback ? `Creator's direction: ${input.feedback}` : "",
     'Reply with JSON only: {"clips": {"<slot>": <clip>, ...}, "notes": "<one sentence>"}',

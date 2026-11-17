@@ -34,3 +34,19 @@ static func solid_at(node: Node2D, point: Vector2) -> bool:
 	query.position = point
 	query.collision_mask = 1
 	return not node.get_world_2d().direct_space_state.intersect_point(query, 1).is_empty()
+
+
+## How long an instant attack (a volley, a summon, reappearing) reads as "active" before its recovery.
+const ACTIVE_HOLD := 0.25
+
+
+## Report the attack's phase ("windup", "active", "recovery"): the art plays a clip per phase
+## (character_art.gd). enemy.gd clears it on entering a state.
+static func set_phase(actor, phase: String) -> void:
+	if "phase" in actor:
+		actor.phase = phase
+
+
+## Instant attacks: "active" for ACTIVE_HOLD after the moment it happened (memory.at), then "recovery".
+static func after_instant(actor) -> void:
+	set_phase(actor, "active" if actor.state_time - float(actor.memory.get("at", 0.0)) < ACTIVE_HOLD else "recovery")

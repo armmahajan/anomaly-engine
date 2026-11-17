@@ -14,6 +14,7 @@ const DROP_SPEED := 1100.0
 
 static func enter(actor, _params: Dictionary) -> void:
 	actor.face_player()
+	Attack.set_phase(actor, "windup")
 
 
 static func tick(actor, params: Dictionary, _delta: float) -> void:
@@ -21,6 +22,7 @@ static func tick(actor, params: Dictionary, _delta: float) -> void:
 	if actor.action_done:
 		return
 	if actor.state_time < float(params.windup):
+		Attack.set_phase(actor, "windup")
 		if not actor.is_on_floor():
 			actor.hold_air = true
 			actor.velocity.y = 0.0
@@ -29,6 +31,7 @@ static func tick(actor, params: Dictionary, _delta: float) -> void:
 	actor.hold_air = false
 	if not actor.memory.has("started"):
 		actor.memory.started = true
+		Attack.set_phase(actor, "active")
 		Attack.unwarn(actor)
 		var g: float = actor.gravity()
 		if actor.is_on_floor() and not actor.flying and float(params.height) > 0.0 and g > 0.0:
@@ -45,6 +48,7 @@ static func tick(actor, params: Dictionary, _delta: float) -> void:
 
 static func _land(actor, params: Dictionary) -> void:
 	actor.action_done = true
+	Attack.set_phase(actor, "recovery")
 	actor.velocity.y = 0.0
 	for direction in [-1.0, 1.0]:
 		var wave: Node2D = Shockwave.new()

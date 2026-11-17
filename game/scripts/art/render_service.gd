@@ -66,13 +66,19 @@ func _render_one(request: Dictionary) -> Dictionary:
 	var warnings: Array[String] = []
 	var fit := 1.0
 	var origin := Vector2.ZERO
+	# A cutout rig's source image (base64 by file ref).
+	var textures := WorldView.textures_from(request.get("images", {}))
 	for i in frames.size():
 		var frame = frames[i]
 		var view = RigView.new()
+		view.textures = textures
 		view.manual_time = true
 		view.setup(rig, direction, clips)
 		if i == 0:
 			warnings = view.warnings
+			var source = rig.get("source")
+			if typeof(source) == TYPE_DICTIONARY and not textures.has(str(source.get("file", ""))):
+				warnings.append("the cutout's source image was not sent (images): its parts are not drawn")
 			if bool(request.get("fit", true)):
 				var fitted := _fit(rig, cell_size)
 				fit = fitted[0]
