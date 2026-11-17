@@ -869,6 +869,32 @@ export function routeInputs(graph: RoomGraph, route: readonly TraversalMove[]) {
   return { start, inputs: record.inputs, states: record.states, ok: true, at };
 }
 
+/**
+ * Every state a move passes through, from its takeoff (standing at the near
+ * end of its window, as the graph tried it first) or its entry state, to where
+ * it ends (for what the player touches or can strike on the way).
+ */
+export function moveTrace(graph: RoomGraph, move: TraversalMove): MoveState[] {
+  const p = graph.params;
+  const ctx: Ctx = {
+    p,
+    d: deriveMovement(p, graph.abilities),
+    model: movementModel(p, graph.abilities),
+    has: new Set(graph.abilities),
+    width: graph.width,
+    height: graph.height,
+    doors: graph.doors,
+    hw: p.width / 2,
+    step: p.runSpeed / MOVEMENT_FPS,
+    maxFrames: 1500,
+  };
+  const world = [...graph.solids(parseSurfaceKey(move.from)?.mask ?? "")];
+  const start = move.window ? standing(ctx, world, move.plan.dir > 0 ? move.window[1] : move.window[0], graph.surface(move.from)!.y) : graph.entry(move.from)!;
+  const record = { inputs: [] as FrameInput[], states: [] as MoveState[] };
+  runPlan(ctx, world, world.filter((s) => s.kind === "hazard"), start, move.plan, !move.window, record);
+  return [start, ...record.states];
+}
+
 function landsOn(graph: RoomGraph, node: string, s: MoveState): boolean {
   const surface = graph.surface(node);
   return !!surface && Math.abs(surface.y - s.y) < 1e-6 && s.x >= surface.x0 - 1e-6 && s.x <= surface.x1 + 1e-6;
