@@ -11,6 +11,8 @@ const FADED := 0.45
 ## Shown above a prop the player can interact with when it has no prompt of its own (drawn as an arrow).
 const DEFAULT_PROMPT := "↑"
 const PROMPT_SIZE := 14
+## Art is stretched at most this much one way to fill a prop's rectangle.
+const MAX_STRETCH := 1.5
 
 var main: Node = null
 var room: Dictionary = {}
@@ -90,6 +92,21 @@ func state() -> Array:
 		if _views[id].prompting:
 			entry.prompt = _prompt_text(_props[id])
 		out.append(entry)
+	return out
+
+
+## For tests: what each prop looks like now: {id, shown, art (the kit piece drawn, or null), rect (room px, where it is drawn)}.
+func drawing() -> Array:
+	var out := []
+	for id in _props:
+		var view: PropView = _views[id]
+		var at: Rect2 = view.art_rect() if view._texture != null else Rect2(Vector2.ZERO, rect_of(_props[id]).size)
+		at.position += view.position
+		out.append({
+			"id": id, "shown": view.is_visible_in_tree(),
+			"art": _props[id].art.piece if view._texture != null else null,
+			"rect": [at.position.x, at.position.y, at.size.x, at.size.y],
+		})
 	return out
 
 
@@ -235,9 +252,25 @@ class PropView extends Node2D:
 		var conditional: bool = typeof(prop.get("visible", true)) != TYPE_BOOL or prop.get("visible", true) != true or typeof(prop.get("solid", false)) != TYPE_BOOL
 		var tint := Color(1, 1, 1, FADED if conditional and not props._live() else 1.0)
 		if _texture != null:
-			draw_texture_rect(_texture, box, false, tint)
+			draw_texture_rect(_texture, art_rect(), false, tint)
 		else:
 			draw_rect(box, Color(str(prop.get("color", "#c9a227"))) * tint)
+
+	## Where its art is drawn (prop-local): fitted to the rectangle, stretched at most MAX_STRETCH
+	## one way (beyond that it keeps that shape, smaller), standing at the bottom centre. Empty without art.
+	func art_rect() -> Rect2:
+		if _texture == null:
+			return Rect2()
+		var w := float(prop.width)
+		var h := float(prop.height)
+		var sx := w / float(_texture.get_width())
+		var sy := h / float(_texture.get_height())
+		if sx > sy * MAX_STRETCH:
+			sx = sy * MAX_STRETCH
+		elif sy > sx * MAX_STRETCH:
+			sy = sx * MAX_STRETCH
+		var size := Vector2(_texture.get_width() * sx, _texture.get_height() * sy)
+		return Rect2(Vector2((w - size.x) / 2.0, h - size.y), size)
 
 	func _draw_prompt() -> void:
 		if not prompting:

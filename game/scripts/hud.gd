@@ -1,5 +1,5 @@
 extends Node2D
-## Play-mode HUD: the player's health as a row of pips, and a titled health
+## Play-mode HUD: the player's health as a row of pips, the items they hold (icon or color, and count) under it, and a titled health
 ## bar for every enemy alive in the current room whose spawn asks for one
 ## (spawn.healthBar), stacked in spawn order from the top.
 
@@ -11,6 +11,9 @@ const BAR_WIDTH := 360.0
 const BAR_HEIGHT := 10.0
 const BAR_GAP := 40.0
 const BAR_TOP := 30.0
+## The held items row, under the health pips.
+const ITEM_TOP := 46.0
+const ITEM_SIZE := 22.0
 
 
 func _process(_delta: float) -> void:
@@ -27,6 +30,7 @@ func _draw() -> void:
 		else:
 			draw_arc(at, 9.0, 0.0, TAU, 24, Color("#e8e3d3", 0.45), 2.0)
 	var font := ThemeDB.fallback_font
+	_draw_items(font)
 	var bars := _bars()
 	for i in bars.size():
 		var enemy: Node = bars[i].enemy
@@ -59,3 +63,45 @@ func _bars() -> Array:
 		if typeof(bar) == TYPE_DICTIONARY and enemies.has(spawn.id):
 			out.append({"enemy": enemies[spawn.id], "title": str(bar.get("title", ""))})
 	return out
+
+
+## [{id, count, icon}] for the items the player holds, in the game's item order (the items row; `icon`: drawn with its picture).
+func held_items() -> Array:
+	if main == null or main._run == null or not main._run.active:
+		return []
+	var held: Dictionary = main._run.events.items
+	var out := []
+	for item in main._project.get("world", {}).get("items", []):
+		var count := int(held.get(item.id, 0))
+		if count > 0:
+			out.append({"id": str(item.id), "count": count, "icon": _icon(item) != null})
+	return out
+
+
+func _icon(item: Dictionary) -> Texture2D:
+	var ref = item.get("icon")
+	var texture = main._textures.get(str(ref)) if ref != null else null
+	return texture if texture is Texture2D else null
+
+
+## The held items under the health pips: each its icon (or a swatch of its color) and its count.
+func _draw_items(font: Font) -> void:
+	var items := {}
+	for item in main._project.get("world", {}).get("items", []):
+		items[str(item.id)] = item
+	var x := 18.0
+	for held in held_items():
+		var item: Dictionary = items[held.id]
+		var box := Rect2(x, ITEM_TOP, ITEM_SIZE, ITEM_SIZE)
+		var icon := _icon(item)
+		if icon != null:
+			var size := Vector2(icon.get_width(), icon.get_height()) * (ITEM_SIZE / maxf(icon.get_width(), icon.get_height()))
+			draw_texture_rect(icon, Rect2(box.get_center() - size / 2.0, size), false)
+		else:
+			draw_rect(box.grow(-3.0), Color(str(item.get("color", "#e8c547"))))
+			draw_rect(box.grow(-3.0), Color("#e8e3d3", 0.6), false, 1.0)
+		var label := "×%d" % held.count
+		var at := Vector2(x + ITEM_SIZE + 3.0, ITEM_TOP + ITEM_SIZE - 6.0)
+		draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 3, Color(0, 0, 0, 0.7))
+		draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#e8e3d3"))
+		x += ITEM_SIZE + 12.0 + font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
