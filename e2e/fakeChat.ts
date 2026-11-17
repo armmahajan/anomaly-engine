@@ -51,7 +51,34 @@ const fakeWiki: TurnRunner = (request) =>
   });
 
 /** Scripted build assistant: "world: <theme>" queues a world; "crawler speed N" sets the Crawler's patrol speed. */
+/** "build from the design": two rooms of the director's first regions, joined, with a title, a start and an ending. */
+const fakeBuildFromDesign: TurnRunner = (request) =>
+  runAgentTurn({
+    ...request,
+    model: new FakeModel([
+      callTools(toolCall("getProgression", {})),
+      callTools(
+        toolCall("createWorldRoom", { name: "Gate Hall", id: "gate_hall", cols: 30, rows: 14 }),
+        toolCall("createWorldRoom", { name: "City Steps", id: "city_steps", cols: 30, rows: 14 }),
+        toolCall("updateWorldRoom", { roomId: "gate_hall", changes: { regionId: "gate" } }),
+        toolCall("updateWorldRoom", { roomId: "city_steps", changes: { regionId: "city" } }),
+        toolCall("setDoor", { roomId: "gate_hall", door: { id: "east", side: "right", offset: 10, size: 3 } }),
+        toolCall("setDoor", { roomId: "city_steps", door: { id: "west", side: "left", offset: 10, size: 3 } }),
+        toolCall("connectDoors", { from: { roomId: "gate_hall", doorId: "east" }, to: { roomId: "city_steps", doorId: "west" } }),
+        toolCall("setWorldStart", { roomId: "gate_hall", x: 96, y: 416 }),
+        toolCall("setPlaytest", { roomId: "gate_hall", x: 96, y: 416 }),
+        toolCall("createModal", { title: "Drowned Lamp", body: "Find the lamp.", id: "title" }),
+        toolCall("createModal", { title: "The End", body: "The lamp is lit.", id: "ending" }),
+        toolCall("addHandler", { handler: { on: { type: "gameStarted" }, do: [{ type: "showModal", modal: "title" }] } }),
+        toolCall("addProp", { roomId: "city_steps", id: "lamp", name: "Lamp", x: 800, y: 352, width: 32, height: 64 }),
+        toolCall("addHandler", { roomId: "city_steps", propId: "lamp", handler: { on: { type: "touch" }, do: [{ type: "endGame", modal: "ending" }] } }),
+      ),
+      say("Built the Gate Hall and the City Steps from the progression, joined them, and added a title and an ending at the lamp."),
+    ]),
+  });
+
 const fakeBuilder: TurnRunner = (request) => {
+  if (/^build from the design/i.test(request.userMessage.trim())) return fakeBuildFromDesign(request);
   const world = /^world: (.+)$/i.exec(request.userMessage.trim());
   if (world) {
     return runAgentTurn({
