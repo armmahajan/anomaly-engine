@@ -123,43 +123,87 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   const tops = side("top");
   const chute = tops.some((d) => !gated(d) && d.flow === "in");
 
-  // ------------------------------------------------------------ bands
-  const vary = plain ? 0 : Math.min(u.rise, Math.round(v * u.rise * (0.5 + rng.next())));
-  const slabs: number[] = [];
-  const minHeight = (k: number) => (k === 0 ? Math.max(u.air + vary + 1, chute ? u.chute + 3 : 0, tops.length ? u.topRung + 3 + vary : 0) : slabs[k - 1]! + u.air + vary);
-  const usable = H - 2;
-  let bmax = 0;
-  for (let total = 0; ; bmax++) {
-    slabs[bmax] = rng.chance(0.35) && H > 30 ? 2 : 1;
-    total += minHeight(bmax);
-    if (total > usable) break;
-  }
-  if (bmax < 1) fail(`the room is too short (${H} rows) for a band of floor`);
-  const sideNeed = Math.max(side("left").length, side("right").length);
-  const tall = u.air * 3;
-  const lean = Math.max(0, Math.min(1, v + (rng.next() - 0.5) * 0.3));
-  const want = Math.round(usable / (tall + (minHeight(1) - tall) * lean));
-  const count = Math.max(1, Math.min(bmax, Math.max(want, sideNeed)));
-  const bands: Band[] = [];
-  {
-    const mins = Array.from({ length: count }, (_, k) => minHeight(k));
-    let slack = usable - mins.reduce((a, b) => a + b, 0);
-    const weights = mins.map(() => 0.5 + rng.next());
-    const total = weights.reduce((a, b) => a + b, 0);
-    const extra = weights.map((w) => Math.floor((slack * w) / total));
-    slack -= extra.reduce((a, b) => a + b, 0);
-    extra[count - 1]! += slack;
-    let base = 0;
-    for (let k = 0; k < count; k++) {
-      base += mins[k]! + extra[k]!;
-      bands.push({ base: k === count - 1 ? H - 2 : base, vary, slab: slabs[k]!, e0: k === 0 ? 0 : bands[k - 1]!.base + 1, e1: k === count - 1 ? H - 1 : base });
+  // ------------------------------------------------------------ gate blocks on the sides
+  // Side blocks are placed first (their entries fix rows that must be floors), then bands around them.
+  const placed: Placed[] = [];
+  const sideBlocks: Placed[] = [];
+  for (const s of ["left", "right"] as const) {
+    for (const d of rng.shuffle(side(s).filter(gated))) {
+      const block = gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both" });
+      const bw = gridCols(block.grid);
+      const bh = gridRows(block.grid);
+      if (bw + u.ladder + 4 > C) fail(`the ${d.gate.join("+")} gate is ${bw} tiles wide; the room is ${C}`);
+      if (bh > H) fail(`the ${d.gate.join("+")} gate is ${bh} tiles tall; the room is ${H}`);
+      const x = s === "left" ? 0 : C - bw;
+      const ys: number[] = [];
+      for (let y = 0; y + bh <= H; y++) {
+        const clash = sideBlocks.some((b) => {
+          const [w, h] = [gridCols(b.block.grid), gridRows(b.block.grid)];
+          const rowsMeet = y < b.y + h + u.air + 2 && b.y < y + bh + u.air + 2;
+          return rowsMeet && (b.door.side === s || x < b.x + w + u.ladder + 4 && b.x < x + bw + u.ladder + 4);
+        });
+        if (!clash) ys.push(y);
+      }
+      if (!ys.length) fail(`no room on the ${s} side for the ${d.gate.join("+")} gate (${bw}x${bh})`);
+      const doorRow = (y: number) => y + block.door.offset + block.door.size;
+      const y = ys.sort((a, b) => Math.abs(doorRow(a) - (d.prefer ?? doorRow(a))) - Math.abs(doorRow(b) - (d.prefer ?? doorRow(b))) + (rng.next() - 0.5) * 8)[0]!;
+      sideBlocks.push({ block, x, y, door: d });
     }
   }
+  placed.push(...sideBlocks);
+  const required = sideBlocks.map((b) => b.y + b.block.entry.offset + b.block.entry.size);
+  // Top and bottom gate blocks stretch (their riser or dropper) to meet a floor: pick the row now so a band has it.
+  // All of one edge's blocks share the row (one band's floor); a row just above the bottom band moves up a band.
+  const edgeTarget = new Map<string, number>();
+  for (const s of ["top", "bottom"] as const) {
+    const list = side(s).filter(gated);
+    if (!list.length) continue;
+    const bounds = list.map((d) => {
+      const probe = gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both", facing: "left" });
+      const bh = gridRows(probe.grid);
+      if (bh > H) fail(`the ${s} ${d.gate.join("+")} gate is ${bh} tiles tall; the room is ${H}`);
+      return s === "top" ? probe.entry.offset + probe.entry.size : H - bh + probe.entry.offset + probe.entry.size;
+    });
+    // A top block's entry can sit lower (its riser grows) but the block must still end inside the room.
+    const lowest = s === "top" ? Math.min(...list.map((d) => {
+      const probe = gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both", facing: "left" });
+      return H - gridRows(probe.grid) + probe.entry.offset + probe.entry.size;
+    })) : H - 2;
+    let r = s === "top" ? Math.min(lowest, Math.max(...bounds) + rng.int(0, 1)) : Math.min(H - 2, ...bounds) - rng.int(0, 1);
+    if (s === "bottom" && r < H - 2 - u.rise && r > H - 2 - (u.air + u.rise + 2)) r = H - 2 - (u.air + u.rise + 2);
+    if (r < u.air + 1 || r > H - 2) continue;
+    for (const d of list) edgeTarget.set(d.id, r);
+    required.push(r);
+  }
+
+  // ------------------------------------------------------------ bands
+  const sideCount = (s: DoorSide) => side(s).filter((d) => !gated(d)).length + sideBlocks.filter((b) => b.door.side === s).length;
+  const sideNeed = Math.max(sideCount("left"), sideCount("right"));
+  const minHeight = (k: number, vary: number, slab: number) => (k === 0 ? Math.max(u.air + vary + 1, chute ? u.chute + 3 : 0, tops.length ? u.topRung + 3 + vary : 0) : slab + u.air + vary);
+  const tall = u.air * 3;
+  const lean = Math.max(0, Math.min(1, v + (rng.next() - 0.5) * 0.3));
+  let found: Band[] | null = null;
+  /** Each side has a band for each plain door, besides those its gates cover. */
+  const sidesFit = (bs: Band[]) =>
+    (["left", "right"] as const).every((s) => {
+      const cut = new Set(sideBlocks.filter((b) => b.door.side === s).flatMap((b) => bs.flatMap((band, k) => (band.e0 < b.y + gridRows(b.block.grid) && band.e1 >= b.y ? [k] : []))));
+      return bs.length - cut.size >= side(s).filter((d) => !gated(d)).length;
+    });
+  for (const vary of plain ? [0] : [...new Set([Math.min(u.rise, Math.round(v * u.rise * (0.5 + rng.next()))), 1, 0])]) {
+    const slab = () => (rng.chance(0.35) && H > 30 ? 2 : 1);
+    const want = Math.max(sideNeed, Math.round((H - 2) / (tall + (u.air + vary + 1 - tall) * lean)));
+    for (let extra = 0; extra < 6 && !found; extra++) {
+      found = partition(H, required, vary, want + extra, (k, s) => minHeight(k, vary, s), slab, rng);
+      if (found && !sidesFit(found)) found = null;
+    }
+    if (found) break;
+  }
+  if (!found) fail(`no stack of floors fits ${H} rows with these doors and gates`);
+  const bands = found!;
   const bandAt = (row: number) => bands.findIndex((b) => row >= b.e0 && row <= b.e1);
   const floorRange = (k: number): [number, number] => [bands[k]!.base - bands[k]!.vary, bands[k]!.base];
 
-  // ------------------------------------------------------------ blocks and side doors
-  const placed: Placed[] = [];
+  // ------------------------------------------------------------ side doors
   const cuts: { band: number; c0: number; c1: number }[] = [];
   const usedSide = new Map<string, Set<number>>([
     ["left", new Set()],
@@ -168,46 +212,22 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
   const sideDoorBand = new Map<string, number>();
   const cutBands = (r0: number, r1: number) => bands.map((b, k) => (b.e0 < r1 && b.e1 >= r0 ? k : -1)).filter((k) => k >= 0);
   const overlapsBlock = (x: number, y: number, w: number, h: number) => placed.some((b) => x < b.x + gridCols(b.block.grid) + 6 && b.x < x + w + 6 && y < b.y + gridRows(b.block.grid) && b.y < y + h);
-
+  for (const b of sideBlocks) {
+    const cut = cutBands(b.y, b.y + gridRows(b.block.grid));
+    for (const k of cut) {
+      if (usedSide.get(b.door.side)!.has(k) && !bands[k]) fail("gates overlap");
+      usedSide.get(b.door.side)!.add(k);
+      cuts.push({ band: k, c0: b.x, c1: b.x + gridCols(b.block.grid) - 1 });
+    }
+  }
   for (const s of ["left", "right"] as const) {
-    const needs = rng.shuffle(side(s)).sort((a, b) => Number(gated(b)) - Number(gated(a)));
-    for (const d of needs) {
+    for (const d of rng.shuffle(side(s).filter((d) => !gated(d)))) {
       const used = usedSide.get(s)!;
-      if (gated(d)) {
-        const block = gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both" });
-        const bw = gridCols(block.grid);
-        const bh = gridRows(block.grid);
-        if (bw + 8 > C) fail(`the ${d.gate.join("+")} gate is ${bw} tiles wide; the room is ${C}`);
-        const ef = block.entry.offset + block.entry.size;
-        const x = s === "left" ? 0 : C - bw;
-        let best: { k: number; f: number; score: number; cut: number[] } | null = null;
-        for (let k = 0; k < bands.length; k++) {
-          const [lo, hi] = floorRange(k);
-          for (let f = lo; f <= hi; f++) {
-            const y = f - ef;
-            if (y < 0 || y + bh > H) continue;
-            const cut = cutBands(y, y + bh);
-            if (cut.some((c) => used.has(c))) continue;
-            if (overlapsBlock(x, y, bw, bh)) continue;
-            const doorRow = y + block.door.offset + block.door.size;
-            const score = Math.abs(doorRow - (d.prefer ?? doorRow)) + rng.next() * 3;
-            if (!best || score < best.score) best = { k, f, score, cut };
-          }
-        }
-        if (!best) fail(`no room on the ${s} side for the ${d.gate.join("+")} gate (${bw}x${bh})`);
-        const y = best!.f - ef;
-        placed.push({ block, x, y, door: d });
-        for (const k of best!.cut) {
-          used.add(k);
-          cuts.push({ band: k, c0: x, c1: x + bw - 1 });
-        }
-      } else {
-        const free = bands.map((_, k) => k).filter((k) => !used.has(k) && !placed.some((b) => b.door.side === s && cutBands(b.y, b.y + gridRows(b.block.grid)).includes(k)));
-        if (!free.length) fail(`more doors on the ${s} side than the room has bands`);
-        const pick = free.sort((a, b) => Math.abs(bands[a]!.base - (d.prefer ?? bands[a]!.base)) - Math.abs(bands[b]!.base - (d.prefer ?? bands[b]!.base)) || rng.next() - 0.5)[0]!;
-        used.add(pick);
-        sideDoorBand.set(d.id, pick);
-      }
+      const free = bands.map((_, k) => k).filter((k) => !used.has(k));
+      if (!free.length) fail(`more doors on the ${s} side than the room has bands`);
+      const pick = free.sort((a, b) => Math.abs(bands[a]!.base - (d.prefer ?? bands[a]!.base)) - Math.abs(bands[b]!.base - (d.prefer ?? bands[b]!.base)) || rng.next() - 0.5)[0]!;
+      used.add(pick);
+      sideDoorBand.set(d.id, pick);
     }
   }
 
@@ -218,7 +238,7 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     const options: number[] = [];
     for (let c = 1; c + width - 1 <= C - 2; c++) if (freeAt(track, c, c + width - 1) && !avoid?.(c)) options.push(c);
     if (!options.length) return null;
-    const target = prefer ?? rng.int(1, C - 1 - width);
+    const target = prefer ?? (rng.chance(0.5) ? 1 : C - 1 - width);
     return options.sort((a, b) => Math.abs(a - target) - Math.abs(b - target) + (rng.next() - 0.5) * 6)[0]!;
   };
 
@@ -235,9 +255,12 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
       let done = false;
       for (const o of rng.chance(0.5) ? options : [options[1]!, options[0]!, options[2]!]) {
         // Size the riser or dropper so the entry lands on some band's floor.
-        for (let k = 0; k < bands.length && !done; k++) {
-          const [lo, hi] = floorRange(k);
-          for (let f = lo; f <= hi && !done; f++) {
+        const target = edgeTarget.get(d.id);
+        const rows: [number, number][] = target === undefined ? [] : [[bandAt(target), target]];
+        for (let k = 0; k < bands.length; k++) for (let f = floorRange(k)[0]; f <= floorRange(k)[1]; f++) if (f !== target) rows.push([k, f]);
+        for (const [, f] of rows) {
+          if (done) break;
+          {
             let block = gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both", facing: o.facing });
             const relEntry = (b: Block) => b.entry.offset + b.entry.size;
             const want = s === "top" ? f : f - (H - gridRows(block.grid));
@@ -246,7 +269,7 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
             if (grow > 0) block = gateBlock(p, u, d.gate, s, { twoWay: d.flow === "both", facing: o.facing, height: block.leg + grow });
             const bh = gridRows(block.grid);
             const y = s === "top" ? 0 : H - bh;
-            if (y < 0 || y + relEntry(block) !== f) continue;
+            if (y < 0 || y + bh > H || y + relEntry(block) !== f) continue;
             const cut = cutBands(y, y + bh);
             const entrySide = o.facing;
             const blocked = (["left", "right"] as const).some(
@@ -325,6 +348,33 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     doorsOut.push({ id: b.door.id, side: b.door.side, offset, size: door.size });
   }
 
+  // ------------------------------------------------------------ ladders between bands, connectivity
+  const parent = pieces.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
+  const join = (a: number, b: number) => (parent[find(a)] = find(b));
+  const climbs: { upper: Piece; lower: Piece; x: number; aLeft: boolean }[] = [];
+  const tryClimb = (upper: Piece, lower: Piece): boolean => {
+    const lo = Math.max(upper.c0, lower.c0) + 1;
+    const hi = Math.min(upper.c1, lower.c1) - 1 - u.ladder;
+    const xs: number[] = [];
+    for (let x = lo; x <= hi; x++) if (zoneFree(upper, x - 1, x + u.ladder) && zoneFree(lower, x - 1, x + u.ladder)) xs.push(x);
+    if (!xs.length) return false;
+    // Pack next to what is there (a wall, a zone) more often than not, so later features still find room.
+    const snug = xs.filter((x) => [upper, lower].some((q) => x - 1 === q.c0 || x + u.ladder === q.c1 || q.zones.some(([a, b]) => b === x - 2 || a === x + u.ladder + 1)));
+    const x = snug.length && rng.chance(0.7) ? rng.pick(snug) : rng.pick(xs);
+    reserve(upper, x - 1, x + u.ladder, pickRow(upper.band), false);
+    reserve(lower, x - 1, x + u.ladder, pickRow(lower.band), false);
+    climbs.push({ upper, lower, x, aLeft: rng.chance(0.5) });
+    return true;
+  };
+  const pairs: [number, number][] = [];
+  pieces.forEach((a, i) =>
+    pieces.forEach((b, j) => {
+      if (b.band === a.band + 1 && Math.min(a.c1, b.c1) - Math.max(a.c0, b.c0) + 1 >= u.ladder + 4) pairs.push([i, j]);
+    }),
+  );
+  for (const [i, j] of rng.shuffle(pairs)) if (find(i) !== find(j) && tryClimb(pieces[i]!, pieces[j]!)) join(i, j);
+
   // Ladders under top doors, chutes for drops in; holes in the bottom floor.
   const ladders: { k: number; x: number; aLeft: boolean; top: number }[] = [];
   const features: (() => void)[] = [];
@@ -397,37 +447,13 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
     }
   }
 
-  // ------------------------------------------------------------ ladders between bands, connectivity
-  const parent = pieces.map((_, i) => i);
-  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
-  const join = (a: number, b: number) => (parent[find(a)] = find(b));
-  const climbs: { upper: Piece; lower: Piece; x: number; aLeft: boolean }[] = [];
-  const tryClimb = (upper: Piece, lower: Piece): boolean => {
-    const lo = Math.max(upper.c0, lower.c0) + 1;
-    const hi = Math.min(upper.c1, lower.c1) - 1 - u.ladder;
-    const xs: number[] = [];
-    for (let x = lo; x <= hi; x++) if (zoneFree(upper, x - 1, x + u.ladder) && zoneFree(lower, x - 1, x + u.ladder)) xs.push(x);
-    if (!xs.length) return false;
-    const x = rng.pick(xs);
-    reserve(upper, x - 1, x + u.ladder, pickRow(upper.band), false);
-    reserve(lower, x - 1, x + u.ladder, pickRow(lower.band), false);
-    climbs.push({ upper, lower, x, aLeft: rng.chance(0.5) });
-    return true;
-  };
-  const pairs: [number, number][] = [];
-  pieces.forEach((a, i) =>
-    pieces.forEach((b, j) => {
-      if (b.band === a.band + 1 && Math.min(a.c1, b.c1) - Math.max(a.c0, b.c0) + 1 >= u.ladder + 4) pairs.push([i, j]);
-    }),
-  );
-  for (const [i, j] of rng.shuffle(pairs)) if (find(i) !== find(j) && tryClimb(pieces[i]!, pieces[j]!)) join(i, j);
   // Extra ladders (loops) with verticality.
   for (const [i, j] of rng.shuffle(pairs)) {
     const width = Math.min(pieces[i]!.c1, pieces[j]!.c1) - Math.max(pieces[i]!.c0, pieces[j]!.c0);
     if (!plain && rng.chance(v * Math.min(1, width / 40))) tryClimb(pieces[i]!, pieces[j]!);
   }
   const roots = new Set(pieces.flatMap((q, i) => (q.needed ? [find(i)] : [])));
-  if (roots.size > 1) fail("the room's floors can't all be joined by ladders");
+  if (roots.size > 1) fail(`the room's floors can't all be joined by ladders (${pieces.map((q, i) => `b${q.band}[${q.c0}-${q.c1}]${q.needed ? "!" : ""}#${find(i)} z${JSON.stringify(q.zones)}`).join(" ")})`);
   const root = roots.size ? [...roots][0]! : find(pieces.findIndex((q) => q.band === last));
   for (const [i, q] of pieces.entries()) q.used = find(i) === root;
   for (let i = climbs.length - 1; i >= 0; i--) if (!climbs[i]!.upper.used) climbs.splice(i, 1);
@@ -546,3 +572,72 @@ function compose(req: RoomRequest, p: MovementParams, attempt: number, plain: bo
 }
 
 export type { Units };
+
+/**
+ * Band bases, top to bottom: each required row can be a floor of some band
+ * (base - vary <= row <= base), each band at least minH(k) below the one
+ * above, the last band's base at H - 2, about `want` bands in all.
+ */
+function partition(H: number, required: number[], vary: number, want: number, minH: (k: number, slab: number) => number, slabOf: () => number, rng: Rng): Band[] | null {
+  const end = H - 2;
+  const slabs = Array.from({ length: 160 }, slabOf);
+  const mh = (k: number) => minH(k, k === 0 ? 0 : slabs[k - 1]!);
+  const clusters: [number, number][] = [];
+  for (const r of [...required].sort((a, b) => a - b)) {
+    const last = clusters.at(-1);
+    if (last && r <= last[1]) last[0] = r;
+    else clusters.push([r, Math.min(end, r + vary)]);
+  }
+  if (clusters.some(([lo, hi]) => lo > hi)) return null;
+  const bases: number[] = [];
+  let prev = 0;
+  const span = (k: number, n: number) => {
+    let s = 0;
+    for (let j = 0; j < n; j++) s += mh(k + j);
+    return s;
+  };
+  /** Place n free bands then one at b (b - prev >= span(k, n + 1)), the slack spread at random. */
+  const fill = (n: number, b: number) => {
+    const k = bases.length;
+    const mins = Array.from({ length: n + 1 }, (_, j) => mh(k + j));
+    let slack = b - prev - mins.reduce((a, c) => a + c, 0);
+    const w = mins.map(() => 0.4 + rng.next());
+    const total = w.reduce((a, c) => a + c, 0);
+    let at = prev;
+    for (let j = 0; j < n; j++) {
+      const extra = Math.floor((slack * w[j]!) / total);
+      at += mins[j]! + extra;
+      bases.push(at);
+    }
+    slack = 0;
+    bases.push(b);
+    prev = b;
+  };
+  const wanted = (gap: number) => Math.max(0, Math.round((want * gap) / Math.max(1, end)));
+  for (const [i, [lo, hi]] of clusters.entries()) {
+    const k = bases.length;
+    if (prev + mh(k) > hi) return null;
+    let n = 0;
+    while (prev + span(k, n + 2) <= hi) n++;
+    n = Math.min(n, Math.max(0, wanted(hi - prev) - 1 + rng.int(-1, 1)));
+    const lastCluster = i === clusters.length - 1;
+    let b = rng.int(Math.max(lo, prev + span(k, n + 1)), hi);
+    if (lastCluster && end <= hi && end - b < mh(k + n + 1)) b = end;
+    if (b < lo || b < prev + span(k, n + 1)) return null;
+    fill(n, b);
+  }
+  if (prev < end) {
+    const k = bases.length;
+    if (end - prev < mh(k)) {
+      // No room for another band: the last one reaches down to the floor only if no row needs it.
+      if (!bases.length) return null;
+      return null;
+    }
+    let n = 0;
+    while (prev + span(k, n + 2) <= end) n++;
+    n = Math.min(n, Math.max(0, wanted(end - prev) - 1 + rng.int(-1, 1)), Math.max(0, want - bases.length - 1));
+    if (bases.length + n + 1 < want) n = Math.min(n + (want - bases.length - n - 1), (() => { let m = 0; while (prev + span(k, m + 2) <= end) m++; return m; })());
+    fill(n, end);
+  }
+  return bases.map((base, k) => ({ base, vary, slab: slabs[k]!, e0: k === 0 ? 0 : bases[k - 1]! + 1, e1: k === bases.length - 1 ? H - 1 : base }));
+}

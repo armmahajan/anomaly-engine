@@ -90,9 +90,9 @@ export function proveRoom(grid: TileGrid, doors: readonly ProofDoor[], p: Moveme
   }
 
   // With every ability, no traps either: everywhere reachable can still leave the room.
-  if (sources.length) {
+  const exits = doors.filter((d) => d.flow !== "in").map((d) => `out:${d.id}`);
+  if (sources.length && exits.length) {
     const gAll = graph(ALL);
-    const exits = doors.filter((d) => d.flow !== "in").map((d) => `out:${d.id}`);
     const nodes = new Set<string>();
     for (const s of sources) for (const n of reachableFrom(gAll, `in:${s.id}`)) nodes.add(n);
     const back = new Map<string, string[]>();

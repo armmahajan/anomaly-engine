@@ -108,7 +108,7 @@ export function dropper(u: Units, height: number, twoWay: boolean): Chunk {
   const b = u.half;
   const top = OPENING + 1;
   const cols = a + 1 + b + 2;
-  const rows = Math.max(height, top + 2 * u.rise + 3);
+  const rows = Math.max(height, twoWay ? top + 2 * u.rise + 3 : top + 2);
   const c = new Paint(cols, rows).fill(1, 1, cols - 2, rows - 2, "empty");
   const entry = opening("left", 1);
   let exit: ChunkOpening;

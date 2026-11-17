@@ -75,7 +75,7 @@ export function layoutStage(project: ProjectSpec, options: StageOptions = {}): S
 }
 
 /** Attempts per room: sub-seeds with the plan's knobs, then plainer rooms. */
-const ATTEMPTS = 6;
+const ATTEMPTS = 8;
 const PLAIN_ATTEMPTS = 3;
 
 /** The doors a plan room needs: one per link end, with its side, gate and flow, and where the map would like it. */
