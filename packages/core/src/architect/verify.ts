@@ -22,6 +22,11 @@ const LINT_STAGE: Record<string, ArchitectStage> = {
 /** Lint codes that never fail a build (advisory: the creator's call). */
 const ADVISORY = new Set(["dressing_out_of_date", "fairness", "unfair_attack", "unplaced_character"]);
 
+/** The checker's state budget for verify: big games (25-30 rooms, several abilities) need a few hundred thousand. */
+export const VERIFY_MAX_STATES = 600_000;
+
+class TruncatedCheck extends Error {}
+
 export interface Verdict {
   beatable: boolean;
   deadStates: number;
@@ -57,7 +62,12 @@ export function verifyStage(project: ProjectSpec): StageOutcome & { verdict: Ver
   let gatesHold = true;
   let abilitiesNeeded = true;
   try {
-    check = checkGame(project);
+    check = checkGame(project, { maxStates: VERIFY_MAX_STATES });
+    if (check.stats.truncated) {
+      // A search cut short proves nothing either way: say so instead of reporting a false "not beatable".
+      issues.push({ stage: "verify", code: "check-truncated", message: `the game has more than ${VERIFY_MAX_STATES} states to check; the proof didn't finish` });
+      throw new TruncatedCheck();
+    }
     if (!check.hasEnding) issues.push({ stage: "population", code: "no-ending", message: "nothing runs endGame" });
     else if (!check.beatable) issues.push({ stage: "geometry", code: "not-beatable", message: "the ending can't be reached from the start" });
     for (const d of check.deadStates.slice(0, 5)) {
@@ -66,21 +76,21 @@ export function verifyStage(project: ProjectSpec): StageOutcome & { verdict: Ver
     }
     // A gate the plan's own links lead around is the plan's to fix; otherwise the rooms leak.
     const planLeaks = new Set(gateLeaks(project).map((l) => l.connection));
-    for (const g of gateChecks(project, check)) {
+    for (const g of gateChecks(project, check, VERIFY_MAX_STATES)) {
       if (!g.holdsWithout) {
         gatesHold = false;
         issues.push({ stage: planLeaks.has(g.connection) ? "plan" : "geometry", code: "gate-bypassed", message: `the gate ${g.connection} (${g.from} -> ${g.to}) can be passed without ${g.needs.join(", ")}`, linkId: g.connection });
       }
       if (!g.reachableWith) issues.push({ stage: "geometry", code: "gate-closed", message: `${g.to} can't be reached through ${g.connection} even with ${g.needs.join(", ")}`, linkId: g.connection });
     }
-    for (const a of abilityChecks(project, progressionReport(project).criticalPath)) {
+    for (const a of abilityChecks(project, progressionReport(project).criticalPath, VERIFY_MAX_STATES)) {
       if (!a.needed) {
         abilitiesNeeded = false;
         issues.push({ stage: "geometry", code: "ability-unneeded", message: `the ending can be reached without ${a.ability} (${a.mechanic}): no gate needs it` });
       }
     }
   } catch (e) {
-    issues.push({ stage: "verify", code: "check-crashed", message: e instanceof Error ? e.message : String(e) });
+    if (!(e instanceof TruncatedCheck)) issues.push({ stage: "verify", code: "check-crashed", message: e instanceof Error ? e.message : String(e) });
   }
   const verdict: Verdict = {
     beatable: check?.beatable ?? false,

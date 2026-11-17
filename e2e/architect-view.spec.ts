@@ -37,6 +37,9 @@ async function openArchitect(page: Page, seed = true) {
 }
 
 const card = (page: Page, id: string) => page.getByTestId(`room-card-${id}`);
+/** The real stages build, prove and repair: wait for the run to end (its outcome shows under "Last run"). */
+const runEnded = (page: Page, timeout = 240_000) =>
+  expect(page.getByTestId("architect-last")).toContainText(/finished|failed|paused|cancelled/, { timeout });
 
 /** Resolves when the server's event stream reports an Architect run under way (then stops listening). */
 async function watchForRun(url: string): Promise<void> {
@@ -202,13 +205,15 @@ test("a pinned room is read-only and a rebuild leaves its plan alone", async ({ 
   page.once("dialog", (d) => void d.accept());
   await page.getByRole("button", { name: "Start again from the progression" }).click();
   await page.getByTestId("architect-sidebar").getByRole("button", { name: "Build game" }).click();
-  await expect.poll(() => stageStatus(page, "verify"), { timeout: 30_000 }).toBe("failed");
+  await expect.poll(() => page.evaluate(() => window.studio!.getProject().architect.stages.plan?.status)).toBe("done");
+  await runEnded(page);
   expect(await planRoom(page, "gate_3")).toEqual(pinned);
   await expect(room).toHaveClass(/pinned/);
   expect(consoleErrors).toEqual([]);
 });
 
 test("pause after plan: the run stops for review, an edit, then Continue carries on", async ({ page }) => {
+  test.setTimeout(300_000); // the real stages build, populate and prove the world
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
   await withProgression(page);
@@ -216,6 +221,9 @@ test("pause after plan: the run stops for review, an edit, then Continue carries
   const sidebar = page.getByTestId("architect-sidebar");
   const chip = (stage: string) => sidebar.getByTestId(`stage-chip-${stage}`);
 
+  // A target this 9-room game meets: no pacing repair sends it back to the (paused-after) plan stage.
+  const target = await page.evaluate(() => window.studio!.applyOperation("setArchitectGuidance", { targetMinutes: [1, 60] }));
+  expect(target.ok ? "ok" : JSON.stringify(target.error)).toBe("ok");
   await sidebar.getByLabel("Pause after plan").click(); // controlled by the project: it ticks once the server has it
   await expect.poll(() => page.evaluate(() => window.studio!.getProject().architect.pauseAfter)).toEqual(["plan"]);
   await expect(sidebar.getByLabel("Pause after plan")).toBeChecked();
@@ -233,11 +241,11 @@ test("pause after plan: the run stops for review, an edit, then Continue carries
   await expect.poll(() => page.evaluate(() => window.studio!.getProject().architect.guidance)).toBe("Short and tense.");
 
   await sidebar.getByRole("button", { name: "Continue" }).click();
-  // The stubs carry on to verify, which fails on this unbuilt world.
-  await expect(chip("verify")).toHaveText("failed", { timeout: 30_000 });
-  for (const stage of ["plan", "layout", "geometry", "population", "cast", "screens"]) await expect(chip(stage)).toHaveText("done");
-  await expect(chip("pacing")).toHaveText("pending");
-  await expect(sidebar.getByRole("button", { name: "Build game" })).toBeVisible();
+  // The real stages carry on: the world is built, populated and proven.
+  // (A game shorter than its play-time target goes back to the plan a few times first: wait for the end.)
+  await expect(sidebar.getByTestId("architect-last")).toContainText("finished", { timeout: 240_000 });
+  for (const stage of ["plan", "layout", "geometry", "cast", "population", "screens", "verify"]) await expect(chip(stage)).toHaveText("done");
+  expect(await page.evaluate(() => window.studio!.getProject().world.rooms.filter((r) => r.regionId).length)).toBe(9);
   expect(consoleErrors).toEqual([]);
 });
 
@@ -278,16 +286,20 @@ test("Stop ends a run after the stage it is on", async ({ page, baseURL }) => {
   expect(consoleErrors).toEqual([]);
 });
 
-test("a failed verify lists its issues; an issue about a room opens its card", async ({ page }) => {
+test("a failed run lists its issues; an issue about a room opens its card", async ({ page }) => {
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
   await withProgression(page);
   await openArchitect(page);
   const sidebar = page.getByTestId("architect-sidebar");
+  // Pin a room before it's ever built: it stays unbuilt, so its neighbours' doors have nothing to lead to.
+  await expand(page, "city_2");
+  await card(page, "city_2").getByRole("button", { name: "Pin" }).click();
+  await expect.poll(async () => (await planRoom(page, "city_2"))?.pinned).toBe(true);
 
   await sidebar.getByRole("button", { name: "Build game" }).click();
-  await expect(sidebar.getByTestId("stage-chip-verify")).toHaveText("failed", { timeout: 30_000 });
-  await expect(sidebar.getByTestId("architect-last")).toContainText("failed at Verify");
+  await expect(sidebar.getByTestId("stage-chip-geometry")).toHaveText("failed", { timeout: 240_000 });
+  await expect(sidebar.getByTestId("architect-last")).toContainText("failed at Geometry");
   const issues = sidebar.getByTestId("architect-issues");
   await expect(issues).toBeVisible();
   const show = issues.getByRole("button", { name: "Show room" }).first();

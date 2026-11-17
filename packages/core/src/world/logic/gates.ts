@@ -41,7 +41,7 @@ export function designedReach(project: ProjectSpec, lacking: ReadonlySet<string>
   return reached;
 }
 
-export function gateChecks(project: ProjectSpec, base: CheckResult = checkGame(project)): GateCheck[] {
+export function gateChecks(project: ProjectSpec, base: CheckResult = checkGame(project), maxStates?: number): GateCheck[] {
   const { progression, world } = project;
   return progression.connections.flatMap((c) => {
     const needs = c.requires
@@ -55,7 +55,7 @@ export function gateChecks(project: ProjectSpec, base: CheckResult = checkGame(p
       return [{ connection: c.id, from: c.from, to: c.to, needs, holdsWithout: true, reachableWith: true, shortcut: true }];
     }
     const far = world.rooms.filter((r) => r.regionId === c.to).map((r) => r.id);
-    const without = checkGame(project, { withoutAbilities: needs }).reachableRooms;
+    const without = checkGame(project, { withoutAbilities: needs, ...(maxStates ? { maxStates } : {}) }).reachableRooms;
     return [{ connection: c.id, from: c.from, to: c.to, needs, holdsWithout: !far.some((r) => without.includes(r)), reachableWith: far.some((r) => base.reachableRooms.includes(r)) }];
   });
 }
@@ -72,11 +72,11 @@ export interface AbilityCheck {
   needed: boolean;
 }
 
-export function abilityChecks(project: ProjectSpec, criticalPath: readonly string[]): AbilityCheck[] {
+export function abilityChecks(project: ProjectSpec, criticalPath: readonly string[], maxStates?: number): AbilityCheck[] {
   return criticalPath.flatMap((id) => {
     const mechanic = project.progression.abilities.find((a) => a.id === id)?.mechanic;
     if (!mechanic || !(mechanic in MOVEMENT_ABILITIES)) return [];
     const m = mechanic as MovementAbility;
-    return [{ ability: id, mechanic: m, needed: !checkGame(project, { withoutAbilities: [m] }).beatable }];
+    return [{ ability: id, mechanic: m, needed: !checkGame(project, { withoutAbilities: [m], ...(maxStates ? { maxStates } : {}) }).beatable }];
   });
 }

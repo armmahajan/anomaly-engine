@@ -17,7 +17,7 @@ async function chat(page: Page, message: string) {
 }
 
 test("Build game plans the world from the progression and runs every stage on the server", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(360_000);
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
   await page.getByRole("tab", { name: "Progression" }).click();
@@ -26,23 +26,26 @@ test("Build game plans the world from the progression and runs every stage on th
   await page.getByRole("tab", { name: "Architect" }).click();
   await expect(page.getByTestId("architect-main")).toBeVisible();
   await page.getByTestId("architect-sidebar").getByRole("button", { name: /Build game/ }).click();
-  await expect.poll(async () => (await project(page)).architect.stages.verify?.status, { timeout: 60_000 }).toMatch(/done|failed/);
+  // Every stage runs for real: the world is built, populated and proven (a short game goes back to the plan a few times).
+  await expect(page.getByTestId("architect-last")).toContainText("finished", { timeout: 300_000 });
   const built = await project(page);
-  expect(Object.keys(built.architect.stages)).toEqual(["plan", "layout", "geometry", "cast", "population", "screens", "verify"]);
-  expect(built.architect.stages.plan!.status).toBe("done");
+  for (const stage of ["plan", "layout", "geometry", "cast", "population", "screens", "verify"]) expect(built.architect.stages[stage as "plan"]!.status).toBe("done");
+  expect(built.world.rooms.filter((r) => r.regionId).length).toBe(built.architect.rooms.length);
   expect([...new Set(built.architect.rooms.map((r) => r.regionId))]).toEqual(["gate", "city", "tower", "deep"]);
   expect(built.architect.rooms.filter((r) => r.contents.some((c) => c.kind === "start")).map((r) => r.regionId)).toEqual(["gate"]);
   expect(consoleErrors).toEqual([]);
 });
 
 test("the Architect chat plans on request and queues a build run after its turn", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(360_000);
   await openStudio(page);
   await page.getByRole("tab", { name: "Progression" }).click();
   await chat(page, "Design the structure: four regions, two abilities.");
   await page.getByRole("tab", { name: "Architect" }).click();
+  await expect(page.getByTestId("chat-reply")).toHaveCount(0); // the Architect's own conversation
   await chat(page, "Plan the world and build it.");
   expect((await project(page)).architect.rooms.length).toBeGreaterThan(4);
   await expect(page.getByTestId("chat-reply").last()).toContainText("Planned the world");
-  await expect.poll(async () => (await project(page)).architect.stages.verify?.status, { timeout: 60_000 }).toMatch(/done|failed/);
+  await expect(page.getByTestId("architect-last")).toContainText("finished", { timeout: 300_000 });
+  expect((await project(page)).architect.stages.verify!.status).toBe("done");
 });
