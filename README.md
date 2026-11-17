@@ -363,6 +363,57 @@ event happens and every condition holds, the effects run in order.
   enemy spawn's health bar and handlers. All of these are edited with the shared
   `HandlerEditor`, whose forms come from the core schemas.
 
+## Checking a game
+
+`checkGame(project, { abilities?, withoutAbilities?, maxStates? })` (`packages/core/src/world/logic/check.ts`)
+proves, without any model and with the same answer every time, that a game can be finished and
+has no dead states: `{ hasEnding, beatable, route, deadStates: [{ path, why, fromSave }], reachableRooms, stats }`.
+A dead state is one from which no ending can be reached; each is reported once per place the player
+ends up stuck, with the shortest way in (readable steps) and a sentence naming what is missing
+("Lock post (hall) needs item key; no key is left anywhere reachable from here", "stuck in pit: the
+way out of pit needs double_jump", "after Continue: stuck in entrance, hall: Barrier blocks the way
+(solid while flag hall_shut)"). `withoutAbilities` makes grantAbility of those do nothing (gate checks:
+is a room in `reachableRooms` without it?).
+
+- **The search** is breadth-first over states: the room, a traversal node (a standing surface, a door
+  entry or a point the player is put at), what conditions read (flags they check, item counts up to
+  the largest they check plus the largest single take, rooms in `visited`), abilities, the checkpoint,
+  the visit (enemies alive, props hit or destroyed, where the player entered, settled), open modals
+  and running timers.
+- **Logic** runs through `world/logic/interpret.ts`, the runtime's engine mirrored in TypeScript
+  (events.gd matching and scoping, conditions judged when the event happens, the run's effects,
+  props, modals, saving and loading). `game/test/logic.test.ts` runs one scripted sequence through
+  both (the runtime via `game/tests/logic_probe.gd`) and requires identical flags, items, abilities,
+  checkpoint, modals and saves after every step.
+- **Movement** is the traversal graph (simulated with the runtime's physics) of the room with the
+  abilities and the props solid in that state, plus walking off open ends onto what is below (the
+  traversal's steered drops miss a floor running on under a ledge).
+- **Moves of the game:** moves and doors; touch (forced when a move's simulated path overlaps the
+  prop; a choice when standing on a surface or jumping in place from it overlaps it); interact
+  (standing or jumping in place); hit (the sword's reach from a surface, standing or jumping);
+  killing any enemy alive in the room (fights count as winnable), each firing enemyKilled and the
+  last roomCleared; touching hazards (from surfaces beside them); dying where it can happen (near a
+  living enemy that can hurt, after any damage effect, a hazard's included); timers (any later time, outside modals);
+  each modal button; endGame (with or without a modal) is the ending.
+- **Saves:** the last saveRun of each step is a save; every distinct one is a Continue start (as
+  `load_run` does: that room at its entry point, gameStarted again) that must also reach an ending.
+  Quitting is not a way out of a dead state.
+- **Approximations** (what it may miss or treat as possible): health is not tracked (any damage may
+  kill); a surface is "anywhere on it", so standing touches are choices even where walking past
+  would force them; events during a move don't change where it ends; door entries use the
+  traversal's entry point, not the exact spot along the opening; a room settles on the first
+  landing; enemies don't block; timers ignore their seconds; summoned enemies don't hold back
+  roomCleared; props that solidify around the player at an entry are left out of that point's moves
+  (props.gd waits until the player steps out). Truncated searches (`maxStates`, default 100k) count
+  unexplored states as able to finish.
+
+The build assistant has it as the read tool `checkGame` (`packages/agent/src/domains/logic.ts`,
+a compact verdict); the **Game** tab's **Check the game** runs it in the studio and lists each dead
+end with how to get stuck. Tests: `packages/core/test/logic.test.ts` (the slice and the reference
+game beatable with no dead states, six mutations each caught with a readable counterexample, gate
+checks, determinism and speed: the slice in well under a second, a 30-room game in about one),
+`game/test/logic.test.ts` (the mirror) and `e2e/check.spec.ts`.
+
 ## Props and items
 
 A **prop** (`world.rooms[].props`, schema in `world/world.ts`) is a rectangle in a

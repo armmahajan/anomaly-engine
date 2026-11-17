@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   borderedGrid,
   checkGame,
+  createDefaultProject,
   fillTiles,
   fixtureReferenceProject,
   fixtureSliceProject,
@@ -63,6 +64,12 @@ describe("the fixture games", () => {
     expect(without.reachableRooms).toContain("sanctum");
     expect(without.beatable).toBe(false);
     expect(without.deadStates[0]!.why).toContain("double_jump");
+  });
+
+  it("checks the starter project from its playtest (no ending yet) and stops when told", () => {
+    expect(checkGame(createDefaultProject())).toMatchObject({ hasEnding: false, beatable: false, reachableRooms: ["arena"] });
+    const partial = checkGame(fixtureSliceProject(), { maxStates: 40 });
+    expect(partial).toMatchObject({ beatable: false, deadStates: [], stats: { truncated: true } });
   });
 
   it("is deterministic and fast", () => {

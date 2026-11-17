@@ -43,8 +43,8 @@ export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type Run
  *   events with no place, any piece). Props solidifying around the player
  *   (a door entry, a respawn) are left out of that point's moves.
  * - Every enemy alive in the room can be killed, in any order. Death is
- *   possible beside hazard tiles, near a living enemy that can hurt, and
- *   after any damage effect; health is not tracked.
+ *   possible near a living enemy that can hurt and after any damage effect (a
+ *   hazard touched beside a surface, say); health is not tracked.
  * - Timers may fire at any later point (outside modals); `seconds` is ignored.
  * - endGame (with or without a modal) is the ending. Saves: the last saveRun of
  *   a step; each distinct one is a Continue start that must also reach an ending.
@@ -841,7 +841,8 @@ function successors(m: WorldModel, s: State): Edge[] {
     run.kill(id);
     out.push(...outcome(m, run, here, here, `defeat ${spawn.healthBar?.title ?? spawn.id}`));
   }
-  if (s.alive.some((id) => m.dangerous.has(room.spawns.find((sp) => sp.id === id)!.characterId)) || reach.hazard) {
+  // Hazards kill through the damage their handlers do (touching one, below).
+  if (s.alive.some((id) => m.dangerous.has(room.spawns.find((sp) => sp.id === id)!.characterId))) {
     const run = base.clone();
     run.die();
     out.push(...outcome(m, run, here, here, "die"));
