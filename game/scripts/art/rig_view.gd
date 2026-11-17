@@ -76,6 +76,11 @@ func current_clip() -> String:
 	return _clip_id
 
 
+## Seconds a clip lasts (0 when there is no such clip).
+func clip_duration(clip_id: String) -> float:
+	return float(_clips.get(clip_id, {}).get("duration", 0.0)) if _clips.has(clip_id) else 0.0
+
+
 ## Pose at `seconds` into the current clip, with a given boil frame (render service).
 func pose_at(seconds: float, boil_frame := 0) -> void:
 	_time = seconds

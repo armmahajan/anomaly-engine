@@ -1,6 +1,6 @@
 import type { ProjectSpec } from "../schema.ts";
 import { dressingOutOfDate } from "../world/world.ts";
-import { ACTION_CLIP_SLOTS, ACTION_PHASE_SLOTS, PLAYER_CLIP_SLOTS, type ClipSlot } from "./clip.ts";
+import { ACTION_CLIP_SLOTS, ACTION_PHASE_SLOTS, ENEMY_CLIP_SLOTS, PLAYER_CLIP_SLOTS, type ClipSlot } from "./clip.ts";
 
 /**
  * What a game still needs to be fully drawn, as ordered steps the game-art
@@ -28,6 +28,8 @@ export interface ArtStepRequest {
   dressRoom?: string;
   worldRoomId?: string;
   modalId?: string;
+  /** animate: only these clips (the ones still missing; the rest are kept). */
+  slots?: ClipSlot[];
 }
 
 export interface ArtStep {
@@ -68,7 +70,7 @@ export function wantedClipSlots(project: ProjectSpec, assetId: string): ClipSlot
       PLAYER_CLIP_SLOTS.forEach((s) => slots.add(s));
       continue;
     }
-    slots.add("hurt"); // enemies flash and recoil when the sword hits them
+    ENEMY_CLIP_SLOTS.forEach((s) => slots.add(s)); // every enemy is struck (hurt) and can be killed (death)
     const flying = c.movement === "flying";
     for (const state of Object.values(c.behavior.states)) {
       const type = state.action.type;
@@ -127,7 +129,7 @@ export function gameArtPlan(project: ProjectSpec, options: GameArtOptions = {}):
         kind: "character",
         reason: "incomplete",
         description: `animate ${c.name}: ${missing.join(", ")}`,
-        request: { stage: "animate", characterId: c.id },
+        request: { stage: "animate", characterId: c.id, slots: missing },
         estimatedCost: ART_COST_ESTIMATES.animate,
       });
     }

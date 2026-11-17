@@ -1,6 +1,7 @@
 import {
   ACTION_PHASE_SLOTS,
   CLIP_SLOTS,
+  ONE_SHOT_CLIP_SLOTS,
   exampleClips,
   exampleRig,
   type ArtDirection,
@@ -246,6 +247,9 @@ export function animPrompt(input: { character: Character; brief: string; rig: Ri
     slots.some((s) => PHASE_SLOTS.has(s))
       ? "An attack plays its clips in a row: windup (anticipation, held as it loops), then the hit itself (strike / shoot / leap / slam / cast: short, fast, loop false, ending in the extended pose), then recover (loop false, from that pose back to rest). Make each clip start where the one before it ends."
       : "",
+    slots.includes("death")
+      ? 'death plays once when it is killed (loop false) and its last frame is held until it fades: recoil from the blow, then collapse, topple or come apart into a still final pose (no return to rest, nothing still moving at t=1; keep it at ground level, the feet are at y 0).'
+      : "",
     "Keep motion believable for this body: legs alternate, heavy parts move less, wind-ups lean back before striking. Only animate bones listed above.",
     input.feedback ? `Creator's direction: ${input.feedback}` : "",
     'Reply with JSON only: {"clips": {"<slot>": <clip>, ...}, "notes": "<one sentence>"}',
@@ -255,10 +259,16 @@ export function animPrompt(input: { character: Character; brief: string; rig: Ri
 }
 
 export function animCritiquePrompt(input: { slots: string[]; clipsJson: string; framesPerClip: number }): string {
+  const oneShots = ONE_SHOT_CLIP_SLOTS.filter((s) => input.slots.includes(s));
   return [
     `The image shows the clips as filmstrips: one row per clip in this order: ${input.slots.join(", ")}; ${input.framesPerClip} evenly spaced frames per row, left to right.`,
     `Current clips:\n${input.clipsJson}`,
     "Score the animation (0-10) for readability and appeal, then fix problems: limbs detaching or spinning wrongly, motion too small to see or too wild, wrong direction, missing anticipation, loops that pop.",
+    oneShots.length > 0
+      ? `${oneShots.join(" and ")} ${oneShots.length > 1 ? "play" : "plays"} once (loop false) and ${oneShots.length > 1 ? "hold their" : "holds its"} last frame${oneShots.includes("death") ? "; death must end in a still, clearly defeated pose" : ""}.`
+      : "",
     'Reply with JSON only: {"score": 0-10, "issues": ["<short>", ...], "clips": {<the full improved clips, same names>}}',
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

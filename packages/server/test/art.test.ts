@@ -68,7 +68,7 @@ describe("art jobs over HTTP", () => {
     const asset = project.art.assets[0]!;
     expect(project.characters.find((c) => c.id === "charger")?.appearance).toBe(asset.id);
     expect(asset.kind === "character" && asset.rig?.parts.length).toBeGreaterThan(0);
-    expect(asset.kind === "character" && Object.keys(asset.clips).sort()).toEqual(["attack", "idle", "walk", "windup"]);
+    expect(asset.kind === "character" && Object.keys(asset.clips).sort()).toEqual(["attack", "death", "idle", "walk", "windup"]);
 
     const stored = await readdir(join(dir, "files"));
     expect(stored.length).toBeGreaterThan(3);

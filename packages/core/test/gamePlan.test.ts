@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOperation,
+  CLIP_SLOTS,
   clipSlotsFor,
+  exampleClips,
   exampleRig,
   fixtureSliceProject,
   gameArtPlan,
   lintProject,
+  ProjectSpec,
   Rig,
   roomGroups,
   wantedClipSlots,
   type OperationResult,
-  type ProjectSpec,
 } from "../src/index.ts";
 
 const REF = (n: number) => `${String(n).repeat(16)}.png`;
@@ -27,10 +29,38 @@ describe("attack clips", () => {
     expect(clipSlotsFor("patrol", null, true)).toEqual(["fly", "walk", "run"]);
   });
 
+  it("every enemy wants a death clip (plays once); the player doesn't; all slots fit one 96-frame filmstrip", () => {
+    const p = fixtureSliceProject();
+    const drawn = { ...p, characters: p.characters.map((c) => ({ ...c, appearance: `look_${c.id}` })) };
+    for (const c of drawn.characters) {
+      expect(wantedClipSlots(drawn, c.appearance!).includes("death")).toBe(c.kind === "enemy");
+    }
+    expect(CLIP_SLOTS.death).toMatch(/once/);
+    expect(Object.keys(CLIP_SLOTS).length * 6).toBeLessThanOrEqual(96); // render_service.gd MAX_FRAMES, 6 frames a clip
+    const example = exampleClips().death!;
+    expect(example.loop).toBe(false);
+  });
+
+  it("an enemy drawn before death clips existed gets an animate step for only the missing clips", () => {
+    const p = fixtureSliceProject();
+    const clips = exampleClips();
+    const asset = { id: "look", name: "Look", kind: "character", brief: "", concepts: [], chosen: null, rig: exampleRig(), preview: null, clipPreviews: {}, stateClips: {} };
+    const crawler = p.characters.find((c) => c.id === "crawler")!;
+    const wanted = wantedClipSlots({ ...p, characters: [{ ...crawler, appearance: "look" }] }, "look");
+    const old = Object.fromEntries(wanted.filter((s) => s !== "death").map((s) => [s, clips.idle!]));
+    const project = ProjectSpec.parse({
+      ...p,
+      characters: p.characters.map((c) => (c.id === "crawler" ? { ...c, appearance: "look" } : c)),
+      art: { ...p.art, assets: [{ ...asset, clips: old }] },
+    });
+    const step = gameArtPlan(project).find((s) => s.id === "character:crawler")!;
+    expect(step).toMatchObject({ reason: "incomplete", request: { stage: "animate", characterId: "crawler", slots: ["death"] } });
+  });
+
   it("are all asked for when animating a character with attacks", () => {
     const p = fixtureSliceProject();
     const withArt = { ...p, characters: p.characters.map((c) => (c.id === "guardian" ? { ...c, appearance: "g" } : c)) };
-    expect(wantedClipSlots(withArt, "g").sort()).toEqual(["hurt", "idle", "recover", "run", "slam", "strike", "windup"].sort());
+    expect(wantedClipSlots(withArt, "g").sort()).toEqual(["death", "hurt", "idle", "recover", "run", "slam", "strike", "windup"].sort());
   });
 });
 

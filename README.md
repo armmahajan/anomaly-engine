@@ -536,6 +536,16 @@ them, and a "phase" is a set of states entered through `healthBelow`.
   is wide, summons that summon (caps multiply) or name no enemy, and contact damage
   with knockback 0.
 - **Armor** (enemy stat, 0..1, default 0) resists the push of sword hits.
+- **Deaths** (`enemy.gd`): the killing hit makes it harmless at once (no touch, no
+  attacks, no collision; `dead`, so the room, the HUD and the sword are done with
+  it) and fires `killed` → enemyKilled / roomCleared in that same frame, as before.
+  The body is thrown up and along the push, falls (flyers too) and plays its
+  `death` clip, held on its last frame; without one (no art, or an older rig) a
+  fallback: a white flash, a pop, a collapse that flattens and darkens it, and a
+  particle burst (`fx.gd` `burst`). Then it lingers and fades (the character's
+  optional `death {linger, fade}`, default 0.6 s and 0.4 s) and is gone (hidden, still
+  listed with health 0). The body runs on room time, so hit-stops freeze it; a
+  rebuilt room has no corpses. `game/test/death.test.ts`.
 - **Health bars:** any spawn can show one (`spawn.healthBar {title}`,
   `setSpawnHealthBar`): a titled bar at the top of the screen while it lives in the
   current room, stacked in spawn order (runtime state `healthBars`).
@@ -587,7 +597,8 @@ its picks all the way):
    slider draws the design behind the live rig, aligned with the rig's frame;
    **Bones** shows the skeleton.
 3. **Animation**: exactly the clips the character's characters need (core
-   `wantedClipSlots`: idle, walk, run, windup, attack, hurt, jump, fall, fly, and
+   `wantedClipSlots`: idle, walk, run, windup, attack, hurt, death (every enemy;
+   plays once and holds), jump, fall, fly, and
    for attacks a clip per phase: strike / shoot / leap / slam / cast, then
    recover), as keyframe tracks plus motion primitives (sway, bob, shift, pulse,
    squash, shake) (`clip.ts`), reviewed once from filmstrips. Pick a clip to play
