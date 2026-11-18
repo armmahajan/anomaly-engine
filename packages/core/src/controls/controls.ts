@@ -258,24 +258,60 @@ export const renderHelp = (template: string, bindings: Partial<Record<string, re
 export const helpActions = (template: string): ControlActionId[] =>
   [...template.matchAll(/\{([a-z_]+)\}/g)].map((m) => m[1]!).filter((id): id is ControlActionId => (CONTROL_ACTION_IDS as string[]).includes(id));
 
+interface HelpWeapons {
+  list?: { id: string; name: string }[];
+  loadout?: { slots?: { id: string; label: string; action: string; start: string | null }[]; cycle?: boolean };
+}
+
+/**
+ * Help for the loadout's weapon actions, said the way this game uses them: a slot on alt_attack or
+ * special_attack shows when it starts with a weapon or the game gives one into it (giveWeapon to that
+ * slot, or to the first free one); weapon_cycle when cycling is on and the player can hold two weapons.
+ * The attack line names the weapon the main slot starts with.
+ */
+function weaponHelp(weapons: HelpWeapons | undefined, given: { weapon: string; slot: string | null }[]): { attack: ControlHelp | null; extra: ControlHelp[] } {
+  const slots = weapons?.loadout?.slots ?? [];
+  const name = (id: string | null) => (id ? (weapons?.list?.find((w) => w.id === id)?.name ?? null) : null);
+  const named = (slot: { label: string; start: string | null }) => {
+    const weapon = name(slot.start);
+    return weapon ? `${slot.label.toLowerCase()}: ${weapon}` : slot.label.toLowerCase();
+  };
+  const main = slots.find((s) => s.action === "attack");
+  const attack = main && name(main.start) ? { ...BASIC_HELP[2]!, action: `attack (${name(main.start)})` } : null;
+  const extra: ControlHelp[] = [];
+  for (const slot of slots) {
+    if (slot.action !== "alt_attack" && slot.action !== "special_attack") continue;
+    if (slot.start === null && !given.some((g) => g.slot === slot.id || g.slot === null)) continue;
+    extra.push({ action: named(slot), template: `{${slot.action}}` });
+  }
+  const held = new Set([...slots.flatMap((s) => (s.start ? [s.start] : [])), ...given.map((g) => g.weapon)]);
+  if (weapons?.loadout?.cycle && held.size > 1) extra.push({ action: "switch weapon", template: "{weapon_cycle}" });
+  return { attack, extra };
+}
+
 /**
  * What a game shows its players about keys: the basics, plus the abilities it can grant (or `abilities`,
- * e.g. a playtest's), interacting and the map when it has them, and menus. Also which actions that uses.
+ * e.g. a playtest's), the weapon actions its loadout uses, interacting and the map when it has them, and
+ * menus. Also which actions that uses.
  */
-export function gameControlHelp(project: { world: unknown; controls?: unknown }, abilities: readonly string[] = []): { help: ControlHelp[]; actions: ControlActionId[] } {
+export function gameControlHelp(project: { world: unknown; controls?: unknown; weapons?: unknown }, abilities: readonly string[] = []): { help: ControlHelp[]; actions: ControlActionId[] } {
   const world = project.world as { map?: { enabled?: boolean } };
   const granted = new Set<string>(abilities);
   const events = new Set<string>();
+  const given: { weapon: string; slot: string | null }[] = [];
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) return value.forEach(walk);
     if (!value || typeof value !== "object") return;
     const record = value as Record<string, unknown>;
     if (record.type === "grantAbility" && typeof record.ability === "string") granted.add(record.ability);
+    if (record.type === "giveWeapon" && typeof record.weapon === "string") given.push({ weapon: record.weapon, slot: typeof record.slot === "string" ? record.slot : null });
     if (typeof record.type === "string") events.add(record.type);
     Object.values(record).forEach(walk);
   };
   walk(project.world);
-  const help = [...BASIC_HELP];
+  const weapons = weaponHelp(project.weapons as HelpWeapons | undefined, given);
+  const help = weapons.attack ? BASIC_HELP.map((h) => (h.action === "attack" ? weapons.attack! : h)) : [...BASIC_HELP];
+  help.push(...weapons.extra);
   for (const [ability, entry] of Object.entries(ABILITY_HELP)) if (granted.has(ability)) help.push(entry);
   if (events.has("interact")) help.push({ action: "interact", template: "{interact}" });
   if (world.map?.enabled) help.push({ action: "map", template: "{map}" });

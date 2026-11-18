@@ -36,12 +36,12 @@ export const RoomContent = z.discriminatedUnion("kind", [
     characterId: Id.describe("The enemy character (created in the cast stage if it doesn't exist yet)."),
     count: z.number().int().min(1).max(12).default(1),
     lockRoom: z.boolean().default(false).describe("The room's doors close while any of these are alive (an arena)."),
-    grants: z.array(Id).max(4).default([]).describe("Progression abilities or keys given when the last of these falls."),
+    grants: z.array(Id).max(4).default([]).describe("Progression abilities or keys, or weapons, given when the last of these falls."),
     healthBar: z.boolean().default(false).describe("Show a health bar for it on the HUD."),
   }),
   z.strictObject({
     kind: z.literal("pickup"),
-    grants: Id.describe("A progression ability or key, picked up here."),
+    grants: Id.describe("A progression ability or key, or a weapon, picked up here."),
   }),
   z.strictObject({ kind: z.literal("save"), note: z.string().max(200).optional() }),
   z.strictObject({ kind: z.literal("start") }),
@@ -83,7 +83,7 @@ export const RoomLink = z.strictObject({
   id: Id,
   a: LinkEnd,
   b: LinkEnd,
-  requires: z.array(Id).max(8).default([]).describe("Progression abilities or keys needed to pass from a to b (all of them)."),
+  requires: z.array(Id).max(8).default([]).describe("Progression abilities or keys, or weapons, needed to pass from a to b (all of them)."),
   oneWay: z.boolean().default(false).describe("Only a -> b (a drop)."),
 });
 export type RoomLink = z.infer<typeof RoomLink>;
@@ -123,14 +123,18 @@ export type ArchitectPlan = z.infer<typeof ArchitectPlan>;
 
 export const defaultArchitectPlan = (): ArchitectPlan => ArchitectPlan.parse({});
 
-/** Reference checks, run as part of ProjectSpec validation (characters are checked by lint: the cast stage makes them). */
+/**
+ * Reference checks, run as part of ProjectSpec validation (characters are checked by lint: the cast stage makes them).
+ * What the plan grants or requires is a progression ability or key, or one of the game's `weapons`.
+ */
 export function architectIssues(
   plan: ArchitectPlan,
   progression: { regions: { id: string }[]; abilities: { id: string }[] },
+  weapons: readonly { id: string }[] = [],
 ): { path: (string | number)[]; message: string }[] {
   const issues: { path: (string | number)[]; message: string }[] = [];
   const regions = new Set(progression.regions.map((r) => r.id));
-  const grantable = new Set(progression.abilities.map((a) => a.id));
+  const grantable = new Set([...progression.abilities.map((a) => a.id), ...weapons.map((w) => w.id)]);
   const rooms = new Set<string>();
   plan.rooms.forEach((room, i) => {
     if (rooms.has(room.id)) issues.push({ path: ["architect", "rooms", i, "id"], message: `duplicate plan room "${room.id}"` });
@@ -139,7 +143,7 @@ export function architectIssues(
     room.contents.forEach((c, j) => {
       const ids = c.kind === "enemy" ? c.grants : c.kind === "pickup" ? [c.grants] : [];
       for (const id of ids) {
-        if (!grantable.has(id)) issues.push({ path: ["architect", "rooms", i, "contents", j, "grants"], message: `unknown progression ability or key "${id}"` });
+        if (!grantable.has(id)) issues.push({ path: ["architect", "rooms", i, "contents", j, "grants"], message: `unknown progression ability, key or weapon "${id}"` });
       }
     });
   });
@@ -152,7 +156,7 @@ export function architectIssues(
     }
     if (link.a.room === link.b.room) issues.push({ path: ["architect", "links", i], message: "a link joins two different rooms" });
     link.requires.forEach((id, j) => {
-      if (!grantable.has(id)) issues.push({ path: ["architect", "links", i, "requires", j], message: `unknown progression ability or key "${id}"` });
+      if (!grantable.has(id)) issues.push({ path: ["architect", "links", i, "requires", j], message: `unknown progression ability, key or weapon "${id}"` });
     });
   });
   plan.regionNotes.forEach((n, i) => {

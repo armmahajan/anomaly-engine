@@ -303,8 +303,9 @@ class WorldModel {
     this.builtIn = !attackSlot || attackSlot.start === null;
     for (const { c } of this.conditions) {
       if (c.type === "flag") this.flags.add(c.flag);
-      if (c.type === "visited") this.visited.add(c.room);
+      // Weapons the player has are reserved flags (interpret.ts weaponFlag): keep them in the state when a condition reads them.
       if (c.type === "weapon") this.flags.add(weaponFlag(c.weapon));
+      if (c.type === "visited") this.visited.add(c.room);
       if (c.type === "item") {
         const n = c.atLeast ?? 1;
         this.itemCaps.set(c.item, Math.max(this.itemCaps.get(c.item) ?? 0, n));
