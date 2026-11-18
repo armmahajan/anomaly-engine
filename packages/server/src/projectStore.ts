@@ -312,7 +312,8 @@ export class ProjectStore {
     return this.exclusive(async () => {
       const parsed = ResetRequest.safeParse(request);
       if (!parsed.success) return fail("invalid_request", "malformed reset request", toIssues(parsed.error));
-      const blocked = this.checkEditable(parsed.data.baseRevision, "user");
+      // A reset replaces everything: background saves since the creator looked don't matter.
+      const blocked = this.checkEditable(parsed.data.baseRevision, "user", true);
       if (blocked) return blocked;
 
       const backup = join(this.dir, "backups", new Date().toISOString().replace(/[:.]/g, "-"));

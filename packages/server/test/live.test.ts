@@ -215,6 +215,8 @@ describe("background work and the creator", () => {
     await art!.drained();
     expect(project().characters.some((c) => c.id === "grub")).toBe(true);
     expect(project().revision).toBeGreaterThan(revision);
+    // Only background saves since the creator's last look: a reset (which replaces everything) still goes through.
+    expect((await store.reset({ baseRevision: revision })).ok).toBe(true);
   });
 
   it("the Architect's game-art job makes a running background art job stop (it draws what is missing)", async () => {
