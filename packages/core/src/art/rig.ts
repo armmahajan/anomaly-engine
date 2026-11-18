@@ -103,7 +103,7 @@ export const Part = z.strictObject({
     .max(3)
     .default(1)
     .describe("Outline thickness multiplier (art direction sets the base width). 0 = no outline (glows, highlights)."),
-  glow: z.boolean().default(false).describe("Soft halo in the fill color: glowing eyes, souls, lanterns."),
+  glow: z.boolean().default(false).describe("Soft halo in the fill color: glowing eyes, lights, other glowing parts."),
   opacity: z.number().min(0).max(1).default(1),
 });
 export type Part = z.infer<typeof Part>;

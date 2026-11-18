@@ -1,4 +1,4 @@
-import { gameArtPlan, type ArtState, type ProjectSpec } from "@anomaly/core";
+import { artDirectionWanted, gameArtPlan, isDefaultArtDirection, type ArtState, type ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { money } from "./ArtPanel.tsx";
 
@@ -15,6 +15,7 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
   return (
     <div className="game-art" data-testid="game-art">
       <h3>Art</h3>
+      <ArtDirectionView project={project} session={session} art={art} locked={locked} />
       {plan.length === 0 ? (
         <p className="hint">Everything is drawn.</p>
       ) : (
@@ -54,6 +55,44 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
         <p className="hint" data-testid="game-art-last">
           Last run: {last.outcome}, {money(last.cost)}. {last.summary}
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The game's look (art.direction), which every image prompt adds. While it is a default, it can
+ * be written from the wiki (the art direction job; "Make the art" does it first).
+ */
+function ArtDirectionView({ project, session, art, locked }: { project: ProjectSpec; session: Session; art: ArtState; locked: boolean }) {
+  const { direction } = project.art;
+  const isDefault = isDefaultArtDirection(direction);
+  const wanted = artDirectionWanted(project);
+  const running = art.running?.stage === "artDirection";
+  return (
+    <div className="art-direction" data-testid="art-direction">
+      <div className="art-direction-head">
+        <span>Look</span>
+        {isDefault && <span className="tag">default</span>}
+        <span className="art-direction-palette">
+          {direction.palette.map((c, i) => (
+            <span key={`${c}${i}`} className="swatch" style={{ background: c }} title={c} />
+          ))}
+        </span>
+      </div>
+      <p className="hint" data-testid="art-direction-style">
+        {direction.style}
+      </p>
+      {isDefault && (
+        <button
+          type="button"
+          data-testid="art-direction-write"
+          disabled={locked || !art.available || art.running !== null || !wanted}
+          title={wanted ? "Write the look from the wiki's overview and places" : "Write the wiki's overview first"}
+          onClick={() => void session.startArtJob({ stage: "artDirection" })}
+        >
+          {running ? "Writing…" : "Write it from the wiki"}
+        </button>
       )}
     </div>
   );

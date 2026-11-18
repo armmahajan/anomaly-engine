@@ -115,17 +115,35 @@ export const ArtDirection = z.strictObject({
 });
 export type ArtDirection = z.infer<typeof ArtDirection>;
 
+/**
+ * The starting look: how the art is made, never what it shows. No setting,
+ * creatures or mood: those come from the creator's design (the art direction
+ * step writes a direction from the wiki while a default is in place).
+ */
 export function defaultArtDirection(): ArtDirection {
   return {
     style:
-      "Hand-drawn 2D game art. Bold, readable silhouettes built from simple shapes; thick dark ink outlines; " +
-      "flat muted, desaturated colors with a single bright accent (glowing eyes, a lantern); pale masks against dark bodies. " +
-      "Melancholy, gloomy underground insect-kingdom mood. Minimal interior detail; charm comes from shape and proportion.",
-    palette: ["#e8e3d3", "#2a2a33", "#4a5470", "#6b7f8c", "#8a6f5a", "#5f6b4e", "#b8c4c8", "#ffd27a"],
-    ink: "#15151c",
+      "Hand-drawn 2D game art. Bold, readable silhouettes built from simple shapes; clean, consistent outlines; " +
+      "flat color with soft shading and a clear value contrast between foreground and background. " +
+      "Minimal interior detail; character comes from shape and proportion.",
+    palette: ["#f2efe6", "#26262b", "#5b6170", "#8c95a3", "#a8826a", "#6f8a6a", "#c9ccd1", "#e0a95a"],
+    ink: "#1b1b20",
     inkWidth: 1.6,
     boil: 0.35,
   };
+}
+
+/** Default styles of earlier versions: stored projects keep them, and they still count as "not chosen yet". */
+export const LEGACY_DEFAULT_STYLES: readonly string[] = [
+  "Hand-drawn 2D game art. Bold, readable silhouettes built from simple shapes; thick dark ink outlines; " +
+    "flat muted, desaturated colors with a single bright accent (glowing eyes, a lantern); pale masks against dark bodies. " +
+    "Melancholy, gloomy underground insect-kingdom mood. Minimal interior detail; charm comes from shape and proportion.",
+];
+
+/** True while the style is a default (today's or an earlier one): nobody has chosen the look yet. */
+export function isDefaultArtDirection(direction: Pick<ArtDirection, "style">): boolean {
+  const style = direction.style.trim();
+  return style === defaultArtDirection().style || LEGACY_DEFAULT_STYLES.includes(style);
 }
 
 export const ArtSection = z.strictObject({

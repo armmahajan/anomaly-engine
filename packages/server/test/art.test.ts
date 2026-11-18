@@ -197,6 +197,21 @@ describe("world jobs over HTTP", () => {
     expect(gameArtPlan(project).map((s) => [s.kind, s.reason])).toEqual([["character", "incomplete"], ["character", "incomplete"], ["character", "incomplete"]]);
   });
 
+  it("writes the art direction from the wiki first (its own job, and the game-art job's first step)", async () => {
+    const overview = { id: "overview", kind: "overview", title: "Tidewinder", summary: "A courier crosses sunlit seas.", body: "", fields: { tone: "playful" }, status: "canon" };
+    let { project } = await get<ProjectState>("/api/project");
+    expect((await post("/api/ops", { name: "createWikiPage", input: { page: overview }, baseRevision: project.revision })).ok).toBe(true);
+    project = (await get<ProjectState>("/api/project")).project;
+    expect(gameArtPlan(project)[0]!.id).toBe("direction");
+    expect(await post("/api/art/jobs", { stage: "artDirection" })).toMatchObject({ ok: true });
+    await art.idle();
+    const job = (await get<ArtState>("/api/art")).jobs.at(-1)!;
+    expect(job).toMatchObject({ outcome: "committed", stage: "artDirection", summary: "wrote the art direction from the wiki" });
+    project = (await get<ProjectState>("/api/project")).project;
+    expect(project.art.direction.style).toContain("Tidewinder");
+    expect(gameArtPlan(project).some((s) => s.id === "direction")).toBe(false);
+  });
+
   it("validates world requests", async () => {
     expect((await post("/api/art/jobs", { stage: "worldCompose" })).error?.code).toBe("invalid_request");
     expect((await post("/api/art/jobs", { stage: "worldKit" })).error?.code).toBe("invalid_request");
