@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultProject, updateCharacter, validateProject, type ProjectSpec } from "../src/index.ts";
+import { applyOperation, createDefaultProject, updateCharacter, validateProject, type ProjectSpec } from "../src/index.ts";
 
 function runSpeed(project: ProjectSpec): number {
   const c = project.characters.find((c) => c.id === "player");
@@ -139,5 +139,20 @@ describe("large batches", () => {
     const tooMany = applyBatch(project, Array.from({ length: MAX_BATCH_SIZE + 1 }, () => rooms[0]));
     expect(tooMany.ok).toBe(false);
     if (!tooMany.ok) expect(tooMany.error.message).toContain(`at most ${MAX_BATCH_SIZE} operations (this one has ${MAX_BATCH_SIZE + 1})`);
+  });
+});
+
+describe("renameProject", () => {
+  it("renames the game (trimmed) and rejects an empty or overlong name", () => {
+    const project = createDefaultProject();
+    const renamed = applyOperation(project, "renameProject", { name: "  Neon Echoes " });
+    expect(renamed.ok).toBe(true);
+    if (renamed.ok) {
+      expect(renamed.project.name).toBe("Neon Echoes");
+      expect(renamed.project.revision).toBe(project.revision + 1);
+    }
+    expect(applyOperation(project, "renameProject", { name: "   " }).ok).toBe(false);
+    expect(applyOperation(project, "renameProject", { name: "x".repeat(121) }).ok).toBe(false);
+    expect(applyOperation(project, "renameProject", { title: "X" }).ok).toBe(false);
   });
 });

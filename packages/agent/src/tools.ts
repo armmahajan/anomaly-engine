@@ -6,6 +6,7 @@ import {
   CharacterRef,
   Condition,
   DuplicateCharacterInput,
+  RenameProjectInput,
   Effect,
   gameArtPlan,
   isDefaultArtDirection,
@@ -95,6 +96,7 @@ export const PIPELINE_ONLY_OPERATIONS = ["createAsset", "addConcept", "chooseCon
 type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOperationName | ArchitectOperationName | (typeof PIPELINE_ONLY_OPERATIONS)[number]>;
 
 const writeDescriptions: Record<BuildOperation, string> = {
+  renameProject: "Rename the game (its title in the studio).",
   createCharacter:
     "Create a new enemy type. It does not appear in any room until you also call addRoomSpawn. Give it a behavior built from the primitives (see listPrimitives).",
   duplicateCharacter: "Copy an existing enemy type under a new id (stats, look, behavior), e.g. to make a variant.",
@@ -155,6 +157,7 @@ const doorEnd = z.strictObject({ roomId: z.string(), doorId: z.string() });
 
 /** Precise parameter schemas for the model; the operations themselves accept `unknown` and validate. */
 const writeSchemas: Record<BuildOperation, z.ZodType> = {
+  renameProject: RenameProjectInput,
   // The behavior's full schema is setBehavior's; repeating it here would double the primitives' share of every turn.
   createCharacter: z.strictObject({
     character: EnemyCharacter.extend({ behavior: z.record(z.string(), z.unknown()).describe("A behavior exactly as setBehavior takes it: {initial, states, interrupts}.") }),

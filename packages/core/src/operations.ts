@@ -375,8 +375,20 @@ export function duplicateCharacter(project: ProjectSpec, input: unknown): Operat
   return commit({ ...project, characters: [...project.characters, checked.data] });
 }
 
+export const RenameProjectInput = z.strictObject({
+  name: z.string().trim().min(1).max(120).describe("The game's new name."),
+});
+
+/** Rename the project (the game's title in the studio). */
+export function renameProject(project: ProjectSpec, input: unknown): OperationResult {
+  const parsed = RenameProjectInput.safeParse(input);
+  if (!parsed.success) return fail("invalid_input", "renameProject needs a name of 1 to 120 characters", toIssues(parsed.error));
+  return commit({ ...project, name: parsed.data.name });
+}
+
 /** Every operation, by name. The server and (later) AI tools dispatch through this. */
 const operations = {
+  renameProject,
   updateCharacter,
   updateBehavior,
   setBehavior,
