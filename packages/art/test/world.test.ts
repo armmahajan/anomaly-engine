@@ -127,6 +127,29 @@ describe("world stages", () => {
     expect(worldSceneFor(h.project(), h.biome().id, "second_hall")?.platforms).toEqual(gridPlatforms(arenaGrid)); // breakable ones keep their own look
   });
 
+  it("tells the composer which room it dresses and how the look's other rooms look, so they differ", async () => {
+    const h = harness();
+    h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);
+    const composeText = () => {
+      const all = h.vision.requests.filter((r) => r.content.some((c) => c.type === "text" && c.text.includes("Compose one room")));
+      return all.at(-1)!.content.map((c) => (c.type === "text" ? c.text : "")).join("\n");
+    };
+    h.commit((await worldComposeStage(h.ctx, { biomeId: h.biome().id, dressRoom: "arena" })).operations);
+    const first = composeText();
+    expect(first).toContain('This dressing is for the game room "Arena"');
+    expect(first).not.toContain("other room(s) of this look");
+
+    const second = await worldComposeStage(h.ctx, { biomeId: h.biome().id, newLayout: true, name: "Second hall" });
+    h.commit(second.operations);
+    const text = composeText();
+    expect(text).toContain(`1 other room(s) of this look already exist: ${h.biome().rooms[0]!.name}`);
+    expect(text).toMatch(/Most used there: .+\(1x\)/);
+    expect(text).toContain("recognisably different");
+    // Recomposing a dressing doesn't count it as its own sibling.
+    await worldComposeStage(h.ctx, { biomeId: h.biome().id, roomId: h.biome().rooms[0]!.id });
+    expect(composeText()).toContain(`1 other room(s) of this look already exist: Second hall`);
+  });
+
   it("looks at the composed room and applies the reviewer's fixes, snapped onto surfaces", async () => {
     const h = harness();
     h.commit((await worldKitStage(h.ctx, { theme: "t" })).operations);

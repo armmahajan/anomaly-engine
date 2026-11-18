@@ -516,7 +516,10 @@ export async function worldComposeStage(ctx: ArtContext, input: WorldComposeInpu
         "You are a level art director for a 2D side-scrolling platformer. You compose beautiful, deep, atmospheric rooms from a kit of sprites by writing scene data. You value negative space, clear silhouettes and a readable play area.",
       content: [
         { type: "image", image: backdrop },
-        { type: "text", text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback, doors, view) },
+        {
+          type: "text",
+          text: composePrompt(biome.brief, width, height, kit.pieces, input.newLayout ? null : arenaPlatforms, input.feedback, doors, view, roomContext(project, biome, target, existing?.id)),
+        },
       ],
       maxTokens: 12000,
     },
@@ -791,6 +794,8 @@ function composePrompt(
   doors: DoorOpening[] = [],
   /** Height (px) of the play camera's view. */
   view = 14 * TILE,
+  /** What this room is (roomContext): its identity and how the look's other dressings already look. */
+  context = "",
 ): string {
   const viewWidth = Math.round((view * 16) / 9);
   const list = pieces.map((p) => `- ${p.id}: ${p.name} (${p.kind}, ${p.size}px tall, ${(p.width / p.height).toFixed(2)} w/h${p.glow ? `, glows ${p.glow}` : ""})`);
@@ -815,9 +820,63 @@ function composePrompt(
     compositionLimitsText({ width, height, view }),
     "Leave the band between y 120 and the floor open in the mid and back layers so the background planes show through; vary spacing (clusters and gaps, not an even row).",
     "Atmosphere: palette.ambient a mid-dark tint (channels 0x70-0xa0; lights add on top); fog density behind mid/back/play 0.2-0.6 (deeper = foggier); 2-4 soft light shafts from above (rays); dust motes (amount 60-160). Colors must harmonize with the backdrop. Optional extra point lights (pieces of kind 'light' get their own).",
+    context,
     feedback?.trim() ? `Creator's direction for this room: ${feedback.trim()}` : "",
     `Reply with JSON only: {"palette": {"ambient", "fog", "light", "shadow"},${platforms ? "" : ' "platforms": [{"x","y","width","height"}],'} "placements": [{"piece","layer","x","y","scale","flip"}], "lights": [{"x","y","color","energy","radius"}], "fog": {"mid","back","play"}, "rays": [{"x","width","angle","alpha"}], "dust": {"color","amount"}}`,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * What makes this room itself, for the composer: the game room it dresses (name, region, the
+ * plan's notes, what it holds) and how the look's other dressings already look, so rooms of one
+ * region share a kit without all looking the same.
+ */
+export function roomContext(project: ProjectSpec, biome: BiomeAsset, target: WorldRoom | undefined, ownDressing?: string): string {
+  const lines: string[] = [];
+  if (target) {
+    const plan = project.architect.rooms.find((r) => r.id === target.id);
+    const region = project.progression.regions.find((r) => r.id === (target.regionId ?? plan?.regionId));
+    const holds = (plan?.contents ?? []).flatMap((c) => {
+      if (c.kind === "enemy") return [c.lockRoom ? "a fight that locks the room" : "enemies"];
+      if (c.kind === "pickup") return ["something to pick up"];
+      if (c.kind === "save") return ["a save point"];
+      if (c.kind === "start") return ["the start of the game"];
+      return c.kind === "ending" ? ["the ending"] : [];
+    });
+    const about = [
+      `This dressing is for the game room "${target.name}"${region ? ` in ${region.name}` : ""}.`,
+      plan?.notes.trim() ? `The room's notes: ${plan.notes.trim()}` : "",
+      holds.length ? `It holds ${[...new Set(holds)].join(", ")}: let the dressing support that moment (a fight wants open space and drama, a rest spot calm and warmth, a start or ending a memorable picture).` : "",
+    ];
+    lines.push(about.filter(Boolean).join(" "));
+  }
+  const siblings = biome.rooms.filter((r) => r.id !== ownDressing && r.composition.placements.length > 0);
+  if (siblings.length > 0) {
+    const names = new Map(biome.kit?.pieces.map((p) => [p.id, p.name]) ?? []);
+    const uses = new Map<string, number>();
+    const focal = new Map<string, number>();
+    for (const room of siblings) {
+      for (const p of room.composition.placements) uses.set(p.piece, (uses.get(p.piece) ?? 0) + 1);
+      // The room's focal piece: its biggest placement in the mid or back layer.
+      const big = room.composition.placements.filter((p) => p.layer === "mid" || p.layer === "back").sort((a, b) => (b.scale ?? 1) - (a.scale ?? 1))[0];
+      if (big) focal.set(big.piece, (focal.get(big.piece) ?? 0) + 1);
+    }
+    const name = (id: string) => names.get(id) ?? id;
+    const common = [...uses].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, n]) => `${name(id)} (${n}x)`);
+    const lightings = siblings.slice(-4).map((r) => `${r.composition.palette.ambient} ambient, ${r.composition.rays.length} light shaft(s)`);
+    lines.push(
+      [
+        `${siblings.length} other room(s) of this look already exist${siblings.length <= 4 ? `: ${siblings.map((r) => r.name).join(", ")}` : ""}.`,
+        `Most used there: ${common.join(", ")}.`,
+        focal.size ? `Their focal pieces: ${[...focal.keys()].map(name).join(", ")}.` : "",
+        `Their lighting: ${lightings.join("; ")}.`,
+        "Make this room recognisably different at a glance while staying in the same place: a different focal piece and a different subset of the kit (reuse the most-used pieces sparingly), a different rhythm of clusters and gaps, and its own light (warmer or cooler within the palette, more or less fog, different shafts).",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+  return lines.join("\n");
 }

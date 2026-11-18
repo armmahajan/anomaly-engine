@@ -350,11 +350,14 @@ between regions (two-way or one-way, gated by abilities), **story beats**
 
 ## Studio modes
 
-The toolbar switches modes in one window: **Playtest** (play and tune in the playtest room), **Characters**
-and **Worlds** (art workbenches), **Rooms** (the game world), **Wiki** and **Progression** (design documents,
-with the director's chat). The game runtime stays mounted the whole time; modes
+The toolbar groups the modes in the creator's order: **Design** — **Wiki**, **Progression** (design
+documents, with the director's chat) and **Architect** (the world plan and its build); **Build** —
+**Rooms** (the game world), **Scenery** and **Characters** (art workbenches) and **Game** (the whole
+game's check, art, rules, map and screens); **Play** — **Playtest** (play and tune in the playtest room).
+The project menu (the game's name) renames the game, loads the example game or starts over (the
+starter project, or from scratch: the player alone in an empty arena). The game runtime stays mounted the whole time; modes
 only move it between named grid areas and send it a `stage` message (the playtest room,
-one character, a biome room or a game-world room). The sidebar resizes from its left edge and the
+one character, a dressing or a game-world room). The sidebar resizes from its left edge and the
 chat collapses to a strip (both remembered per browser); the stage has a
 full-screen button. Leaving the mode a playtest runs in stops it; Play returns to the playtest room.
 
@@ -525,7 +528,7 @@ the sidebar edits the selected prop (name, rect, color or art, solid, visible,
 health, bounce, prompt, handlers). Items are in the **Game** tab.
 
 Art: **🎨 Draw props** (Rooms) picks a kit piece of the room's biome for each prop
-without art, or paints the missing ones into the kit (`propArt`, see Worlds); a piece is
+without art, or paints the missing ones into the kit (`propArt`, see Scenery); a piece is
 drawn fitted to the prop's rectangle (stretched at most 1.5x one way, else kept in shape,
 standing at its bottom centre). **🎨 Draw icons** (Game tab) draws every item's icon from
 one sheet (`itemArt`); in play the HUD shows the items held under the health pips (icon,
@@ -685,9 +688,11 @@ both modes from one concept, the critique loops keep the best match),
 matches a drawn test creature, no gaps at joints turned ±30°),
 `game/test/art_phases.test.ts` (heavy enemies play windup → strike → recover).
 
-## Worlds
+## Scenery
 
-**Worlds** mode makes places. A **biome** (an art asset) is paid for once: a
+**Scenery** mode makes how places look. In the studio a biome is a **look** and each of its
+rooms is a **dressing**; every dressing names the game room it dresses (Rooms shows it the
+other way round), so "room" alone always means a game room. A **biome** (an art asset) is paid for once: a
 painted backdrop made seamless, a 3x3 sheet of large structures and one of props
 (transparent, sliced and labelled automatically) and a ground texture (about
 $0.017 at **draft** quality; **final** spends more on the backdrop and pieces,
