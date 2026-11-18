@@ -28,8 +28,8 @@ var show_bones := false:
 		if _bone_overlay != null:
 			_bone_overlay.visible = value
 		queue_redraw()
-## Cutout rigs: decoded images by file ref. Unset, the view looks for its source in the nearest
-## ancestor's `_textures` (main.gd, filled by the studio's `images` message), until it arrives.
+## Decoded images by file ref (a cutout's source, part textures). Unset, the view looks for them
+## in the nearest ancestor's `_textures` (main.gd, filled by the studio's `images` message), until they arrive.
 var textures := {}
 
 var _bones := {}  # id -> {parent, pivot}
@@ -44,9 +44,10 @@ var _boil_timer := 0.0
 var _boil_amount := 0.0
 var _pose := {}  # bone id -> Transform2D (bone-local rest offset -> rig space)
 var _hidden := {}
-## Cutout rigs: the source image's ref and placement (rig = (image px - anchor) * scale), its texture once found.
+## Cutout rigs: the source image's ref and placement (rig = (image px - anchor) * scale).
 var _source := {}
-var _texture: Texture2D = null
+## Images found so far, by file ref.
+var _found := {}
 
 
 func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
@@ -56,12 +57,12 @@ func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
 	var ink_width := float(direction.get("inkWidth", 2.5))
 	var source = rig.get("source")
 	_source = source if typeof(source) == TYPE_DICTIONARY and typeof(source.get("anchor")) == TYPE_ARRAY else {}
-	# A cutout's source is drawn several times smaller than its pixels: sample its mipmaps
-	# (the shared textures have them) so edges don't shimmer as pieces turn.
-	if not _source.is_empty():
-		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_build_bones(rig.get("bones", []))
 	_build_parts(rig.get("parts", []), ink_color, ink_width)
+	# Images (a cutout's source, part textures) are drawn several times smaller than their pixels:
+	# sample their mipmaps (the shared textures have them) so edges don't shimmer as pieces turn.
+	if _parts.any(func(part): return part.tex_file != ""):
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_evaluate()
 	queue_redraw()
 
@@ -139,6 +140,12 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 	if typeof(raw) != TYPE_ARRAY:
 		warnings.append("rig has no parts")
 		return
+	# Parts by id with their boil seed, so a part clipped to another can rebuild that one's outline.
+	var by_id := {}
+	for i in raw.size():
+		var q = raw[i]
+		if typeof(q) == TYPE_DICTIONARY and typeof(q.get("shape")) == TYPE_DICTIONARY:
+			by_id[str(q.get("id", ""))] = [q, i + 1]
 	var seed_value := 0
 	for p in raw:
 		seed_value += 1
@@ -156,6 +163,8 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 			"bend": bend if _bones.has(bend) and bend != bone else "",
 			"z": int(p.get("z", 0)),
 			"variants": [],
+			"tex_file": "",
+			"tex_norm": false,
 		}
 		var opacity := clampf(float(p.get("opacity", 1.0)), 0.0, 1.0)
 		if str(p.shape.get("type", "")) == "image":
@@ -167,6 +176,18 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 		var shade = p.get("shade")
 		var ink := float(p.get("ink", 1.0)) * ink_width
 		var glow := bool(p.get("glow", false))
+		# Clipped parts (detail shapes) are drawn only inside another part on the same bone(s).
+		var clip_to := str(p.get("clipTo", ""))
+		var clip: Array = []
+		if clip_to != "":
+			var target = by_id.get(clip_to)
+			if target == null or str(target[0].get("bone", "")) != bone or str(target[0].get("bendTo", "")) != str(p.get("bendTo", "")) or str(target[0].shape.get("type", "")) == "image":
+				warnings.append("part '%s' clips to '%s', which is not a vector part on the same bone (drawn unclipped)" % [part.id, clip_to])
+			else:
+				clip = target
+		var texture := _texture_mapping(p.get("texture"), part.id)
+		if not texture.is_empty():
+			part.tex_file = texture.file
 		var rng := RandomNumberGenerator.new()
 		for variant in BOIL_VARIANTS:
 			rng.seed = seed_value * 7919 + variant
@@ -178,18 +199,32 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 			if fills.is_empty():
 				warnings.append("part '%s' has an outline that can't be filled (does it cross itself?)" % part.id)
 				break
-			var layers := []  # [polygon, colors]
+			var inside: Array = []
+			if not clip.is_empty():
+				var clip_rng := RandomNumberGenerator.new()
+				clip_rng.seed = int(clip[1]) * 7919 + variant
+				inside = Geo.clean(_shape_outline(clip[0].shape, clip_rng, wobble))
+			var layers := []  # [polygon, colors, bend weights, texture px]
 			if glow:
 				var extent := _extent(outline)
 				for g in GLOW_LAYERS:
-					for poly in Geo.grow(outline, maxf(0.5, extent * g[0])):
-						layers.append([poly, _flat(poly, Color(fill, fill.a * g[1]))])
+					for poly in _clipped(Geo.grow(outline, maxf(0.5, extent * g[0])), inside):
+						layers.append(_layer(poly, _flat(poly, Color(fill, fill.a * g[1]))))
 			if ink > 0.0:
 				var ink_c := Color(ink_color, ink_color.a * opacity)
-				for poly in Geo.grow(outline, ink):
-					layers.append([poly, _flat(poly, ink_c)])
-			for poly in fills:
-				layers.append([poly, _shaded(poly, fill, shade, opacity)])
+				for poly in _clipped(Geo.grow(outline, ink), inside):
+					layers.append(_layer(poly, _flat(poly, ink_c)))
+			var shapes := _clipped(fills, inside)
+			for poly in shapes:
+				layers.append(_layer(poly, _shaded(poly, fill, shade, opacity)))
+			# The texture: the same polygons again, over the fill, with texture coordinates (image px).
+			if not texture.is_empty():
+				var tint := Color(1, 1, 1, opacity * float(texture.opacity))
+				for poly in shapes:
+					var uv := PackedVector2Array()
+					for q in poly:
+						uv.append(texture.uv_origin + (q - texture.rect_origin) * texture.per_px)
+					layers.append(_layer(poly, _flat(poly, tint), uv))
 			part.variants.append(_with_weights(layers, part))
 		if part.variants.is_empty():
 			continue
@@ -198,7 +233,7 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 
 
 ## Cutout piece: the source image inside a polygon. One variant (no boil), no outline or fill;
-## texture coordinates are the polygon's image px (normalized once the texture is known).
+## texture coordinates are the polygon's image px (normalized once the image is known).
 func _build_image_part(part: Dictionary, shape: Dictionary, opacity: float) -> bool:
 	if _source.is_empty():
 		warnings.append("image part '%s' needs the rig's source image" % part.id)
@@ -210,39 +245,87 @@ func _build_image_part(part: Dictionary, shape: Dictionary, opacity: float) -> b
 	var scale := maxf(float(_source.get("scale", 1.0)), 0.000001)
 	var anchor := Geo.v(_source.anchor)
 	var layers := []
-	part.image_px = []
+	part.image = true
+	part.tex_file = str(_source.get("file", ""))
 	for poly in fills:
 		var px := PackedVector2Array()
 		for q in poly:
 			px.append(q / scale + anchor)
-		part.image_px.append(px)
-		layers.append([poly, _flat(poly, Color(1, 1, 1, opacity))])
+		layers.append(_layer(poly, _flat(poly, Color(1, 1, 1, opacity)), px))
 	part.variants.append(_with_weights(layers, part))
 	return true
 
 
-## The cutout source's texture: given, else from the nearest ancestor that keeps decoded images.
-func _source_texture() -> Texture2D:
-	if _texture != null or _source.is_empty():
-		return _texture
-	var file := str(_source.get("file", ""))
-	var found = textures.get(file)
-	var node := get_parent()
-	while found == null and node != null:
-		if "_textures" in node and typeof(node.get("_textures")) == TYPE_DICTIONARY:
-			found = node.get("_textures").get(file)
-		node = node.get_parent()
-	if found is Texture2D:
-		_texture = found
-		var size: Vector2 = _texture.get_size()
-		for part in _parts:
-			if part.has("image_px"):
-				part.uvs = part.image_px.map(func(px: PackedVector2Array):
-					var uv := PackedVector2Array()
-					for q in px:
-						uv.append(q / size)
-					return uv)
-	return _texture
+## A part texture's mapping (rig rest pose -> image px), or {} when it has none or it is malformed.
+func _texture_mapping(raw: Variant, part_id: String) -> Dictionary:
+	if typeof(raw) != TYPE_DICTIONARY:
+		return {}
+	var rect = raw.get("rect")
+	var uv = raw.get("uv")
+	if typeof(rect) != TYPE_ARRAY or typeof(uv) != TYPE_ARRAY or rect.size() < 4 or uv.size() < 4 or float(rect[2]) <= 0.0 or float(rect[3]) <= 0.0:
+		warnings.append("part '%s' has a malformed texture (drawn without it)" % part_id)
+		return {}
+	return {
+		"file": str(raw.get("file", "")),
+		"rect_origin": Vector2(float(rect[0]), float(rect[1])),
+		"uv_origin": Vector2(float(uv[0]), float(uv[1])),
+		"per_px": Vector2(float(uv[2]) / float(rect[2]), float(uv[3]) / float(rect[3])),
+		"opacity": clampf(float(raw.get("opacity", 1.0)), 0.0, 1.0),
+	}
+
+
+## An image by file ref: given, else from the nearest ancestor that keeps decoded images.
+## The first time a part's image is found, its texture coordinates are normalized to it.
+func _image_for(part: Dictionary) -> Texture2D:
+	var file: String = part.tex_file
+	var found = _found.get(file)
+	if found == null:
+		found = textures.get(file)
+		var node := get_parent()
+		while found == null and node != null:
+			if "_textures" in node and typeof(node.get("_textures")) == TYPE_DICTIONARY:
+				found = node.get("_textures").get(file)
+			node = node.get_parent()
+		if not found is Texture2D:
+			return null
+		_found[file] = found
+	if not part.tex_norm:
+		var size: Vector2 = (found as Texture2D).get_size()
+		for layers in part.variants:
+			for layer in layers:
+				var px: PackedVector2Array = layer[3]
+				for i in px.size():
+					px[i] = px[i] / size
+				layer[3] = px
+		part.tex_norm = true
+	return found
+
+
+## Every image a rig's parts draw, by file ref (render service: which ones were not sent).
+func image_files() -> Array:
+	var out := []
+	for part in _parts:
+		if part.tex_file != "" and not part.tex_file in out:
+			out.append(part.tex_file)
+	return out
+
+
+func _layer(poly: PackedVector2Array, colors: PackedColorArray, uv := PackedVector2Array()) -> Array:
+	return [poly, colors, PackedFloat32Array(), uv]
+
+
+## `polys` cut to the inside of `inside` (no clipping when `inside` is empty).
+func _clipped(polys: Array, inside: Array) -> Array:
+	if inside.is_empty():
+		return polys
+	var out := []
+	for a in polys:
+		for b in inside:
+			# Two simple polygons intersect in simple pieces (no holes).
+			for piece in Geometry2D.intersect_polygons(a, b):
+				if not Geometry2D.triangulate_polygon(piece).is_empty():
+					out.append(piece)
+	return out
 
 
 func _shape_outline(shape: Dictionary, rng: RandomNumberGenerator, wobble: float) -> PackedVector2Array:
@@ -321,7 +404,7 @@ func _with_weights(layers: Array, part: Dictionary) -> Array:
 		var w := PackedFloat32Array()
 		for p in layer[0]:
 			w.append(clampf((p - a).dot(d) / dd, 0.0, 1.0))
-		layer.append(w)
+		layer[2] = w
 	return layers
 
 
@@ -448,12 +531,11 @@ func clip_time() -> float:
 func _draw() -> void:
 	if show_bones:
 		_draw_bones.call_deferred()
-	var texture := _source_texture()
 	for part in _parts:
 		if _hidden.has(part.id):
 			continue
-		var image: bool = part.has("image_px")
-		if image and texture == null:
+		var texture: Texture2D = _image_for(part) if part.tex_file != "" else null
+		if part.get("image", false) and texture == null:
 			continue  # the source image has not arrived yet
 		var layers: Array = part.variants[mini(_boil, part.variants.size() - 1)]
 		var base: Vector2 = _bones[part.bone].pivot
@@ -472,10 +554,12 @@ func _draw() -> void:
 				out.resize(poly.size())
 				for i in poly.size():
 					out[i] = (xf * poly[i]).lerp(xf2 * poly[i], weights[i])
-			if image:
-				draw_polygon(out, layer[1], part.uvs[n], texture)
-			else:
+			var uv: PackedVector2Array = layer[3]
+			if uv.is_empty():
 				draw_polygon(out, layer[1])
+			elif texture != null:
+				draw_polygon(out, layer[1], uv, texture)
+			# else: a part texture that has not arrived yet (the flat fill shows meanwhile)
 
 
 var _bone_overlay: Node2D = null

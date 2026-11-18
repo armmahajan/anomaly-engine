@@ -77,8 +77,12 @@ func _render_one(request: Dictionary) -> Dictionary:
 		if i == 0:
 			warnings = view.warnings
 			var source = rig.get("source")
-			if typeof(source) == TYPE_DICTIONARY and not textures.has(str(source.get("file", ""))):
+			var source_file := str(source.get("file", "")) if typeof(source) == TYPE_DICTIONARY else ""
+			if source_file != "" and not textures.has(source_file):
 				warnings.append("the cutout's source image was not sent (images): its parts are not drawn")
+			for file in view.image_files():
+				if file != source_file and not textures.has(file):
+					warnings.append("part texture %s was not sent (images): its parts show their flat fill" % file)
 			if bool(request.get("fit", true)):
 				var fitted := _fit(rig, cell_size)
 				fit = fitted[0]

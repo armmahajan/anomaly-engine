@@ -2,6 +2,7 @@ import type { ProjectSpec } from "../schema.ts";
 import type { Asset } from "../art/asset.ts";
 import type { FileRef } from "../art/fileRef.ts";
 import { kitFiles } from "../art/world.ts";
+import { rigFiles } from "../art/rig.ts";
 import { defaultArchitectPlan } from "../architect/plan.ts";
 import { PROTOCOL_VERSION, type WorldStart } from "../protocol.ts";
 import { toRuntimeProject, type RuntimeProject } from "../world/runtime.ts";
@@ -87,7 +88,7 @@ export function exportFileName(name: string): string {
 
 /**
  * Every image the runtime is sent for this project (sorted, once each): the kits of biomes that dress
- * rooms or draw props, modal images, item icons and cutout rigs' images. The studio sends the same set.
+ * rooms or draw props, modal images, item icons, cutout rigs' images and rig part textures. The studio sends the same set.
  */
 export function runtimeImageRefs(project: Pick<ProjectSpec, "world" | "art">): FileRef[] {
   const biomes = usedBiomeIds(project);
@@ -96,7 +97,7 @@ export function runtimeImageRefs(project: Pick<ProjectSpec, "world" | "art">): F
       ...project.art.assets.flatMap((a) => (a.kind === "biome" && a.kit && biomes.has(a.id) ? kitFiles(a.kit) : [])),
       ...project.world.modals.flatMap((m) => (m.image ? [m.image] : [])),
       ...project.world.items.flatMap((i) => (i.icon ? [i.icon] : [])),
-      ...project.art.assets.flatMap((a) => (a.kind === "character" && a.rig?.source ? [a.rig.source.file] : [])),
+      ...project.art.assets.flatMap((a) => (a.kind === "character" && a.rig ? rigFiles(a.rig) : [])),
     ]),
   ].sort();
 }

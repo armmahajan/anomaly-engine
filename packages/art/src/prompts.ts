@@ -397,3 +397,81 @@ export function animCritiquePrompt(input: { slots: string[]; clipsJson: string; 
     .filter(Boolean)
     .join("\n");
 }
+
+// --- the look: detail shapes and paint-over textures ------------------------------------------------
+
+const DETAIL_SPEC = `A detail is JSON: {"id": "snake_case", "on": "<part id>", "shape": <shape>, "fill": "#rrggbb", "opacity": 0..1, "clip": true|false, "ink": 0..3}
+  on: the part it sits on. It moves with that part's bone and is drawn just above it, under any part in front of it.
+  clip (default true): drawn only inside that part's shape, so it can overlap the edge freely (a shading band can be a big shape whose inner edge is the band's edge). false only for small accessories that stick out of the part (a buckle on a belt line, a tuft past an edge).
+  shape: one of
+    {"type": "blob", "points": [[x,y], ...3-48], "smooth": 0..1, "sharp": [indices]}  closed shape (bands, patches, highlights, panels, pockets, hair locks)
+    {"type": "ellipse", "center": [x,y], "rx", "ry", "rotation": degrees}  (rivets, buttons, spots, round highlights)
+    {"type": "stroke", "points": [[x,y], ...2-32], "width", "widthEnd", "smooth"}  open tapered line (folds, creases, seams, stitches, strands, scratches, fur marks)
+  fill: the detail's colour (a stroke's line colour). opacity below 1 lets the part's colour through (soft shading, glints).
+  ink: outline around the detail (default 0 = none; 0.5-1 only for accessories that need their own outline).
+Coordinates: pixels of the rig render (origin top-left, y down), the same as the rig's parts.`;
+
+export function detailSystemPrompt(direction: ArtDirection, canvas: { width: number; height: number }): string {
+  return [
+    "You are a 2D game character artist. A character is drawn in the game as a vector rig: flat shapes (parts) on bones, which the game animates. It animates well but looks plain next to its design. You add vector detail shapes on top of its parts so it reads like the design: shading bands on the side away from the light, highlights and rim light, folds and creases, seams and stitching, plates, panels and rivets, patterns, hair strands and locks, fur tufts, small accessories (buttons, buckles, straps, pockets), wear marks.",
+    DETAIL_SPEC,
+    `The rig render is ${canvas.width}x${canvas.height} pixels.`,
+    "Guidelines:",
+    "- The design shows WHICH details exist, their colours and the light direction; the rig render shows WHERE they go. The design may differ from the rig in pose and proportions: put each detail on the rig's own shapes, never at the design's coordinates.",
+    "- Shading first: one darker band per big part on its shadow side (and a lighter one on its lit side where the design has it), following the part's shape. Then the design's most telling details. Then small touches.",
+    "- Readable at small size: a few bold shapes beat many tiny ones. Nothing thinner than about 1.5% of the figure's height; folds and seams a little darker than the part, not black.",
+    "- Keep the silhouette, the face's features (eyes, mouth, brows) and the existing detail parts readable: never cover them, never redraw a part.",
+    "- Colours: shades and tints of the part's own fill, or colours picked from the design.",
+    `Art direction: ${directionText(direction)}`,
+  ].join("\n\n");
+}
+
+/** Parts as a compact list (id, bone, fill, bounds in the render's pixels) plus their shapes. */
+function partsText(rig: Rig): string {
+  const lines = rig.parts.map((p) => {
+    const s = p.shape;
+    const pts = s.type === "ellipse" ? [[s.center[0] - s.rx, s.center[1] - s.ry], [s.center[0] + s.rx, s.center[1] + s.ry]] : s.points;
+    const xs = pts.map((q) => q[0]!);
+    const ys = pts.map((q) => q[1]!);
+    const r = (n: number) => Math.round(n);
+    return `- ${p.id} (bone ${p.bone}, z ${p.z}, ${s.type}, fill ${p.fill}${p.clipTo ? `, detail on ${p.clipTo}` : ""}): x ${r(Math.min(...xs))}-${r(Math.max(...xs))}, y ${r(Math.min(...ys))}-${r(Math.max(...ys))}`;
+  });
+  const shapes = rig.parts.map((p) => ({ id: p.id, shape: p.shape }));
+  return `Parts (back to front by z):\n${lines.join("\n")}\nTheir shapes:\n${JSON.stringify(shapes)}`;
+}
+
+export function detailAuthorPrompt(input: { brief: string; rig: Rig; maxDetails: number }): string {
+  return [
+    "Image 1 is the character's design. Image 2 is the game's render of its vector rig at rest, with a pixel grid (coordinates of the parts below).",
+    `Character: ${input.brief}.`,
+    partsText(input.rig),
+    `Add detail shapes so the rig reads like the design: at most ${input.maxDetails} details.`,
+    'Reply with JSON only: {"details": [<detail>, ...], "notes": "<one sentence>"}',
+  ].join("\n");
+}
+
+export function detailCritiquePrompt(input: { brief: string; rig: Rig; details: unknown[]; maxDetails: number }): string {
+  return [
+    "Image 1 is the character's design. Image 2 is the game's render of its vector rig at rest with your detail shapes, with a pixel grid.",
+    `Character: ${input.brief}.`,
+    partsText(input.rig),
+    `Current details (drawn in image 2):\n${JSON.stringify(input.details)}`,
+    "Score how well the detailed rig reads like the design in look and finish (0 = plain or messy, 10 = clearly the design's character with its materials and details, clean at small size). Pose and proportions are not yours to fix.",
+    `Then fix it: move details that landed in the wrong place, drop clutter and anything that hides the face or breaks the silhouette, add what the design has that is still missing (at most ${input.maxDetails} details in all).`,
+    'Reply with JSON only: {"score": 0-10, "issues": ["<short>", ...], "details": [<the full improved list>]}',
+  ].join("\n");
+}
+
+/** Image edit: the rig's pieces, pulled apart, painted over in the design's style (nothing moves). */
+export function paintOverPrompt(brief: string, strict = false): string {
+  return [
+    `The first image is an exploded view of a 2D game character's cut-out puppet (${brief}): its pieces drawn as flat colour shapes with dark outlines, pulled slightly apart, on a plain flat light-grey background. The second image is the character's design.`,
+    "Repaint the first image: paint every piece in the design's style, colours, materials, shading and surface detail (for example hair strands, fabric folds and seams, metal plates and dents, fur, skin shading, patterns), so each piece looks like that part of the design.",
+    "Keep the first image's layout exactly: every piece stays exactly where it is, with the same outline, size and orientation, and keeps its dark outline. Do not move, join, add or remove pieces, and do not draw an assembled character. Keep the gaps between the pieces and the plain flat light-grey background. No text, labels, shadows, ground or frame.",
+    strict
+      ? "This is a texture-painting job on a fixed template, not a new drawing: the output is laid back over the first image pixel for pixel. Treat the first image as a colouring page: only paint inside each piece's outline. A piece that moves, grows, merges with its neighbour or is redrawn in another pose is wasted, and so is any piece painted where the first image has background."
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

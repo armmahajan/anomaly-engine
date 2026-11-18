@@ -4,6 +4,7 @@ import {
   Clip,
   Id,
   Rig,
+  rigFiles,
   uniqueId,
   type CharacterAsset,
   type Character,
@@ -155,7 +156,7 @@ function checkAbort(ctx: ArtContext): void {
  * One vision call that must return JSON matching `schema`. A malformed reply
  * gets one repair round with the problems listed.
  */
-async function askJson<T extends z.ZodType>(
+export async function askJson<T extends z.ZodType>(
   ctx: ArtContext,
   schema: T,
   request: VisionRequest,
@@ -528,10 +529,11 @@ function better(best: Attempt | null, next: Attempt): Attempt {
   return next.score > best.score ? next : best;
 }
 
-/** A cutout rig's source image for the renderer (base64 by file ref). */
-async function rigImages(ctx: ArtContext, rig: Rig): Promise<Record<string, string> | undefined> {
-  if (!rig.source) return undefined;
-  return { [rig.source.file]: (await ctx.files.get(rig.source.file)).toString("base64") };
+/** The images a rig draws (a cutout's source, part textures) for the renderer (base64 by file ref). */
+export async function rigImages(ctx: Pick<ArtContext, "files">, rig: Rig): Promise<Record<string, string> | undefined> {
+  const refs = rigFiles(rig);
+  if (refs.length === 0) return undefined;
+  return Object.fromEntries(await Promise.all(refs.map(async (ref) => [ref, (await ctx.files.get(ref)).toString("base64")] as const)));
 }
 
 /**

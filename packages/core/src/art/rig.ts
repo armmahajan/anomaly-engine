@@ -21,6 +21,9 @@ import { FileRef } from "./fileRef.ts";
  * character looks exactly like its concept and still animates on bones. A
  * traced rig is a vector rig made from those pieces (flat colour shapes traced
  * from the concept); the mode only records how it was made.
+ *
+ * Any vector part may also carry a `texture` (an image painted inside its shape) and may be
+ * clipped to another part on the same bone (`clipTo`, for detail shapes kept inside their part).
  */
 
 const Coord = z.number().min(-1000).max(1000);
@@ -83,6 +86,25 @@ export const Shape = z
   .describe("Geometry of a part, in rest-pose rig space.");
 export type Shape = z.infer<typeof Shape>;
 
+const Rect = z
+  .tuple([z.number().min(-4096).max(4096), z.number().min(-4096).max(4096), z.number().positive().max(4096), z.number().positive().max(4096)])
+  .describe("[x, y, width, height]");
+
+/**
+ * A texture painted inside a part (an image region mapped onto its shape). The image region `uv`
+ * (image px) is stretched over the rest-pose rectangle `rect` (rig space) and drawn inside the
+ * part's shape, over its fill and under detail parts drawn in front; it moves, turns and scales
+ * with the part's bone. Transparent texture pixels show the flat fill. Many parts usually share
+ * one small atlas image.
+ */
+export const PartTexture = z.strictObject({
+  file: FileRef.describe("PNG/WebP image (usually a per-character atlas of part textures)."),
+  rect: Rect.describe("Rest-pose rig-space rectangle the image region covers."),
+  uv: Rect.describe("The image region, in image px."),
+  opacity: z.number().min(0).max(1).default(1).describe("How strongly the texture covers the fill (1 = fully)."),
+});
+export type PartTexture = z.infer<typeof PartTexture>;
+
 export const Part = z.strictObject({
   id: Id,
   bone: Id.describe("Bone that moves this part."),
@@ -107,6 +129,10 @@ export const Part = z.strictObject({
     .describe("Outline thickness multiplier (art direction sets the base width). 0 = no outline (glows, highlights)."),
   glow: z.boolean().default(false).describe("Soft halo in the fill color: glowing eyes, lights, other glowing parts."),
   opacity: z.number().min(0).max(1).default(1),
+  texture: PartTexture.optional().describe("Optional image painted inside the shape (not on image parts)."),
+  clipTo: Id.optional().describe(
+    "Optional: draw this part only where it overlaps that part's shape (shading bands, highlights, patterns kept inside their part). Both parts must move with the same bone(s).",
+  ),
 });
 export type Part = z.infer<typeof Part>;
 
@@ -173,6 +199,16 @@ export const Rig = z
           ctx.addIssue({ code: "custom", path: ["parts", i, key], message: `unknown bone "${id}" (bones: ${[...boneIds].join(", ")})` });
         }
       }
+      if (p.texture && p.shape.type === "image") ctx.addIssue({ code: "custom", path: ["parts", i, "texture"], message: `image part "${p.id}" can't have a texture (it shows the source)` });
+      if (p.clipTo !== undefined) {
+        const target = rig.parts.find((q) => q.id === p.clipTo);
+        const issue = (message: string) => ctx.addIssue({ code: "custom", path: ["parts", i, "clipTo"], message });
+        if (!target) issue(`unknown part "${p.clipTo}" to clip to (parts: ${rig.parts.map((q) => q.id).join(", ")})`);
+        else if (target.id === p.id) issue(`part "${p.id}" can't clip to itself`);
+        else if (target.clipTo !== undefined) issue(`part "${p.id}" clips to "${target.id}", which is clipped itself: clip to "${target.clipTo}" instead`);
+        else if (target.shape.type === "image") issue(`part "${p.id}" can't clip to image part "${target.id}"`);
+        else if (target.bone !== p.bone || target.bendTo !== p.bendTo) issue(`part "${p.id}" clips to "${target.id}", which moves with other bones: both need the same bone and bendTo`);
+      }
       if (p.shape.type === "blob") {
         const n = p.shape.points.length;
         p.shape.sharp.forEach((s, j) => {
@@ -184,6 +220,11 @@ export const Rig = z
 export type Rig = z.infer<typeof Rig>;
 
 /** Axis-aligned bounds of a rig's rest pose (ignores outlines and stroke width). */
+/** Image files a rig draws (a cutout's source, part textures), once each. */
+export function rigFiles(rig: Rig): FileRef[] {
+  return [...new Set([...(rig.source ? [rig.source.file] : []), ...rig.parts.flatMap((p) => (p.texture ? [p.texture.file] : []))])];
+}
+
 export function rigBounds(rig: Rig): { minX: number; minY: number; maxX: number; maxY: number } {
   let minX = Infinity;
   let minY = Infinity;
