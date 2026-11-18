@@ -140,7 +140,7 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
         note={looks.length}
         actions={
           !creating && (
-            <button type="button" className="small-button" onClick={() => setCreating(true)} disabled={disabled}>
+            <button type="button" className="small-button" onClick={() => setCreating(true)} disabled={disabled} title={art.available ? "Describe a place and paint its look" : "Art generation is off (see Art generation below)"}>
               + New look
             </button>
           )

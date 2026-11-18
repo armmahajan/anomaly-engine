@@ -3,7 +3,7 @@ import { gridCols, gridRows, type ProjectSpec } from "@anomaly/core";
 import { ART_STATE_TEXT, regionGroups, roomArt, type ArtState } from "../worlds/scenery.ts";
 
 /** With more rooms than this, only the selected room's region starts open. */
-const OPEN_ALL_UP_TO = 20;
+const OPEN_ALL_UP_TO = 30;
 
 type ArtFilter = "any" | ArtState;
 const ART_FILTERS: { value: ArtFilter; label: string }[] = [
