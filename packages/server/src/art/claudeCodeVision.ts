@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { appendFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { query, type EffortLevel, type SDKResultMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -140,6 +140,23 @@ export class ClaudeCodeVisionModel implements VisionModel {
     if (!text.trim()) throw new TransientError(`${where} returned an empty reply`);
 
     const u = result.usage;
+    // ANOMALY_USAGE_LOG=<file>: one JSON line per call with its tokens and what it would cost at API
+    // prices (the subscription pays here, but creators without one would), for cost planning.
+    const usageLog = process.env.ANOMALY_USAGE_LOG;
+    if (usageLog) {
+      appendFileSync(
+        usageLog,
+        JSON.stringify({
+          at: new Date().toISOString(),
+          model: this.model,
+          input: u.input_tokens ?? 0,
+          cacheRead: u.cache_read_input_tokens ?? 0,
+          cacheWrite: u.cache_creation_input_tokens ?? 0,
+          output: u.output_tokens ?? 0,
+          apiCostUsd: result.total_cost_usd ?? null,
+        }) + "\n",
+      );
+    }
     return {
       text: request.json ? (firstJsonObject(text) ?? text) : text,
       usage: {

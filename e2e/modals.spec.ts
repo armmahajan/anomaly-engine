@@ -43,7 +43,7 @@ test("a modal authored in the Game tab opens on entering a room, and its button 
   await expect.poll(async () => (await runtimeState(page)).modal).toBe(null);
 
   // The map is a switch.
-  await page.getByLabel("Map screen (M / Tab)").click();
+  await page.getByLabel(/^Map screen/).click();
   await expect.poll(async () => (await project(page)).world.map.enabled).toBe(true);
 
   // Bind it to entering the room with a room handler.
