@@ -1,5 +1,5 @@
 import { crc32, deflateSync } from "node:zlib";
-import { exampleClips, exampleRig } from "@anomaly/core";
+import { CLIP_SLOTS, exampleClips, exampleRig } from "@anomaly/core";
 import { pngSize } from "./frame.ts";
 import { encodePng } from "./match.ts";
 import { creaturePlan, drawCreatureSheet } from "./rigFixtures.ts";
@@ -121,6 +121,8 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("Build the rig")) reply = { rig: exampleRig(), notes: "beetle" };
     else if (prompt.includes("Score how well the render matches")) reply = { score: 8, issues: ["horn a bit small"], rig: exampleRig() };
     else if (prompt.includes("Write these clips")) reply = { clips: exampleClips(), notes: "ok" };
+    // Clips asked by name (the animation list), not weapon attacks: those keep going through the repair path their tests expect.
+    else if (prompt.includes("Write exactly these clips") && !prompt.includes("The hit (active window)") && customClipNames(prompt).length > 0) reply = { clips: fakeClips(prompt), notes: "ok" };
     else if (prompt.includes("Find where a hand holds it")) reply = fakeWeaponPoints(prompt);
     else if (prompt.includes("It holds a weapon")) reply = fakeWeaponClips(prompt);
     else if (prompt.includes("Score the animation")) reply = { score: 8, issues: [], clips: exampleClips() };
@@ -181,6 +183,20 @@ function fakeWeaponClips(prompt: string): unknown {
   const clip = { duration: 0.4, loop: false, tracks: [{ bone, property: "rotate", keys: [[0, 0], [0.15, -12], [1, 0]], ease: "smooth" }], motions: [] };
   return { clips: Object.fromEntries(names.map((n) => [n, clip])), notes: "a swing" };
 }
+
+/** The clips the prompt asks for ("Write exactly these clips, named by ...: "a" (...); "b" (...)."): the example's clip of that name, else its idle clip under the asked name. */
+function fakeClips(prompt: string): Record<string, unknown> {
+  const examples = exampleClips() as Record<string, unknown>;
+  return Object.fromEntries(askedClipNames(prompt).map((n) => [n, examples[n] ?? examples.idle]));
+}
+
+function askedClipNames(prompt: string): string[] {
+  const line = prompt.match(/Write exactly these clips[^:]*: (.*)$/m)?.[1];
+  return line ? [...line.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]!) : [];
+}
+
+/** Asked clips that aren't standard slots (named in the animation list). */
+const customClipNames = (prompt: string) => askedClipNames(prompt).filter((n) => !(n in CLIP_SLOTS));
 
 /** One highlight inside the first listed part ("- id (bone b, ...): x a-b, y c-d"), so the detail pass has something to keep. */
 function fakeDetails(prompt: string): unknown[] {
