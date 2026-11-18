@@ -186,7 +186,7 @@ export function tracedRig(
       while (count(shrunk) < 0.5 * piece.length && inset >= 1) shrunk = inward((inset /= 2));
       if (count(shrunk) < 3) shrunk = mask;
       else if (inset > 0) {
-        // Thin bits (a lantern's wire, antennae, claws) would vanish or come loose: they keep their full width, joined to the rest.
+        // Thin bits (a wire, a strap, a tail tip) would vanish or come loose: they keep their full width, joined to the rest.
         const opened = dilate(shrunk, W, H, inset * 1.5 + 2);
         const loose = new Uint8Array(N);
         for (let i = 0; i < N; i++) if (mask[i] && !opened[i]) loose[i] = 1;

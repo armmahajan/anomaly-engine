@@ -54,7 +54,7 @@ export interface ArtServiceOptions {
   animRounds?: number;
   roomRounds?: number;
   /** Rig mode when the art direction doesn't pick one: cutout for real models (it won the rig A/B, 2026-11-18). */
-  defaultRigMode?: "vector" | "cutout";
+  defaultRigMode?: "vector" | "cutout" | "traced";
 }
 
 type Result = { ok: true; jobId: string; queued?: boolean } | { ok: false; error: OperationError };
