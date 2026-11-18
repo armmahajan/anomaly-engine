@@ -172,6 +172,24 @@ describe("ProjectStore reset", () => {
     expectOk(await store.reset({ baseRevision: 1 }));
     expect(store.getState().project.world.rooms.map((r) => r.id)).toEqual(["arena"]);
   });
+
+  it("starts from scratch: the player alone in a plain arena, nothing else", async () => {
+    const store = await open();
+    expectOk(await store.reset({ baseRevision: 0, from: "blank" }));
+    const { project } = store.getState();
+    expect(project.characters.map((c) => c.kind)).toEqual(["player"]);
+    expect(project.world.rooms).toHaveLength(1);
+    const [arena] = project.world.rooms;
+    expect(arena!.spawns).toEqual([]);
+    expect(arena!.props).toEqual([]);
+    expect(arena!.dressing).toBeNull();
+    // Walls, a ceiling and a floor: only solid and empty tiles.
+    expect(new Set(arena!.grid.rows.join(""))).toEqual(new Set([".", "#"]));
+    expect(project.wiki.pages).toEqual([]);
+    expect(project.progression.regions).toEqual([]);
+    expect(project.architect.rooms).toEqual([]);
+    expect(project.world.playtest?.room).toBe("arena");
+  });
 });
 
 describe("ProjectStore migrations", () => {

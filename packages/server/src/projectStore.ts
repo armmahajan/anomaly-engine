@@ -10,6 +10,7 @@ import {
   OperationRequest,
   PlaytestRequest,
   ResetRequest,
+  createBlankProject,
   fixtureSliceProject,
   summarizeChange,
   toIssues,
@@ -322,7 +323,7 @@ export class ProjectStore {
         if (entry.isFile()) await copyFile(join(this.dir, entry.name), join(backup, entry.name));
       }
 
-      const fresh = parsed.data.from === "example" ? fixtureSliceProject() : this.createInitial();
+      const fresh = parsed.data.from === "example" ? fixtureSliceProject() : parsed.data.from === "blank" ? createBlankProject() : this.createInitial();
       const next = { ...fresh, revision: this.project.revision + 1 };
       await writeFile(join(this.dir, "history.jsonl"), "");
       await this.writeProject(next);

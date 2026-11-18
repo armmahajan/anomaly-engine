@@ -41,7 +41,7 @@ export async function fetchProject(): Promise<ProjectState> {
 export const applyOperation = (request: OperationRequest) => post<ChangeResult>("/api/ops", request);
 export const applyBatch = (request: BatchRequest) => post<ChangeResult>("/api/batch", request);
 export const undo = (request: UndoRequest) => post<ChangeResult>("/api/undo", request);
-export const resetProject = (baseRevision: number, from: "starter" | "example" = "starter") => post<ChangeResult>("/api/reset", { baseRevision, from });
+export const resetProject = (baseRevision: number, from: "starter" | "example" | "blank" = "starter") => post<ChangeResult>("/api/reset", { baseRevision, from });
 /** `replace`: the index of the latest user message, to edit or retry its exchange (see core ChatRequest). */
 export const sendChat = (agent: AgentId, message: string, replace?: number) =>
   post<{ ok: true }>(`/api/chat?agent=${agent}`, replace === undefined ? { message } : { message, replace });

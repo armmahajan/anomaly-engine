@@ -114,6 +114,26 @@ export function createDefaultProject(): ProjectSpec {
   };
 }
 
+/**
+ * A blank project: the player alone in a plain arena (walls, a ceiling and a floor,
+ * nothing on it). No enemies, wiki, progression or art: the start for a game made
+ * from scratch.
+ */
+export function createBlankProject(): ProjectSpec {
+  const starter = createDefaultProject();
+  const [arena] = starter.world.rooms;
+  return {
+    ...starter,
+    characters: starter.characters.filter((c) => c.kind === "player"),
+    world: { ...starter.world, rooms: [{ ...arena!, grid: blankArenaGrid(), spawns: [] }] },
+  };
+}
+
+/** The blank arena: 50 x 23 tiles with walls, a ceiling and a two-tile floor, nothing else. */
+export function blankArenaGrid(): TileGrid {
+  return fillTiles(borderedGrid(50, 23), { col: 0, row: 21, cols: 50, rows: 1 }, "solid");
+}
+
 /** Top of the default arena's floor, px. */
 export const ARENA_FLOOR = 21 * TILE;
 

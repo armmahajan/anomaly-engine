@@ -4,8 +4,8 @@ import { menuKeyDown, usePopover } from "../ui/usePopover.ts";
 
 /**
  * The game's name, at the left of the toolbar: click it to open the project
- * menu (rename, load the example game, start over); double-click to rename.
- * The two rare, destructive actions live here, each behind an in-page confirmation.
+ * menu (rename, load the example game, start over, start from scratch); double-click
+ * to rename. The rare, destructive actions live here, each behind an in-page confirmation.
  */
 export function ProjectMenu({
   name,
@@ -13,6 +13,7 @@ export function ProjectMenu({
   onRename,
   onExample,
   onReset,
+  onBlank,
 }: {
   name: string;
   /** Editing is locked (a playtest or the AI is running): renaming and the destructive actions wait. */
@@ -20,6 +21,7 @@ export function ProjectMenu({
   onRename: (name: string) => Promise<boolean>;
   onExample: () => void;
   onReset: () => void;
+  onBlank: () => void;
 }) {
   const { open, setOpen, ref } = usePopover();
   const [renaming, setRenaming] = useState(false);
@@ -54,6 +56,16 @@ export function ProjectMenu({
     if (ok) onReset();
   };
 
+  const startBlank = async () => {
+    const ok = await askConfirm({
+      title: "Start from scratch?",
+      message: "The project is replaced by a blank one: just the player in an empty arena. No enemies, wiki, progression, rooms or art. The current project and chats are backed up first.",
+      confirmLabel: "Start from scratch",
+      danger: true,
+    });
+    if (ok) onBlank();
+  };
+
   if (renaming)
     return (
       <NameField
@@ -75,7 +87,7 @@ export function ProjectMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${name}: project menu`}
-        title="Project: rename, example game, start over (double-click to rename)"
+        title="Project: rename, example game, start over, start from scratch (double-click to rename)"
         onClick={() => setOpen(!open)}
         onDoubleClick={() => {
           if (locked) return;
@@ -100,7 +112,11 @@ export function ProjectMenu({
             Start over…
             <small>Back to the starter project</small>
           </button>
-          <p className="menu-note">{locked ? "Stop the playtest or wait for the AI first." : "Both back up the current project and chats first."}</p>
+          <button type="button" role="menuitem" className="danger" disabled={locked} onClick={() => choose(() => void startBlank())}>
+            Start from scratch…
+            <small>Just the player in an empty arena</small>
+          </button>
+          <p className="menu-note">{locked ? "Stop the playtest or wait for the AI first." : "Each backs up the current project and chats first."}</p>
         </div>
       )}
     </div>

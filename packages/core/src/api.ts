@@ -55,8 +55,8 @@ export const PlaytestRequest = z.strictObject({
 
 export const ResetRequest = z.strictObject({
   baseRevision: z.number().int().min(0),
-  /** Start from the starter project (default) or the example game (the fixture slice). */
-  from: z.enum(["starter", "example"]).default("starter"),
+  /** Start from the starter project (default), the example game (the fixture slice) or a blank project (the player in an empty arena). */
+  from: z.enum(["starter", "example", "blank"]).default("starter"),
 });
 
 export const ChatRequest = z.strictObject({

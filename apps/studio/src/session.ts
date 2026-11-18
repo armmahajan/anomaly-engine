@@ -323,7 +323,7 @@ export class Session {
   }
 
   /** Back up the project on the server and start over from the starter project (or the example game). */
-  resetProject = async (from: "starter" | "example" = "starter"): Promise<ChangeResult> => {
+  resetProject = async (from: "starter" | "example" | "blank" = "starter"): Promise<ChangeResult> => {
     const blocked = this.editBlocked();
     if (blocked) return blocked;
     const result = await api.resetProject(this.state.project.revision, from);

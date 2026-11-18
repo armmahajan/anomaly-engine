@@ -93,6 +93,16 @@ test("project menu: rename the game in place (Undo restores it); start over asks
   await page.getByRole("menuitem", { name: /Start over/ }).click();
   await confirmInPage(page, "Start over");
   await expect.poll(async () => (await page.evaluate(() => window.studio!.getProject().characters.length))).toBe(3);
+
+  // Start from scratch: the player alone in an empty arena.
+  await projectMenu(page).click();
+  await page.getByRole("menuitem", { name: /Start from scratch/ }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("just the player in an empty arena");
+  await confirmInPage(page, "Start from scratch");
+  await expect.poll(async () => (await page.evaluate(() => window.studio!.getProject().characters.map((c) => c.kind)))).toEqual(["player"]);
+  const blank = await page.evaluate(() => window.studio!.getProject().world.rooms);
+  expect(blank.map((r) => [r.id, r.spawns.length, r.props.length])).toEqual([["arena", 0, 0]]);
+  await expect(page.getByTestId("runtime-status")).toHaveText("Editing");
   expect(consoleErrors).toEqual([]);
 });
 

@@ -166,6 +166,10 @@ export function App({ session }: { session: Session }) {
     if (report(await session.resetProject())) setSelectedId("crawler");
   };
 
+  const startBlank = async () => {
+    if (report(await session.resetProject("blank"))) setSelectedId("player");
+  };
+
   const renameProject = async (name: string) => report(await session.applyOperation("renameProject", { name }));
 
   /** The playtest room plays in Playtest mode and the world in Rooms mode: opening another mode ends a playtest. */
@@ -275,6 +279,7 @@ export function App({ session }: { session: Session }) {
           onRename={renameProject}
           onExample={() => void loadExample()}
           onReset={() => void resetProject()}
+          onBlank={() => void startBlank()}
         />
         <StudioTabs groups={TAB_GROUPS} labels={TAB_LABEL} hints={TAB_HINT} counts={drafts} countHint="Drafts awaiting your review" active={tab} onOpen={openTab} />
         <div className="toolbar-end">
