@@ -2,6 +2,7 @@ import { Fragment, useRef, useState, type KeyboardEvent } from "react";
 import {
   MOVEMENT_ABILITIES,
   primitiveParams,
+  renderHelp,
   type ChangeResult,
   type Character,
   type Condition,
@@ -186,7 +187,10 @@ function AbilityPanel({ player, inArena, session, locked }: { player: PlayerChar
   return (
     <>
       <h3>Abilities</h3>
-      <p className="hint">Checked abilities are on in playtests. Controls: move A/D, jump Space, attack X, dash C, down + jump in the air to ground pound.</p>
+      <p className="hint">
+        Checked abilities are on in playtests. Controls (Game ▸ Controls):{" "}
+        {renderHelp("move {move_left} / {move_right}, jump {jump}, attack {attack}, dash {dash}, {aim_down} + jump in the air to ground pound.", session.getProject().controls.bindings)}
+      </p>
       {(Object.keys(MOVEMENT_ABILITIES) as MovementAbility[]).map((ability) => {
         const key = TUNING_KEY[ability];
         return (

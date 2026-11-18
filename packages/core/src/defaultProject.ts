@@ -6,6 +6,7 @@ import { defaultAbilityTuning } from "./movement/params.ts";
 import { borderedGrid, fillTiles, TILE, type TileGrid } from "./world/tiles.ts";
 import { defaultWorld } from "./world/world.ts";
 import { defaultArtSection } from "./art/asset.ts";
+import { defaultControls } from "./controls/controls.ts";
 
 /** Starter project: one room, the arena, with a patroller and a charger; ▶ Play tests there. */
 export function createDefaultProject(): ProjectSpec {
@@ -89,6 +90,7 @@ export function createDefaultProject(): ProjectSpec {
     wiki: defaultWiki(),
     progression: defaultProgression(),
     architect: defaultArchitectPlan(),
+    controls: defaultControls(),
     art: defaultArtSection(),
     world: {
       ...defaultWorld(),

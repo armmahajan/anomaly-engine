@@ -6,6 +6,7 @@ import { defaultArchitectPlan } from "../architect/plan.ts";
 import { PROTOCOL_VERSION, type WorldStart } from "../protocol.ts";
 import { toRuntimeProject, type RuntimeProject } from "../world/runtime.ts";
 import { exportBootPage } from "./bootPage.ts";
+import { BROWSER_KEY_CODES, controlAction, gameControlHelp, KEY_LABELS, MAX_KEYS_PER_ACTION, renderHelp } from "../controls/controls.ts";
 
 /**
  * Game export: what a standalone build of the game holds, as plain data (pure; the
@@ -24,11 +25,30 @@ import { exportBootPage } from "./bootPage.ts";
 export const EXPORT_PATHS = { page: "index.html", data: "game.json", files: "files", runtime: "runtime", readme: "README.txt" } as const;
 /** The runtime's localStorage key prefix for a saved run (world_runtime.gd SAVE_PREFIX). */
 export const RUNTIME_SAVE_PREFIX = "anomaly-save:";
+/** localStorage key prefix for a player's own keys in an exported game (the boot page's). */
+export const PLAYER_CONTROLS_PREFIX = "anomaly-controls:";
 export const EXPORT_FORMAT = 1;
 
 export interface ExportControl {
+  /** With the game's keys. */
   keys: string;
   action: string;
+  /** `keys` with {action_id} where an action's keys go: the page fills in the player's keys. */
+  template: string;
+}
+
+/** What the boot page needs to show the keys and let players change them. */
+export interface ExportControls {
+  /** localStorage key of the player's own keys for this game ({ action: [key names] }). */
+  storageKey: string;
+  /** Shown when the game starts and from the ? button. */
+  help: ExportControl[];
+  /** The actions this game uses, which players can rebind; `keys` are the game's (project.controls). */
+  actions: { id: string; label: string; keys: string[]; context: string; shares: string[] }[];
+  maxKeys: number;
+  /** Key name -> how it is shown; browser KeyboardEvent.code -> key name. */
+  keyLabels: Record<string, string>;
+  browserCodes: Record<string, string>;
 }
 
 /** game.json: everything the boot page needs. */
@@ -45,8 +65,8 @@ export interface GameExportData {
   start: WorldStart;
   /** Images to send to the runtime before it loads the game, served from files/. */
   images: FileRef[];
-  /** Keyboard controls this game uses, shown briefly when it starts. */
-  controls: ExportControl[];
+  /** Keyboard controls this game uses (shown briefly when it starts) and what players may rebind. */
+  controls: ExportControls;
   project: RuntimeProject;
 }
 
@@ -122,43 +142,30 @@ export function planGameExport(project: ProjectSpec): GameExportPlan {
     saveKey: RUNTIME_SAVE_PREFIX + name,
     start: { room: start.room, x: start.x, y: start.y, abilities: [] },
     images: runtimeImageRefs(runtime),
-    controls: exportControls(project),
+    controls: exportControls(project, PLAYER_CONTROLS_PREFIX + name),
     project: runtime,
   };
   return { ok: true, data, page: exportBootPage(data), readme: exportReadme(data) };
 }
 
-const ABILITY_CONTROLS: Record<string, ExportControl> = {
-  dash: { keys: "C / Shift / K", action: "dash" },
-  double_jump: { keys: "Jump in the air", action: "jump again" },
-  wall_jump: { keys: "Toward a wall, then jump", action: "wall jump" },
-  glide: { keys: "Hold jump while falling", action: "glide" },
-  ground_pound: { keys: "↓ + jump in the air", action: "ground pound" },
-};
-
-/** The keys this game uses: the basics, plus abilities it can grant, interacting and the map when it has them. */
-export function exportControls(project: ProjectSpec): ExportControl[] {
-  const granted = new Set<string>();
-  const events = new Set<string>();
-  const walk = (value: unknown): void => {
-    if (Array.isArray(value)) return value.forEach(walk);
-    if (!value || typeof value !== "object") return;
-    const record = value as Record<string, unknown>;
-    if (record.type === "grantAbility" && typeof record.ability === "string") granted.add(record.ability);
-    if (typeof record.type === "string") events.add(record.type);
-    Object.values(record).forEach(walk);
+/**
+ * The keys this game uses (the basics, plus abilities it can grant, interacting and the map when it has
+ * them; core gameControlHelp) with the game's keys, and the actions players may rebind.
+ */
+export function exportControls(project: ProjectSpec, storageKey = PLAYER_CONTROLS_PREFIX + exportFileName(project.name)): ExportControls {
+  const { bindings } = project.controls;
+  const { help, actions } = gameControlHelp(project);
+  return {
+    storageKey,
+    help: help.map((h) => ({ action: h.action, template: h.template, keys: renderHelp(h.template, bindings) })),
+    actions: actions.map((id) => {
+      const info = controlAction(id)!;
+      return { id, label: info.label, keys: [...bindings[id]], context: info.context, shares: [...(info.shares ?? [])] };
+    }),
+    maxKeys: MAX_KEYS_PER_ACTION,
+    keyLabels: KEY_LABELS,
+    browserCodes: BROWSER_KEY_CODES,
   };
-  walk(project.world);
-  const controls: ExportControl[] = [
-    { keys: "A / D or ← / →", action: "move" },
-    { keys: "Space / Z", action: "jump" },
-    { keys: "X / J (hold ↑ or ↓ to aim)", action: "attack" },
-  ];
-  for (const [ability, control] of Object.entries(ABILITY_CONTROLS)) if (granted.has(ability)) controls.push(control);
-  if (events.has("interact")) controls.push({ keys: "W / ↑", action: "interact" });
-  if (project.world.map.enabled) controls.push({ keys: "M / Tab", action: "map" });
-  controls.push({ keys: "← / → and Enter", action: "choose in menus" });
-  return controls;
 }
 
 function exportReadme(data: GameExportData): string {
@@ -173,7 +180,8 @@ function exportReadme(data: GameExportData): string {
     "",
     "  python3 -m http.server 8000      (then open http://localhost:8000)",
     "",
-    `Saves are kept in each player's browser (localStorage, key "${data.saveKey}").`,
+    `Saves are kept in each player's browser (localStorage, key "${data.saveKey}"), and so are the keys`,
+    `a player changes from the ? button ("Change keys"; key "${data.controls.storageKey}").`,
     "",
   ].join("\n");
 }

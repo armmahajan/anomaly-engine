@@ -30,6 +30,8 @@ export type Snapshot = {
   healthBars: string[];
   props: { id: string; visible: boolean; solid: boolean }[];
   camera: { x: number; y: number; zoom: number } | null;
+  /** Keyboard keys per action in effect (the game's, with the player's overrides). */
+  controls: Record<string, string[]>;
 };
 
 export const runtimeState = (page: Page) =>

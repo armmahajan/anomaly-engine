@@ -1,4 +1,4 @@
-import type { ArtState, ChangeResult, ProjectSpec } from "@anomaly/core";
+import { keysText, type ArtState, type ChangeResult, type ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { HandlerEditor } from "./HandlerEditor.tsx";
 import { GameArtSection, GameArtSummary } from "./GameArtSection.tsx";
@@ -7,6 +7,7 @@ import { ItemsPanel } from "./ItemsPanel.tsx";
 import { ModalsPanel } from "./ModalsPanel.tsx";
 import { MapSettings } from "./MapSettings.tsx";
 import { CameraSettings } from "./CameraSettings.tsx";
+import { ControlsSettings } from "./ControlsSettings.tsx";
 import { GameSection } from "./content/GameSection.tsx";
 
 /**
@@ -98,6 +99,9 @@ export function GameSettings({ project, session, locked }: { project: ProjectSpe
         </GameSection>
         <GameSection id="camera" title="Camera" summary={`${project.world.camera.rows} tiles tall`}>
           <CameraSettings project={project} session={session} locked={locked} />
+        </GameSection>
+        <GameSection id="controls" title="Controls" summary={`jump ${keysText(project.controls.bindings.jump)} · attack ${keysText(project.controls.bindings.attack)}`}>
+          <ControlsSettings project={project} session={session} locked={locked} />
         </GameSection>
       </div>
     </section>

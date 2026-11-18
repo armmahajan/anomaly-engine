@@ -8,6 +8,7 @@ import { ArtSection, defaultArtSection } from "./art/asset.ts";
 import { Dressing } from "./art/world.ts";
 import { World, worldIssues } from "./world/world.ts";
 import { ArchitectPlan, architectIssues, defaultArchitectPlan } from "./architect/plan.ts";
+import { Controls } from "./controls/controls.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -118,6 +119,8 @@ export const ProjectSpec = z
     world: World.prefault({}),
     /** The Architect's plan for building the world from the progression. Older projects get an empty one. */
     architect: ArchitectPlan.default(defaultArchitectPlan),
+    /** The game's keys per action (players may override them in their browser). Older projects get today's keys. */
+    controls: Controls.prefault({}),
   })
   .superRefine((project, ctx) => {
     for (const issue of progressionIssues(project.progression, project.characters)) ctx.addIssue({ code: "custom", ...issue });

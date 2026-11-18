@@ -45,9 +45,10 @@ import { modalTools } from "./domains/modals.ts";
 import { combatTools } from "./domains/combat.ts";
 import { logicTools } from "./domains/logic.ts";
 import { designTools } from "./domains/design.ts";
+import { controlTools } from "./domains/controls.ts";
 
 /** Game-logic domains, each in its own file (operations, tool text, schemas, summary). */
-export const DOMAIN_TOOLS = [handlerTools, propTools, modalTools, combatTools, logicTools, designTools] as const;
+export const DOMAIN_TOOLS = [handlerTools, propTools, modalTools, combatTools, logicTools, designTools, controlTools] as const;
 
 /**
  * The agent's tools. Write tools are exactly the core operations (same names,
@@ -148,6 +149,7 @@ const writeDescriptions: Record<BuildOperation, string> = {
   ...combatTools.descriptions,
   ...logicTools.descriptions,
   ...designTools.descriptions,
+  ...controlTools.descriptions,
 };
 
 const int = z.number().int();
@@ -259,6 +261,7 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   ...combatTools.schemas,
   ...logicTools.schemas,
   ...designTools.schemas,
+  ...controlTools.schemas,
 };
 
 /** Apply an operation to the draft and stage it for the end-of-turn commit. */

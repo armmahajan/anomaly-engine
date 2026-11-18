@@ -12,6 +12,7 @@ import { handlerOperations } from "./events/operations.ts";
 import { propOperations } from "./props/operations.ts";
 import { modalOperations } from "./modals/operations.ts";
 import { combatOperations } from "./combat/operations.ts";
+import { controlOperations } from "./controls/operations.ts";
 
 /**
  * Project operations: pure functions (project, untrusted input) -> result.
@@ -405,6 +406,7 @@ const operations = {
   ...propOperations,
   ...modalOperations,
   ...combatOperations,
+  ...controlOperations,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;
 
 export type OperationName = keyof typeof operations;
