@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ArtState, Character, CharacterAsset, ProjectSpec } from "@anomaly/core";
 import { fileBase64, fileUrl } from "./api.ts";
 import type { Session } from "./session.ts";
+import { AnimationList } from "./characters/AnimationList.tsx";
 
 /**
  * Characters mode workbench (main area). Big visuals here; inputs and actions
@@ -20,6 +21,8 @@ interface Props {
   project: ProjectSpec;
   art: ArtState;
   session: Session;
+  /** A playtest or an AI turn holds the project. */
+  locked: boolean;
 }
 
 export function characterAsset(project: ProjectSpec, character: Character): CharacterAsset | null {
@@ -33,7 +36,7 @@ function defaultStep(asset: CharacterAsset | null): Step {
   return "concepts";
 }
 
-export function CharacterBench({ character, project, art, session }: Props) {
+export function CharacterBench({ character, project, art, session, locked }: Props) {
   const asset = characterAsset(project, character);
   const [step, setStep] = useState<Step>(() => defaultStep(asset));
   const [sheet, setSheet] = useState<number | null>(null); // null = latest
@@ -239,27 +242,20 @@ export function CharacterBench({ character, project, art, session }: Props) {
 
         {step === "animation" &&
           (clipIds.length > 0 && asset ? (
-            <ul className="bench-clips">
-              {clipIds.map((id) => (
-                <li key={id} data-testid={`clip-${id}`} className={id === currentClip ? "selected" : ""}>
-                  <button
-                    type="button"
-                    aria-pressed={id === currentClip}
-                    onClick={() => {
-                      setClip(id);
-                      setTime(0);
-                      setPlaying(true);
-                    }}
-                  >
-                    {id === currentClip ? "■" : "▶"} {id}
-                    <small>
-                      {asset.clips[id]!.duration}s{asset.clips[id]!.loop ? " loop" : ""}
-                    </small>
-                  </button>
-                  {asset.clipPreviews[id] && <img src={fileUrl(asset.clipPreviews[id]!)} alt={`${id} filmstrip`} />}
-                </li>
-              ))}
-            </ul>
+            <AnimationList
+              character={character}
+              asset={asset}
+              project={project}
+              art={art}
+              session={session}
+              current={currentClip}
+              locked={locked}
+              onPlay={(id) => {
+                setClip(id);
+                setTime(0);
+                setPlaying(true);
+              }}
+            />
           ) : (
             <Empty>{asset?.rig ? "Animate the rig from the sidebar." : "Build the rig first."}</Empty>
           ))}
