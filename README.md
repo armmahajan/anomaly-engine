@@ -661,6 +661,16 @@ creator's `direction` (the animation list). Operations: `createWeapon`, `updateW
 `moveBonePivot`, `rotateBoneRest`, `scaleBone`, `reassignPart`, `addBone`, `removeBone`, `setGrip`,
 `removeGrip` (the bone editor's are studio-only, not build-assistant tools).
 
+In the studio: **Game ▸ Weapons** edits weapons and every attack field (each change one undoable
+operation; **Draw it** starts the `weaponArt` job once that stage exists) and **Game ▸ Loadout** the
+slots and cycling (Controls lists alt/special attack and switch weapon only when the loadout uses
+them). **Characters ▸ Animation** lists every clip: preview, redo from a direction, rename (states and
+attacks follow), copy, delete, and attach to an enemy state (`stateClips`) or a weapon attack's `clip`.
+**Characters ▸ Rig ▸ Edit bones** draws joint handles over the stage (framed like `stage_view.gd`,
+mirrored in `apps/studio/src/characters/rigView.ts`): drag a joint (carrying the drawing or not), turn
+or scale a bone, reassign parts, add or remove bones, place grips, and a pose test that isn't saved.
+Cutout pieces show the design at its place, so their bones only move their joints.
+
 ## Enemy combat primitives
 
 Any enemy fights with the same behavior primitives (`behavior.ts`,
