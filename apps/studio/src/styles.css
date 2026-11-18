@@ -38,11 +38,6 @@ body {
   background: var(--panel);
 }
 
-.title {
-  font-weight: 600;
-  margin-right: 12px;
-}
-
 button {
   font: inherit;
   color: var(--text);
@@ -58,25 +53,6 @@ button:disabled {
   cursor: default;
 }
 
-.status {
-  margin-left: 12px;
-  color: var(--muted);
-}
-
-.status-ready {
-  color: var(--ok);
-}
-
-.status-unavailable {
-  color: var(--error);
-}
-
-.revision {
-  margin-left: auto;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
 .viewport {
   position: relative;
   background: #000;
@@ -89,18 +65,6 @@ button:disabled {
   height: 100%;
   border: 0;
   display: block;
-}
-
-.edit-badge {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 4px 10px;
-  border-radius: 4px;
-  background: rgb(0 0 0 / 0.6);
-  color: var(--muted);
-  pointer-events: none;
 }
 
 .sidebar {
@@ -213,18 +177,6 @@ h2 {
 .problem button {
   display: block;
   margin-top: 6px;
-}
-
-.server {
-  font-size: 10px;
-}
-
-.server-on {
-  color: var(--ok);
-}
-
-.server-off {
-  color: var(--error);
 }
 
 h3 {
@@ -394,33 +346,6 @@ h3 {
 
 .viewport.offstage {
   visibility: hidden;
-}
-
-.tabs {
-  display: flex;
-  gap: 2px;
-  margin-right: 12px;
-}
-
-.tabs button {
-  background: transparent;
-  border-color: transparent;
-  color: var(--muted);
-}
-
-.tabs button.selected {
-  background: #232733;
-  border-color: var(--border);
-  color: var(--text);
-}
-
-.tab-count {
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 8px;
-  background: #2b3550;
-  color: var(--accent);
-  font-size: 11px;
 }
 
 .wiki-pane {
@@ -1099,21 +1024,6 @@ button.toggled {
   min-width: 0;
 }
 
-.side-resize {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -3px;
-  width: 6px;
-  cursor: col-resize;
-  z-index: 2;
-}
-
-.side-resize:hover {
-  background: var(--accent);
-  opacity: 0.4;
-}
-
 body.resizing {
   cursor: col-resize;
   user-select: none;
@@ -1759,37 +1669,6 @@ body.resizing iframe {
 }
 
 /* Background work (LiveStatus.tsx): never locks editing, only reports. */
-.live-status {
-  position: relative;
-  margin-left: 10px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.live-status > summary {
-  cursor: pointer;
-  list-style: none;
-  max-width: 420px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.live-status.busy > summary {
-  color: var(--accent);
-}
-.live-menu {
-  position: absolute;
-  top: 22px;
-  left: 0;
-  z-index: 20;
-  min-width: 260px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--panel, #1b2133);
-  border: 1px solid #2b3550;
-  border-radius: 4px;
-}
 .tag.work {
   margin-left: 6px;
   background: #2f2a4a;

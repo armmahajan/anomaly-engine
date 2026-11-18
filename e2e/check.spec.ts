@@ -1,13 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { collectConsoleErrors, openStudio, projectRevision, resetProject, waitForRuntimeAfter } from "./helpers.ts";
+import { collectConsoleErrors, loadExample, openStudio, projectRevision, resetProject, waitForRuntimeAfter } from "./helpers.ts";
 
 test.afterEach(({ page }) => resetProject(page));
 
 test("Check the game proves the example game beatable, then shows how a decoy lock breaks it", async ({ page }) => {
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
-  page.once("dialog", (dialog) => void dialog.accept());
-  await page.getByRole("button", { name: "Example…" }).click();
+  await loadExample(page);
   await expect.poll(() => page.evaluate(() => window.studio!.getProject().world.rooms.map((r) => r.id))).toContain("summit");
   await page.getByRole("tab", { name: "Game" }).click();
 

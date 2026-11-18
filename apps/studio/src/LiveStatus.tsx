@@ -1,13 +1,21 @@
+import { useEffect, useRef } from "react";
 import type { ArtState, LiveState, ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
+import { usePopover } from "./ui/usePopover.ts";
 
 /**
- * Background work, in the toolbar: what the studio is filling in by itself (game
- * characters from the wiki and their art, rooms from the progression), whether its
- * saves wait for a playtest, and the switches for the live cast and rooms. None of it
- * locks editing.
+ * Auto-build, in the toolbar: what the studio is building by itself as the
+ * creator designs (game characters from the wiki and their art, rooms from the
+ * progression), whether its saves wait for a playtest, and the two switches.
+ * None of it locks editing.
  */
 export function LiveStatus({ project, art, live, session }: { project: ProjectSpec; art: ArtState; live: LiveState; session: Session }) {
+  const { open, setOpen, ref } = usePopover();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open) panelRef.current?.querySelector<HTMLElement>("input")?.focus();
+  }, [open]);
+
   const name = (id: string) => project.characters.find((c) => c.id === id)?.name ?? id;
   const parts: string[] = [];
   if (live.cast.working.length) parts.push(live.cast.message || `making ${live.cast.working.map(name).join(", ")}`);
@@ -15,26 +23,60 @@ export function LiveStatus({ project, art, live, session }: { project: ProjectSp
   const job = art.running && !art.running.underLock ? art.running : null;
   if (job) parts.push(`drawing ${job.characterId ? name(job.characterId) : (job.biomeId ?? "a world")} (${job.stage})`);
   if (art.queued > 0) parts.push(`${art.queued} art job${art.queued > 1 ? "s" : ""} queued`);
-  const waiting = live.waiting && parts.length ? ` · saves wait: ${live.waiting}` : "";
   const busy = parts.length > 0;
+  const on = live.settings.cast || live.settings.rooms;
   const problem = live.cast.error ?? live.rooms.error;
+  const label = busy ? `⟳ ${parts.join(" · ")}` : on ? "Auto-build on" : "Auto-build off";
+
   return (
-    <details className={`live-status${busy ? " busy" : ""}`} data-testid="live-status">
-      <summary title="Work the studio does in the background as you design">
-        {busy ? `⟳ ${parts.join(" · ")}${waiting}` : live.settings.cast || live.settings.rooms ? "Live ✓" : "Live off"}
-      </summary>
-      <div className="live-menu">
-        <label title="Character pages the director or you write (in_game: player or enemy) become game characters with a behavior and art">
-          <input type="checkbox" aria-label="live cast" checked={live.settings.cast} onChange={(e) => void session.setLive({ cast: e.target.checked })} /> Characters from the wiki
-        </label>
-        <label title="The progression's regions become rooms (no model, no art) until you or the Architect take over the plan">
-          <input type="checkbox" aria-label="live rooms" checked={live.settings.rooms} onChange={(e) => void session.setLive({ rooms: e.target.checked })} /> Rooms from the progression
-        </label>
-        {live.cast.message && !live.cast.working.length && <p className="hint">Cast: {live.cast.message}</p>}
-        {live.rooms.message && live.rooms.status === "idle" && <p className="hint">Rooms: {live.rooms.message}</p>}
-        {problem && <p className="field-error">{problem}</p>}
-      </div>
-    </details>
+    <div className={`live-status${busy ? " busy" : ""}${on ? " on" : ""}${problem ? " failed" : ""}`} data-testid="live-status" ref={ref}>
+      <button
+        type="button"
+        className="live-summary"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title="Auto-build: what the studio builds by itself as you design"
+        onClick={() => setOpen(!open)}
+      >
+        {label}
+        {live.waiting && busy && <span className="live-waiting"> · saves wait: {live.waiting}</span>}
+        <span className="caret" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="menu live-menu" role="dialog" aria-label="Auto-build" ref={panelRef}>
+          <h2>Auto-build</h2>
+          <p className="menu-note">As you and the director design, the studio can build the game in the background. It never locks editing.</p>
+          <label className="live-switch">
+            <input type="checkbox" aria-label="live cast" checked={live.settings.cast} onChange={(e) => void session.setLive({ cast: e.target.checked })} />
+            <span>
+              Characters from the wiki
+              <small>Character pages marked in the game (player or enemy) become game characters, with a behavior and art.</small>
+            </span>
+          </label>
+          <label className="live-switch">
+            <input type="checkbox" aria-label="live rooms" checked={live.settings.rooms} onChange={(e) => void session.setLive({ rooms: e.target.checked })} />
+            <span>
+              Rooms from the progression
+              <small>Regions become rooms (tiles and doors, no art) until you or the Architect take over the plan.</small>
+            </span>
+          </label>
+          <h3>Now</h3>
+          {busy ? (
+            <ul className="live-now">
+              {parts.map((p, i) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="menu-note">Nothing running.</p>
+          )}
+          {live.waiting && <p className="menu-note">Saves wait while {live.waiting}.</p>}
+          {live.cast.message && !live.cast.working.length && <p className="menu-note">Characters: {live.cast.message}</p>}
+          {live.rooms.message && live.rooms.status === "idle" && <p className="menu-note">Rooms: {live.rooms.message}</p>}
+          {problem && <p className="field-error">{problem}</p>}
+        </div>
+      )}
+    </div>
   );
 }
 

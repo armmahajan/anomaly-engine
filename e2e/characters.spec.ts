@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { collectConsoleErrors, commitField, openStudio, projectRevision, runtimeState } from "./helpers.ts";
+import { collectConsoleErrors, commitField, confirmInPage, openStudio, projectRevision, runtimeState } from "./helpers.ts";
 
 // Items 1-4 of the pre-agent list: create / duplicate / delete characters,
 // place / move / remove spawns, and atomic batches, all reaching the runtime.
@@ -59,7 +59,8 @@ test("create, duplicate, place, move, remove and delete characters", async ({ pa
   // Delete the original Charger: gone from the project and the running game.
   await page.getByTestId("character-charger").click();
   await page.getByRole("button", { name: "Delete" }).click();
-  await page.getByRole("button", { name: "Delete Charger" }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("Delete Charger?");
+  await confirmInPage(page, "Delete");
   await expect(page.getByTestId("character-charger")).toHaveCount(0);
   await synced(page);
   expect((await runtimeState(page)).entities.some((e) => e.characterId === "charger")).toBe(false);

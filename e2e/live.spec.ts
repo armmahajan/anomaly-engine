@@ -16,7 +16,7 @@ test("the director drafts characters: they join the cast and get drawn while the
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
   await setLive(page, { cast: true });
-  await expect(page.getByTestId("live-status")).toContainText("Live ✓");
+  await expect(page.getByTestId("live-status")).toContainText("Auto-build on");
   const article = page.getByTestId("wiki-article");
 
   await page.getByRole("tab", { name: "Wiki" }).click();
