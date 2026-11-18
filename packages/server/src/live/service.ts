@@ -7,7 +7,7 @@ import {
   canPreview,
   castFromPages,
   fail,
-  gameCharacterPages,
+  gamePages,
   LiveSettingsRequest,
   markStagesStale,
   previewOwnsPlan,
@@ -18,6 +18,7 @@ import {
   type OperationError,
   type PreviewOutcome,
   type ProjectSpec,
+  weaponsFromPages,
 } from "@anomaly/core";
 import { buildAgent, type TurnRunner } from "@anomaly/agent";
 import type { ProjectStore } from "../projectStore.ts";
@@ -32,8 +33,11 @@ import { privateTurn } from "../agentTurn.ts";
  *   enemy page gets a new enemy, linked to the page; the player page is linked to the
  *   player. New enemies get a behavior from their page (a build-assistant turn on a
  *   private copy, written at first-region strength), then every character a new page
- *   describes gets its art (an auto art job, skipped if it is drawn by then). Each page
- *   is handled once: undoing or deleting what it made doesn't bring it back.
+ *   describes gets its art (an auto art job, skipped if it is drawn by then). A weapon
+ *   page (core gamePages: in_game "weapon", a weapon link, or kind weapon) gets a new
+ *   weapon linked to it (weaponId), whose attacks the build assistant writes from the
+ *   page in its own private turn; they land only on weapons nobody changed meanwhile.
+ *   Each page is handled once: undoing or deleting what it made doesn't bring it back.
  * - Live rooms: when the progression changes (regions, a start), the Architect's code
  *   stages build rooms for it with no model and no art (core buildPreview, off the
  *   main thread). Once the creator or the Architect has taken over the plan (core
@@ -182,7 +186,7 @@ export class LiveService {
 
   private startCast(project: ProjectSpec): void {
     const handled = new Set(this.persisted.pages);
-    const fresh = gameCharacterPages(project).filter(({ page }) => !handled.has(page.id)).map(({ page }) => page.id);
+    const fresh = gamePages(project).filter(({ page }) => !handled.has(page.id)).map(({ page }) => page.id);
     if (fresh.length === 0) return;
     this.persisted.pages = [...this.persisted.pages, ...fresh];
     const signal = this.controller.signal;
@@ -205,17 +209,20 @@ export class LiveService {
       this.state.cast = { ...this.state.cast, working, message };
       this.emit();
     };
-    say(`adding ${pageIds.length} character page(s) to the cast`, pageIds);
+    say(`adding ${pageIds.length} page(s) to the game`, pageIds);
     let made: ReturnType<typeof castFromPages> = { operations: [], created: [], draw: [] };
+    let armed: ReturnType<typeof weaponsFromPages> = { operations: [], created: [] };
     const saved = await this.store.commitBackground(
       (project) => {
         made = castFromPages(project, pageIds);
-        return { operations: made.operations };
+        armed = weaponsFromPages(project, pageIds);
+        return { operations: [...made.operations, ...armed.operations] };
       },
       { signal, epoch, onWait },
     );
-    if (!saved.ok) throw new Error(`could not add the characters: ${saved.error.message}`);
+    if (!saved.ok) throw new Error(`could not add the pages to the game: ${saved.error.message}`);
     const { created, draw } = made;
+    const weapons = armed.created;
     // Linked characters (the player) can be drawn right away; new ones once they behave (their clips follow the behavior).
     this.draw(draw.filter((id) => !created.includes(id)));
     let error: string | null = null;
@@ -237,7 +244,42 @@ export class LiveService {
     }
     if (signal.aborted) return;
     this.draw(created);
-    this.state.cast = { working: [], message: `added ${draw.length ? draw.join(", ") : "nothing new"} to the cast`, error };
+    if (weapons.length > 0 && this.options.runner) {
+      say(`writing attacks for ${weapons.join(", ")}`, weapons);
+      error = (await this.writeAttacks(weapons, signal, epoch, onWait)) ?? error;
+      if (signal.aborted) return;
+    }
+    const added = [draw.length ? `added ${draw.join(", ")} to the cast` : "", weapons.length ? `made the weapon(s) ${weapons.join(", ")}` : ""].filter(Boolean);
+    this.state.cast = { working: [], message: added.join("; ") || "added nothing new to the cast", error };
+  }
+
+  /**
+   * New weapons' attacks, written by the build assistant from their pages in one private turn. Its edits
+   * land only on weapons still as the live cast made them: one the creator (or anyone) changed meanwhile
+   * is theirs, and keeps its changes. Returns the problem, if any.
+   */
+  private async writeAttacks(ids: string[], signal: AbortSignal, epoch: number, onWait: () => void): Promise<string | null> {
+    const project = this.store.getState().project;
+    const made = new Map(ids.flatMap((id) => {
+      const weapon = project.weapons.list.find((w) => w.id === id);
+      return weapon ? [[id, JSON.stringify(weapon)] as const] : [];
+    }));
+    if (made.size === 0) return null;
+    try {
+      const turn = await privateTurn(this.options.runner!, buildAgent, project, attacksMessage(project, [...made.keys()]), { signal, log: () => {} });
+      if (turn.operations.length === 0) return null;
+      const saved = await this.store.commitBackground(
+        (current) => {
+          const untouched = new Set([...made].filter(([id, json]) => JSON.stringify(current.weapons.list.find((w) => w.id === id)) === json).map(([id]) => id));
+          return { operations: turn.operations.filter((op) => WEAPON_EDITS.has(op.name) && untouched.has(String((op.input as { weaponId?: unknown } | null)?.weaponId))) };
+        },
+        { signal, epoch, onWait },
+      );
+      return saved.ok ? null : `the attacks for ${ids.join(", ")} no longer apply: ${saved.error.message}`;
+    } catch (e) {
+      if (signal.aborted) return null;
+      return `writing attacks failed: ${e instanceof Error ? e.message : String(e)}`;
+    }
   }
 
   /** Queue art for characters that still exist, unless they're drawn by the time their turn comes. */
@@ -360,7 +402,7 @@ export class LiveService {
 /** What counts as already done when live work starts on a project: its pages, and its progression unless the rooms can be built now. */
 function baseline(project: ProjectSpec, settings: LiveSettings): Persisted {
   const fresh = project.architect.rooms.length === 0 && canPreview(project) && previewOwnsPlan(project);
-  return { settings, pages: gameCharacterPages(project).map(({ page }) => page.id), progression: fresh ? null : progressionFingerprint(project) };
+  return { settings, pages: gamePages(project).map(({ page }) => page.id), progression: fresh ? null : progressionFingerprint(project) };
 }
 
 /** The build assistant's brief for the characters the live cast just made. */
@@ -372,4 +414,19 @@ export function behaviorMessage(project: ProjectSpec, ids: string[]): string {
     })
     .join(", ");
   return `Give these new enemy characters their behavior: ${list}. They were just made from their wiki pages as placeholders (a box that patrols). Read each one's wiki page (and the pages of the regions it is met in) and give it a fitting name, size, color, movement, stats and a behavior built from the primitives, true to its page; one the progression or its page makes a boss or a guardian gets several attacks with clear windups and phases. Write each at first-region strength: stats rise automatically in deeper regions. Change only these characters: don't create or delete characters, don't add spawns or rooms, don't queue art.`;
+}
+
+/** The operations the attacks turn may save: edits to the new weapons themselves. */
+const WEAPON_EDITS = new Set(["updateWeapon", "setWeaponAttack", "deleteWeaponAttack"]);
+
+/** The build assistant's brief for the weapons the live cast just made. */
+export function attacksMessage(project: ProjectSpec, ids: string[]): string {
+  const list = ids
+    .map((id) => {
+      const page = project.wiki.pages.find((p) => p.weaponId === id);
+      return `${id}${page ? ` (wiki page ${page.id})` : ""}`;
+    })
+    .join(", ");
+  const items = project.world.items.map((i) => i.id);
+  return `Give these new weapons their attacks: ${list}. They were just made from their wiki pages, with no attacks yet. Read each one's wiki page and write its attacks with setWeaponAttack, true to the page: each move's trigger, hit shape, damage, knockback, timing, movement and combo, at first-region strength (the built-in attack does 1 damage); updateWeapon may refine its description and the look of its trail and spark. ${items.length ? `Ammo may only use an existing item (${items.join(", ")}).` : "No ammo: the game has no items yet."} Change only these weapons: don't create or delete weapons, don't change the loadout, characters, rooms or handlers, don't queue art.`;
 }

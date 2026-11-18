@@ -3,6 +3,7 @@ import type { Effect, GameCondition } from "../../events/events.ts";
 import { MOVEMENT_ABILITIES, type MovementAbility } from "../../movement/params.ts";
 import type { Ability } from "../../progression/progression.ts";
 import type { Item, Modal, World } from "../../world/world.ts";
+import type { Weapon } from "../../combat/weapon.ts";
 
 /**
  * What the player gets, as primitives: a progression ability whose mechanic is
@@ -43,10 +44,14 @@ export const isMovement = (mechanic: string): mechanic is MovementAbility => mec
 
 export const findAbility = (project: ProjectSpec, id: string): Ability | undefined => project.progression.abilities.find((a) => a.id === id);
 
-/** The effect that gives the player a progression ability or key. */
+/** The game weapon a grant is (a progression ability with the same id wins). */
+export const findWeapon = (project: ProjectSpec, id: string): Weapon | undefined => (findAbility(project, id) ? undefined : project.weapons.list.find((w) => w.id === id));
+
+/** The effect that gives the player a progression ability or key, or a weapon. */
 export function grantEffect(project: ProjectSpec, id: string): Effect {
   const ability = findAbility(project, id);
   if (ability && isMovement(ability.mechanic)) return { type: "grantAbility", ability: ability.mechanic };
+  if (findWeapon(project, id)) return { type: "giveWeapon", weapon: id, slot: null };
   return { type: "giveItem", item: id, count: 1 };
 }
 
@@ -54,21 +59,25 @@ export function grantEffect(project: ProjectSpec, id: string): Effect {
 export function hasCondition(project: ProjectSpec, id: string): GameCondition {
   const ability = findAbility(project, id);
   if (ability && isMovement(ability.mechanic)) return { type: "ability", ability: ability.mechanic };
+  if (findWeapon(project, id)) return { type: "weapon", weapon: id };
   return { type: "item", item: id, atLeast: 1 };
 }
 
-/** Is it an item (not a movement ability)? */
+/** Is it an item (not a movement ability or a weapon)? */
 export function isItemGrant(project: ProjectSpec, id: string): boolean {
   const ability = findAbility(project, id);
-  return !ability || !isMovement(ability.mechanic);
+  return ability ? !isMovement(ability.mechanic) : !findWeapon(project, id);
 }
+
+/** Is it held without a movement ability: an item or a weapon (a gate for it is a prop, not geometry)? */
+export const isHeldGrant = (project: ProjectSpec, id: string): boolean => isItemGrant(project, id) || !!findWeapon(project, id);
 
 export const messageModalId = (id: string) => safeId("got", id);
 export const TITLE_MODAL = "title";
 export const ENDING_MODAL = "ending";
 
 const titleCase = (id: string) => id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-export const abilityName = (project: ProjectSpec, id: string) => findAbility(project, id)?.name ?? titleCase(id);
+export const abilityName = (project: ProjectSpec, id: string) => findAbility(project, id)?.name ?? findWeapon(project, id)?.name ?? titleCase(id);
 
 /** Wiki links as plain text: [[id|label]] -> label, [[id]] -> the page's title. */
 export function plainText(project: ProjectSpec, text: string): string {
@@ -90,7 +99,9 @@ export function messageModal(project: ProjectSpec, id: string): Modal {
   const ability = findAbility(project, id);
   const name = abilityName(project, id);
   const lines: string[] = [];
-  const about = pageLine(project, ability?.wikiPageId ?? project.wiki.pages.find((p) => p.id === id)?.id);
+  const weapon = findWeapon(project, id);
+  const page = ability?.wikiPageId ?? (weapon && project.wiki.pages.find((p) => p.weaponId === id)?.id) ?? project.wiki.pages.find((p) => p.id === id)?.id;
+  const about = pageLine(project, page) || plainText(project, weapon?.description ?? "");
   if (about) lines.push(sentence(about));
   if (ability && isMovement(ability.mechanic)) lines.push(MOVEMENT_ABILITIES[ability.mechanic]);
   const opens = project.progression.connections

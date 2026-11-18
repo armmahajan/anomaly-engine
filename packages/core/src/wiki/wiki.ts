@@ -26,6 +26,7 @@ export const WikiPage = z.strictObject({
     .refine((f) => Object.keys(f).length <= MAX_FIELDS, `at most ${MAX_FIELDS} fields`)
     .describe('Short facts as text, e.g. {"role": "antagonist", "motivation": "..."}.'),
   characterId: Id.optional().describe("The in-game character this page describes, if any."),
+  weaponId: Id.optional().describe("The game weapon this page describes, if any."),
   status: PageStatus.describe("canon: written or approved by the creator. draft: AI-written, awaiting review."),
 });
 export type WikiPage = z.infer<typeof WikiPage>;

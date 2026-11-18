@@ -59,7 +59,7 @@ export function verifyStage(project: ProjectSpec): StageOutcome & { verdict: Ver
   };
   // Problems in the plan itself come first: the built game can't be right while the plan isn't.
   for (const i of planIssues(project).issues) {
-    if (["gate-bypass-route", "gate-bypass-link", "unguarded-grant", "ungranted", "missing-join"].includes(i.code)) issues.push(i);
+    if (["gate-bypass-route", "gate-bypass-link", "unguarded-grant", "ungranted", "missing-join"].includes(i.code) || i.code.startsWith("weapon-")) issues.push(i);
   }
   const lint = lintProject(project);
   for (const w of lint) {

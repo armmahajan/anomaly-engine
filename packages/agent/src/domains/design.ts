@@ -20,6 +20,7 @@ function summary(project: ProjectSpec): string[] {
   const { progression: p, wiki } = project;
   if (p.regions.length === 0 && p.abilities.length === 0 && wiki.pages.length === 0) return [];
   const cast = wiki.pages.filter((page) => page.characterId).map((page) => `${page.characterId} [wiki ${page.id}]`);
+  const arms = wiki.pages.filter((page) => page.weaponId).map((page) => `${page.weaponId} [wiki ${page.id}]`);
   return [
     `Design (the director's documents; getProgression, getWikiPage): start ${p.start ?? "unset"}, ending ${p.ending ?? "unset"}; ${wiki.pages.length} wiki page(s).`,
     ...p.regions.map((r) => {
@@ -35,6 +36,7 @@ function summary(project: ProjectSpec): string[] {
     ...p.abilities.map((a) => `- ability ${a.id} "${a.name}" (${a.mechanic}) ${where(a)}`),
     ...p.connections.map((c) => `- gate ${c.id}: ${c.from} ${c.oneWay ? "->" : "<->"} ${c.to}${c.requires.length ? ` needs ${c.requires.join(" + ")}` : " open"}`),
     ...(cast.length ? [`Cast: ${cast.join(", ")}`] : []),
+    ...(arms.length ? [`Weapons: ${arms.join(", ")}`] : []),
   ];
 }
 
@@ -47,16 +49,23 @@ export const designTools: DomainTools<never> = {
   reads: [
     {
       name: "getWikiPage",
-      description: "One wiki page in full (the creator's game bible): title, summary, body, fields, its in-game character.",
+      description: "One wiki page in full (the creator's game bible): title, summary, body, fields, its in-game character or weapon.",
       schema: PageRef,
       run: (project, args) => {
         const parsed = PageRef.safeParse(args);
         const page = parsed.success && project.wiki.pages.find((pg) => pg.id === parsed.data.pageId);
         if (!page) return { ok: false, error: { code: "not_found", message: `known pages: ${project.wiki.pages.map((pg) => pg.id).join(", ") || "none"}` } };
         const character = page.characterId ? project.characters.find((c) => c.id === page.characterId) : undefined;
+        const weapon = page.weaponId ? project.weapons.list.find((w) => w.id === page.weaponId) : undefined;
         const { progression: p } = project;
         const usedBy = [...p.regions, ...p.abilities].filter((i) => i.wikiPageId === page.id).map((i) => i.id);
-        return { ok: true, page, ...(character && { character: { id: character.id, name: character.name, kind: character.kind } }), ...(usedBy.length && { describes: usedBy }) };
+        return {
+          ok: true,
+          page,
+          ...(character && { character: { id: character.id, name: character.name, kind: character.kind } }),
+          ...(weapon && { weapon: { id: weapon.id, name: weapon.name, attacks: weapon.attacks.map((a) => a.id) } }),
+          ...(usedBy.length && { describes: usedBy }),
+        };
       },
     },
     {
