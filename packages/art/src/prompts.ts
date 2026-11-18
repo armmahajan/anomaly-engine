@@ -187,7 +187,7 @@ export function cutoutCritiquePrompt(input: { plan: unknown; warnings: string[];
     `Coordinates are pixels of the ${input.canvas.width}x${input.canvas.height} image.`,
     input.warnings.length > 0 ? `Pipeline warnings: ${input.warnings.join("; ")}` : "",
     `Current plan:\n${JSON.stringify(input.plan)}`,
-    "Score how well it will animate (0-10): pieces split where the character bends, pivots on the joints, sensible draw order. Then fix the biggest problems: move pivots onto joints, split or merge parts, adjust regions, fix z. The drawing itself never changes.",
+    "Score how well it will animate (0-10): pieces split where the character bends, joints where the pieces meet, sensible draw order. Then fix the biggest problems: split or merge parts, adjust regions, fix z. The pipeline puts each pivot in the middle of the seam between a piece and its parent's piece (the white squares), so to move a joint, move that seam by adjusting the regions. The drawing itself never changes.",
     'Reply with JSON only: {"score": 0-10, "issues": ["<short>", ...], "plan": <the full improved plan, same format> | null (null = keep it)}',
   ]
     .filter(Boolean)
@@ -231,7 +231,12 @@ export function rigSummary(rig: Rig): string {
 /** The slots of an attack's hit and recovery (core ACTION_PHASE_SLOTS). */
 const PHASE_SLOTS = new Set<string>(Object.values(ACTION_PHASE_SLOTS).flatMap((phases) => [phases.active[0]!, phases.recovery[0]!]));
 
-export function animPrompt(input: { character: Character; brief: string; rig: Rig; slots: ClipSlot[]; feedback?: string }): string {
+/** Rigs cut from the drawing (cutout, traced): how to move them, and each joint's limits (the pipeline scales bigger moves down). */
+function piecesText(limits: string): string {
+  return `This rig is cut from a drawing: its pieces overlap only a little where they meet, so a joint turned or pulled too far opens a gap. Animate it like a cut-out puppet: body bob, breathing (pulse), squash and stretch, small limb swings, head tilts; carry big moves (leaps, recoils, falls, toppling over in death) on the root bone or a bone whose parent has no parts, which move freely. Joint limits (bigger moves are scaled down to these): ${limits}.`;
+}
+
+export function animPrompt(input: { character: Character; brief: string; rig: Rig; slots: ClipSlot[]; feedback?: string; limits?: string }): string {
   const { character, rig, slots } = input;
   const behavior =
     character.kind === "enemy"
@@ -251,6 +256,7 @@ export function animPrompt(input: { character: Character; brief: string; rig: Ri
       ? 'death plays once when it is killed (loop false) and its last frame is held until it fades: recoil from the blow, then collapse, topple or come apart into a still final pose (no return to rest, nothing still moving at t=1; keep it at ground level, the feet are at y 0).'
       : "",
     "Keep motion believable for this body: legs alternate, heavy parts move less, wind-ups lean back before striking. Only animate bones listed above.",
+    input.limits ? piecesText(input.limits) : "",
     input.feedback ? `Creator's direction: ${input.feedback}` : "",
     'Reply with JSON only: {"clips": {"<slot>": <clip>, ...}, "notes": "<one sentence>"}',
   ]
@@ -258,12 +264,13 @@ export function animPrompt(input: { character: Character; brief: string; rig: Ri
     .join("\n");
 }
 
-export function animCritiquePrompt(input: { slots: string[]; clipsJson: string; framesPerClip: number }): string {
+export function animCritiquePrompt(input: { slots: string[]; clipsJson: string; framesPerClip: number; limits?: string }): string {
   const oneShots = ONE_SHOT_CLIP_SLOTS.filter((s) => input.slots.includes(s));
   return [
     `The image shows the clips as filmstrips: one row per clip in this order: ${input.slots.join(", ")}; ${input.framesPerClip} evenly spaced frames per row, left to right.`,
     `Current clips:\n${input.clipsJson}`,
     "Score the animation (0-10) for readability and appeal, then fix problems: limbs detaching or spinning wrongly, motion too small to see or too wild, wrong direction, missing anticipation, loops that pop.",
+    input.limits ? `${piecesText(input.limits)} Gaps or holes at a joint mean that joint moved too far.` : "",
     oneShots.length > 0
       ? `${oneShots.join(" and ")} ${oneShots.length > 1 ? "play" : "plays"} once (loop false) and ${oneShots.length > 1 ? "hold their" : "holds its"} last frame${oneShots.includes("death") ? "; death must end in a still, clearly defeated pose" : ""}.`
       : "",

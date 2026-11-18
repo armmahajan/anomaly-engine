@@ -12,6 +12,8 @@ import {
   FakeRenderer,
   FakeVisionModel,
   FakeImageModel,
+  jointPivots,
+  labelParts,
   matchScore,
   type ArtActivity,
   type ArtContext,
@@ -215,8 +217,11 @@ describe("rig stage modes", () => {
   it("revises a cutout rig's plan with the critic, keeping the attempt that looks most like the design", async () => {
     const vision = new CutoutVision();
     const plan = creaturePlan(SIZE, SIZE);
-    // The critic moves the near leg's pivot (round 2), then moves it back; the third render (scripted) lost the design.
-    const moved = { ...plan, bones: plan.bones.map((b) => (b.id === "leg_near" ? { ...b, pivot: [b.pivot[0], b.pivot[1] - 6] } : b)) };
+    // The critic moves the near leg's seam up (round 2), then moves it back; the third render (scripted) lost the design.
+    const moved = {
+      ...plan,
+      parts: plan.parts.map((p) => (p.id === "leg_near" ? { ...p, region: p.region.map(([x, y], i) => [x, i < 2 ? y - 6 : y] as [number, number]) } : p)),
+    };
     vision.critiques = [{ score: 5, plan: moved }, { score: 6, plan }, { score: 9, plan: null }];
     const concept = drawCreature(SIZE, SIZE);
     const h = await harness({ vision, rigRounds: 3, renderer: new ScriptedRenderer([concept, concept, solid(SIZE, SIZE, null)]) });
@@ -226,7 +231,13 @@ describe("rig stage modes", () => {
     expect(h.asset().preview?.score).toBe(6); // not the 9: that attempt no longer looked like the design
     expect(h.asset().preview?.match?.silhouette).toBeGreaterThan(0.95);
     const frame = h.asset().preview!.frame!;
-    expect(leg.pivot[1]).toBeCloseTo((moved.bones.find((b) => b.id === "leg_near")!.pivot[1]! - frame.anchor[1]) * frame.scale, 0);
+    // The kept attempt is round 2's: the leg turns about the middle of its moved seam with the body.
+    const cut = cutCharacter(concept)!;
+    const hip = jointPivots(cut, moved, labelParts(cut, moved)).find((b) => b.id === "leg_near")!.pivot;
+    const unmoved = jointPivots(cut, plan, labelParts(cut, plan)).find((b) => b.id === "leg_near")!.pivot;
+    expect(hip[1]).toBeLessThan(unmoved[1] - 3);
+    expect(leg.pivot[0]).toBeCloseTo((hip[0] - frame.anchor[0]) * frame.scale, 0);
+    expect(leg.pivot[1]).toBeCloseTo((hip[1] - frame.anchor[1]) * frame.scale, 0);
   });
 });
 

@@ -186,8 +186,8 @@ export const ArtJobRequest = z
     modalId: Id.optional(),
     /** gameArt: only these plan steps. */
     steps: z.array(z.string().max(120)).max(500).optional(),
-    /** rig: vector or cutout (default: the art direction's rigMode, else vector). */
-    rigMode: z.enum(["vector", "cutout"]).optional(),
+    /** rig: vector, cutout or traced (default: the art direction's rigMode, else the backend's). */
+    rigMode: z.enum(["vector", "cutout", "traced"]).optional(),
     brief: z.string().trim().max(2000).optional(),
   feedback: z.string().trim().max(1000).optional(),
   /** concepts: variations on the chosen design (it is sent as a reference image). */

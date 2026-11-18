@@ -80,6 +80,12 @@ export function cutCharacter(concept: Pixels): Cutout | null {
   if (largest < 16) return null;
   solid.fill(0);
   for (const c of parts) if (c.length >= largest * 0.02) for (const i of c) solid[i] = 1;
+  if (dropGroundLine(solid, W, H)) {
+    // What the ground line held together may now be specks.
+    const rest = components(solid, W, H, 8);
+    const big = Math.max(0, ...rest.map((c) => c.length));
+    for (const c of rest) if (c.length < big * 0.02) for (const i of c) solid[i] = 0;
+  }
 
   let minX = W;
   let minY = H;
@@ -116,6 +122,60 @@ export function cutCharacter(concept: Pixels): Cutout | null {
     }
   }
   return { image: { width: w, height: h, data: out }, offset: [ox, oy], bounds: { minX, minY, maxX, maxY }, background: bg };
+}
+
+/** Ground lines are at most this share of the character's height thick... */
+const GROUND_THICKNESS = 0.03;
+/** ...and at least this many times their thickness wide. */
+const GROUND_WIDTH = 4;
+
+/**
+ * Drop a drawn ground line or shadow under the feet (concept art often has one): thin, wide,
+ * horizontal strokes at the very bottom, made of pixels whose solid column run is short (feet and
+ * legs above them run tall, so they stay, with the bit of line right under them). Rigs would
+ * otherwise carry scraps of it on their feet. True when something was dropped.
+ */
+export function dropGroundLine(solid: Uint8Array, W: number, H: number): boolean {
+  let minY = H;
+  let maxY = -1;
+  for (let i = 0; i < W * H; i++) {
+    if (!solid[i]) continue;
+    const y = Math.floor(i / W);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  if (maxY < 0) return false;
+  const thick = Math.max(3, Math.round(GROUND_THICKNESS * (maxY - minY + 1)));
+  const short = new Uint8Array(W * H);
+  for (let x = 0; x < W; x++) {
+    let y = maxY;
+    while (y >= minY) {
+      if (!solid[y * W + x]) {
+        y--;
+        continue;
+      }
+      let top = y;
+      while (top - 1 >= minY && solid[(top - 1) * W + x]) top--;
+      // A short run whose bottom is in the bottom band.
+      if (y - top + 1 <= thick && y >= maxY - 2 * thick) for (let r = top; r <= y; r++) short[r * W + x] = 1;
+      y = top - 1;
+    }
+  }
+  let dropped = false;
+  for (const piece of components(short, W, H, 8)) {
+    let x0 = W;
+    let x1 = -1;
+    let y0 = H;
+    for (const i of piece) {
+      x0 = Math.min(x0, i % W);
+      x1 = Math.max(x1, i % W);
+      y0 = Math.min(y0, Math.floor(i / W));
+    }
+    if (x1 - x0 + 1 < GROUND_WIDTH * thick || y0 < maxY - 2 * thick) continue;
+    for (const i of piece) solid[i] = 0;
+    dropped = true;
+  }
+  return dropped;
 }
 
 /** The cutout placed back in a canvas of the concept's size (transparent around it). */
@@ -160,9 +220,14 @@ export const CutoutPlan = z
   });
 export type CutoutPlan = z.infer<typeof CutoutPlan>;
 
-/** A plan read back from a cutout rig (each part's region = its polygon), for revisions. */
+/**
+ * A plan read back from a cutout rig (each part's region = its polygon) or a traced rig (each
+ * piece's base shape; its outlines and colour regions, ids ending _ink and _d<n>, are skipped), for revisions.
+ */
 export function planFromRig(canvasRig: Rig): CutoutPlan {
-  const parts = canvasRig.parts.filter((p) => p.shape.type === "image").slice(0, 40);
+  const parts = canvasRig.parts
+    .filter((p) => p.shape.type === "image" || (canvasRig.mode === "traced" && p.shape.type === "blob" && !/_(d\d+|ink)$/.test(p.id)))
+    .slice(0, 40);
   return {
     bones: canvasRig.bones,
     parts: parts.map((p) => ({ id: p.id, bone: p.bone, z: p.z, region: simplifyTo((p.shape as { points: [number, number][] }).points, 48) })),
@@ -177,60 +242,15 @@ export function planFromRig(canvasRig: Rig): CutoutPlan {
  * become one polygon (a detached piece becomes another part on the same bone), grown by
  * OVERLAP and by a disk around its bone's pivot where it meets another bone's part.
  */
-export function cutoutRig(cut: Cutout, plan: CutoutPlan, file: FileRef): { rig: Rig; warnings: string[]; labels: Int32Array } {
+export function cutoutRig(cut: Cutout, plan: CutoutPlan, file: FileRef): { rig: Rig; warnings: string[]; labels: Int32Array; bones: Bone[] } {
   const { width: W, height: H, data } = cut.image;
   const [ox, oy] = cut.offset;
   const warnings: string[] = [];
-  const solid = new Uint8Array(W * H);
-  for (let i = 0; i < W * H; i++) solid[i] = data[i * 4 + 3]! >= SOLID_ALPHA ? 1 : 0;
+  const solid = solidMask(cut.image);
   const local = (p: readonly [number, number]): [number, number] => [p[0] - ox, p[1] - oy];
-  const regions = plan.parts.map((p) => p.region.map(local));
-
-  // 1. Pixels inside a region (the smallest region wins where they overlap).
-  const label = new Int32Array(W * H).fill(-1);
-  const areas = regions.map((r) => Math.abs(polygonArea(r)));
-  const order = regions.map((_, k) => k).sort((a, b) => areas[b]! - areas[a]!);
-  for (const k of order) {
-    const r = regions[k]!;
-    const xs = r.map((p) => p[0]);
-    const ys = r.map((p) => p[1]);
-    for (let y = Math.max(0, Math.floor(Math.min(...ys))); y < Math.min(H, Math.ceil(Math.max(...ys))); y++) {
-      for (let x = Math.max(0, Math.floor(Math.min(...xs))); x < Math.min(W, Math.ceil(Math.max(...xs))); x++) {
-        if (solid[y * W + x] && pointInPolygon(x + 0.5, y + 0.5, r)) label[y * W + x] = k;
-      }
-    }
-  }
-  // 2. The rest: grow labels through the character's pixels; pieces no region touches go to the nearest region.
-  growLabels(label, solid, W, H);
-  const centers = regions.map(centroid);
-  for (let i = 0; i < W * H; i++) {
-    if (!solid[i] || label[i] !== -1) continue;
-    const x = (i % W) + 0.5;
-    const y = Math.floor(i / W) + 0.5;
-    let best = 0;
-    centers.forEach((c, k) => {
-      if (Math.hypot(c[0] - x, c[1] - y) < Math.hypot(centers[best]![0] - x, centers[best]![1] - y)) best = k;
-    });
-    label[i] = best;
-  }
-  // 3. Stray bits of a part (cut off by another region) join the part they touch most.
-  for (let pass = 0; pass < 3; pass++) {
-    let moved = false;
-    for (let k = 0; k < regions.length; k++) {
-      const mine = new Uint8Array(W * H);
-      for (let i = 0; i < W * H; i++) mine[i] = label[i] === k ? 1 : 0;
-      const pieces = components(mine, W, H, 8).sort((a, b) => b.length - a.length);
-      for (const piece of pieces.slice(1)) {
-        const touching = new Map<number, number>();
-        for (const i of piece) forNeighbors8(i, W, H, (j) => label[j]! >= 0 && label[j] !== k && touching.set(label[j]!, (touching.get(label[j]!) ?? 0) + 1));
-        const to = [...touching].sort((a, b) => b[1] - a[1])[0]?.[0];
-        if (to === undefined) continue;
-        for (const i of piece) label[i] = to;
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
+  const label = labelParts(cut, plan);
+  const jointBones = jointPivots(cut, plan, label);
+  plan = { ...plan, bones: jointBones };
 
   // 4. One polygon per connected piece of each part.
   const bones = new Map(plan.bones.map((b) => [b.id, b]));
@@ -278,7 +298,122 @@ export function cutoutRig(cut: Cutout, plan: CutoutPlan, file: FileRef): { rig: 
     bones: plan.bones,
     parts,
   });
-  return { rig, warnings, labels: label };
+  return { rig, warnings, labels: label, bones: jointBones };
+}
+
+/** Opaque enough to belong to the character (1) or not (0). */
+export function solidMask(image: Pixels): Uint8Array {
+  const solid = new Uint8Array(image.width * image.height);
+  for (let i = 0; i < solid.length; i++) solid[i] = image.data[i * 4 + 3]! >= SOLID_ALPHA ? 1 : 0;
+  return solid;
+}
+
+/**
+ * Which plan part each of the cutout's pixels belongs to (-1 = background): inside a region
+ * (the smallest region wins where they overlap), else the nearest region through the
+ * character's own pixels; stray bits cut off by another region join the part they touch most.
+ */
+export function labelParts(cut: Cutout, plan: CutoutPlan): Int32Array {
+  const { width: W, height: H } = cut.image;
+  const [ox, oy] = cut.offset;
+  const solid = solidMask(cut.image);
+  const regions = plan.parts.map((p) => p.region.map(([x, y]) => [x - ox, y - oy] as [number, number]));
+
+  // 1. Pixels inside a region (the smallest region wins where they overlap).
+  const label = new Int32Array(W * H).fill(-1);
+  const areas = regions.map((r) => Math.abs(polygonArea(r)));
+  const order = regions.map((_, k) => k).sort((a, b) => areas[b]! - areas[a]!);
+  for (const k of order) {
+    const r = regions[k]!;
+    const xs = r.map((p) => p[0]);
+    const ys = r.map((p) => p[1]);
+    for (let y = Math.max(0, Math.floor(Math.min(...ys))); y < Math.min(H, Math.ceil(Math.max(...ys))); y++) {
+      for (let x = Math.max(0, Math.floor(Math.min(...xs))); x < Math.min(W, Math.ceil(Math.max(...xs))); x++) {
+        if (solid[y * W + x] && pointInPolygon(x + 0.5, y + 0.5, r)) label[y * W + x] = k;
+      }
+    }
+  }
+  // 2. The rest: grow labels through the character's pixels; pieces no region touches go to the nearest region.
+  growLabels(label, solid, W, H);
+  const centers = regions.map(centroid);
+  for (let i = 0; i < W * H; i++) {
+    if (!solid[i] || label[i] !== -1) continue;
+    const x = (i % W) + 0.5;
+    const y = Math.floor(i / W) + 0.5;
+    let best = 0;
+    centers.forEach((c, k) => {
+      if (Math.hypot(c[0] - x, c[1] - y) < Math.hypot(centers[best]![0] - x, centers[best]![1] - y)) best = k;
+    });
+    label[i] = best;
+  }
+  // 3. Stray bits of a part (cut off by another region) join the part they touch most.
+  for (let pass = 0; pass < 3; pass++) {
+    let moved = false;
+    for (let k = 0; k < regions.length; k++) {
+      const mine = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) mine[i] = label[i] === k ? 1 : 0;
+      const pieces = components(mine, W, H, 8).sort((a, b) => b.length - a.length);
+      for (const piece of pieces.slice(1)) {
+        const touching = new Map<number, number>();
+        for (const i of piece) forNeighbors8(i, W, H, (j) => label[j]! >= 0 && label[j] !== k && touching.set(label[j]!, (touching.get(label[j]!) ?? 0) + 1));
+        const to = [...touching].sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (to === undefined) continue;
+        for (const i of piece) label[i] = to;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  return label;
+}
+
+/** Fewer touching pixel pairs than this is not a joint. */
+const MIN_CONTACT = 3;
+
+/**
+ * Joint-aware pivots: each bone (but the root) turns about the middle of the contact between
+ * its parts' pixels and its parent's (else the nearest ancestor's it touches), where the two
+ * pieces actually meet, so a turning piece stays on its seam. Bones with no parts, or whose
+ * parts touch no ancestor's, keep the model's pivot. Canvas px, like the plan.
+ */
+export function jointPivots(cut: Cutout, plan: CutoutPlan, label: Int32Array): Bone[] {
+  const { width: W, height: H } = cut.image;
+  const [ox, oy] = cut.offset;
+  const boneOf = plan.parts.map((p) => p.bone);
+  const parent = new Map(plan.bones.map((b) => [b.id, b.parent]));
+  // Contact sums per (bone, other bone): x, y, count of the midpoints between touching pixels (4-neighbours).
+  const contact = new Map<string, [number, number, number]>();
+  const add = (a: string, b: string, x: number, y: number) => {
+    const key = `${a}\u0000${b}`;
+    const c = contact.get(key) ?? [0, 0, 0];
+    c[0] += x;
+    c[1] += y;
+    c[2]++;
+    contact.set(key, c);
+  };
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const k = label[y * W + x]!;
+      if (k < 0) continue;
+      for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+        if (x + dx >= W || y + dy >= H) continue;
+        const j = label[(y + dy) * W + x + dx]!;
+        if (j < 0 || boneOf[j] === boneOf[k]) continue;
+        const mx = x + 0.5 + dx / 2 + ox;
+        const my = y + 0.5 + dy / 2 + oy;
+        add(boneOf[k]!, boneOf[j]!, mx, my);
+        add(boneOf[j]!, boneOf[k]!, mx, my);
+      }
+    }
+  }
+  const round = (n: number) => Math.round(n * 10) / 10;
+  return plan.bones.map((bone) => {
+    for (let up = bone.parent; up !== null && up !== undefined; up = parent.get(up) ?? null) {
+      const c = contact.get(`${bone.id}\u0000${up}`);
+      if (c && c[2] >= MIN_CONTACT) return { ...bone, pivot: [round(c[0] / c[2]), round(c[1] / c[2])] as [number, number] };
+    }
+    return bone;
+  });
 }
 
 /** How the pixels were split, for the critic: each part tinted its own hue, pivots as white squares. Canvas size. */
@@ -403,7 +538,7 @@ export function tracePolygon(mask: Uint8Array, W: number, H: number): [number, n
 }
 
 /** Outer boundary of a mask as pixel-corner vertices (clockwise, y down), corners only. */
-function traceOutline(mask: Uint8Array, W: number, H: number): [number, number][] {
+export function traceOutline(mask: Uint8Array, W: number, H: number): [number, number][] {
   const at = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] === 1;
   let start = -1;
   for (let i = 0; i < W * H && start < 0; i++) if (mask[i]) start = i;
@@ -438,7 +573,7 @@ function traceOutline(mask: Uint8Array, W: number, H: number): [number, number][
 }
 
 /** Douglas-Peucker on a closed polygon. */
-function simplifyClosed(points: [number, number][], tolerance: number): [number, number][] {
+export function simplifyClosed(points: [number, number][], tolerance: number): [number, number][] {
   if (points.length <= 4) return points;
   // Split at the point furthest from the first, simplify both halves.
   let far = 0;
@@ -470,7 +605,7 @@ function douglasPeucker(points: [number, number][], tolerance: number): [number,
 }
 
 /** At most `max` points: drop the points whose removal changes the area least. */
-function simplifyTo(points: [number, number][], max: number): [number, number][] {
+export function simplifyTo(points: [number, number][], max: number): [number, number][] {
   const out = points.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10] as [number, number]);
   while (out.length > max) {
     let best = 0;
@@ -569,7 +704,7 @@ function growLabels(label: Int32Array, solid: Uint8Array, W: number, H: number):
 }
 
 /** The mask grown by `radius` px (chamfer distance). */
-function dilate(mask: Uint8Array, W: number, H: number, radius: number): Uint8Array {
+export function dilate(mask: Uint8Array, W: number, H: number, radius: number): Uint8Array {
   const INF = 1e9;
   const d = new Float32Array(W * H);
   for (let i = 0; i < W * H; i++) d[i] = mask[i] ? 0 : INF;

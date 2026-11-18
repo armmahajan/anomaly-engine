@@ -15,10 +15,12 @@ import { FileRef } from "./fileRef.ts";
  * draw the character, then say which bone moves each part and where the
  * bones pivot. Animations rotate/move/scale bones about their pivots.
  *
- * Two modes. A vector rig (default) draws flat shapes with outlines. A cutout
+ * Three modes. A vector rig (default) draws flat shapes with outlines. A cutout
  * rig draws pieces of an image (`source`, the concept with its background
  * removed): each "image" part shows the source inside its polygon, so the
- * character looks exactly like its concept and still animates on bones.
+ * character looks exactly like its concept and still animates on bones. A
+ * traced rig is a vector rig made from those pieces (flat colour shapes traced
+ * from the concept); the mode only records how it was made.
  */
 
 const Coord = z.number().min(-1000).max(1000);
@@ -119,7 +121,7 @@ export const RigSource = z.strictObject({
 });
 export type RigSource = z.infer<typeof RigSource>;
 
-export const RIG_MODES = ["vector", "cutout"] as const;
+export const RIG_MODES = ["vector", "cutout", "traced"] as const;
 export type RigMode = (typeof RIG_MODES)[number];
 
 export const Rig = z

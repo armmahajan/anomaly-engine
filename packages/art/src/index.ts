@@ -9,3 +9,6 @@ export * from "./gameStages.ts";
 export * from "./match.ts";
 export * from "./cutout.ts";
 export * from "./rigFixtures.ts";
+export * from "./animMetrics.ts";
+export * from "./traced.ts";
+export * from "./motionLimits.ts";
