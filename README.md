@@ -713,9 +713,14 @@ player is behind them.
   base64 image blocks), no tools, MCP, settings or session file. Those calls
   cost nothing beyond the subscription (shown as $0); the studio's art header
   shows `claude-code/<model>`. As with chat, this is for personal local use.
-- **Cost:** about $0.01 per character and $0.017 per draft biome (images only)
-  with the defaults; with vision on OpenRouter (`anthropic/claude-haiku-5.5`)
-  about $0.015-0.02 per character. Each job has a budget
+- **Cost:** with the defaults only images cost money: about $0.003 per
+  character (concept sheet) and $0.06 per draft biome kit (measured
+  2026-11-17). Vision on OpenRouter (`anthropic/claude-haiku-5.5`) adds about
+  $0.01 per character. On Claude Code a call takes about 2 s of overhead plus
+  the model's time (a rig build or review about 20 s, a room review about
+  10 s, a whole character concept-to-animated about 2.5 min); calls the
+  pipeline makes in parallel run in parallel, each in its own Claude Code
+  process, and count against the subscription's usage limits. Each job has a budget
   (`STUDIO_ART_BUDGET`, default $0.25) and the sidebars show what was spent.
 - **Settings** (`.env`): `OPENROUTER_API_KEY` (required, for images),
   `STUDIO_ART_IMAGE_MODEL`, `STUDIO_ART_IMAGE_QUALITY`,
