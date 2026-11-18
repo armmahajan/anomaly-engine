@@ -4,6 +4,7 @@ import { propTools } from "./domains/props.ts";
 import { modalTools } from "./domains/modals.ts";
 import { combatTools } from "./domains/combat.ts";
 import { designTools } from "./domains/design.ts";
+import { controlTools } from "./domains/controls.ts";
 
 /**
  * Compact, readable descriptions of the project for the model. The raw JSON
@@ -65,6 +66,7 @@ export function summarizeProject(project: ProjectSpec): string {
     ...modalTools.summary(project),
     ...combatTools.summary(project),
     ...designTools.summary(project),
+    ...controlTools.summary(project),
     ...artSummary(project),
     warnings.length ? `Warnings:\n${warnings.map((w) => `- ${w.message}`).join("\n")}` : "Warnings: none",
   ]

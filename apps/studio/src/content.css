@@ -882,3 +882,17 @@ a.wiki-link {
 .architect-game-row .confirm-inline {
   flex-basis: 100%;
 }
+
+/* Game ▸ Controls: the game's keys per action, and the studio's own shortcuts. */
+.controls-list { list-style: none; margin: 8px 0; padding: 0; }
+.controls-row { display: grid; grid-template-columns: 7.5em 1fr auto auto auto; align-items: center; gap: 6px; padding: 3px 0; border-top: 1px solid var(--border); }
+.controls-row.listening .controls-keys { color: var(--accent); }
+.controls-keys { display: flex; flex-wrap: wrap; gap: 4px; }
+.controls-key { display: inline-flex; align-items: center; }
+.controls-keys kbd { padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font: inherit; font-size: 12px; }
+.controls-remove { padding: 0 2px; border: 0; background: none; color: var(--muted); line-height: 1; }
+.controls-message { min-height: 1.3em; margin: 4px 0; color: var(--accent); }
+.controls-shortcuts { display: grid; gap: 2px; margin: 4px 0 0; font-size: 12px; }
+.controls-shortcuts div { display: grid; grid-template-columns: 13em 1fr; gap: 8px; }
+.controls-shortcuts dt { font-weight: 600; }
+.controls-shortcuts dd { margin: 0; color: var(--muted); }

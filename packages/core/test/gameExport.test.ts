@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exportFileName, fixtureSliceProject, planGameExport, PROTOCOL_VERSION, runtimeImageRefs, type GameExportData } from "../src/index.ts";
+import { applyOperation, exportFileName, fixtureSliceProject, planGameExport, PROTOCOL_VERSION, runtimeImageRefs, type GameExportData } from "../src/index.ts";
 import { artfulGame, SECRET_TEXT, UNUSED_REFS, USED_REFS } from "./fixtures/exportGame.ts";
 
 function plan(project = artfulGame()) {
@@ -60,10 +60,36 @@ describe("game export plan", () => {
   });
 
   it("lists the keys the game uses", () => {
-    const actions = plan().data.controls.map((c) => c.action);
+    const { controls } = plan().data;
+    const actions = controls.help.map((c) => c.action);
     // The example grants double jump, has an interact prop and the map.
     expect(actions).toEqual(expect.arrayContaining(["move", "jump", "attack", "jump again", "map", "choose in menus"]));
     expect(actions).not.toContain("dash");
+    // With the game's keys, and what the page needs to let players change them.
+    expect(controls.help.find((c) => c.action === "move")).toEqual({ action: "move", template: "{move_left} and {move_right}", keys: "A/← and D/→" });
+    expect(controls.actions.map((a) => a.id)).toEqual(["move_left", "move_right", "jump", "attack", "aim_up", "aim_down", "interact", "map"]);
+    expect(controls.actions.find((a) => a.id === "jump")).toEqual({ id: "jump", label: "Jump", keys: ["Space", "Z"], context: "play", shares: [] });
+    expect(controls.storageKey).toBe("anomaly-controls:descent-the-return");
+    expect(controls.browserCodes).toMatchObject({ KeyK: "K", Space: "Space", ArrowLeft: "Left", ShiftRight: "Shift" });
+  });
+
+  it("exports the game's own keys, and the page fills in the player's", () => {
+    const source = artfulGame();
+    const rebound = applyOperation(source, "setControlKeys", { action: "jump", keys: ["L"] });
+    if (!rebound.ok) throw new Error(rebound.error.message);
+    const { data, page } = plan(rebound.project);
+    expect(data.project.controls.bindings.jump).toEqual(["L"]);
+    expect(data.controls.actions.find((a) => a.id === "jump")?.keys).toEqual(["L"]);
+    expect(data.controls.help.find((c) => c.action === "jump")?.keys).toBe("L");
+    expect(page).toContain("<dt>L</dt><dd>jump</dd>");
+    expect(page).toContain("Change keys");
+    expect(page).toContain("Reset to the game's defaults");
+    // The inline script is valid JavaScript, and sends the player's keys before the game loads.
+    const script = page.slice(page.indexOf("<script>") + 8, page.indexOf("</script>"));
+    expect(() => new Function(script)).not.toThrow();
+    expect(script).toContain('h.template.replace(/\\{([a-z_]+)\\}/g');
+    expect(script.indexOf('post({ type: "controls"')).toBeGreaterThan(-1);
+    expect(script.indexOf("sendControls(); // before the game loads")).toBeLessThan(script.indexOf('post({ type: "load"'));
   });
 
   it("refuses a game with no start", () => {

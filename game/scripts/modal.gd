@@ -7,7 +7,7 @@ extends CanvasLayer
 
 const MapView := preload("res://scripts/map_view.gd")
 const WIDTH := 600.0
-## Keys: left/right or up/down choose, Enter / Space / Z press.
+## Keys: the move and aim actions choose, the jump action presses (Godot's ui_* keys too: arrows, Enter, Space).
 const PREV := ["move_left", "aim_up", "ui_left", "ui_up"]
 const NEXT := ["move_right", "aim_down", "ui_right", "ui_down"]
 const ACCEPT := ["jump", "ui_accept"]

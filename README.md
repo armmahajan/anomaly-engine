@@ -24,7 +24,7 @@ HTTPS or localhost. Either run `npm run dev:remote` (self-signed HTTPS; accept
 the browser warning once) and open `https://<this-machine>:5173`, or tunnel:
 `ssh -L 5173:localhost:5173 <this-machine>` and open `http://localhost:5173`.
 
-Click **Play**, move with A/D or arrows, jump with Space/Z, attack with X/J
+Click **Play**, move with A/D or arrows (the default keys; change them in Game ▸ **Controls**), jump with Space/Z, attack with X/J
 (hold W/Up to swing up; hold S/Down in the air to strike down and pogo).
 With abilities on (tick them in the player's inspector): dash with C/Shift/K,
 jump again in mid-air, press toward a wall to slide and jump off it, hold jump
@@ -169,6 +169,7 @@ Operations (all in `packages/core/src/operations.ts`):
 | `setDoor` / `removeDoor` / `connectDoors` | Door openings and their links (right <-> left, bottom <-> top) |
 | `addRoomSpawn` / `moveRoomSpawn` / `removeRoomSpawn` | Enemies in rooms (spawns have stable ids like `charger_1`) |
 | `setWorldStart` / `setPlaytest` / `setGameRules` / `setLedgeThickness` | Where the game begins, what ▶ Play tests (room, spot, abilities), death/saving/hazard rules, ledge thickness |
+| `setControlKeys` / `resetControls` | The game's keys for one action (`{"action":"jump","keys":["L","Space"]}`); reset one action (`{action}`) or all (`{}`). See *Controls* |
 
 `POST /api/batch` applies several operations atomically, as one revision and
 one undo step; if any step fails nothing changes and the error names the step:
@@ -518,7 +519,8 @@ zip; the dialog shows its size and what's in it.
   it plays from the world's start with no abilities (as *Play the game from its start*), resuming the
   run saved in this browser if there is one. The game's own rules decide death and saving; saves are
   the runtime's localStorage save, keyed `anomaly-save:<name>`. The controls show for a few seconds
-  (and again from the corner **?**, with **Start over** when a save exists). For tests and embedders,
+  (and again from the corner **?**, with **Start over** when a save exists, and **Change keys**: see
+  *Controls*), always with the keys in effect. For tests and embedders,
   `await window.game.state()` returns the runtime's `state`; `<body data-status>` is
   `loading | playing | error` and `data-room` the player's room.
 - **Code:** `packages/core/src/export/` (the plan and boot page, pure), `packages/server/src/export/`
@@ -526,6 +528,36 @@ zip; the dialog shows its size and what's in it.
   Tests: `packages/core/test/gameExport.test.ts`, `packages/server/test/gameExport.test.ts`,
   `e2e/export.spec.ts` (exports the example, serves the unzipped folder from a plain static server at
   the root and in a subfolder, and plays it).
+
+## Controls
+
+The game's keys are data: `project.controls.bindings`, one to four keys per action
+(`packages/core/src/controls/`). Projects saved before it existed get today's keys (schema default,
+no migration): move A/← and D/→, jump Space/Z, attack X/J, aim up W/↑, aim down S/↓, dash C/Shift/K,
+interact W/↑, map M/Tab. Keys are named by position (`A`–`Z`, `0`–`9`, `Space`, `Enter`, `Shift`,
+`Ctrl`, `Alt`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Comma`, `Period`, `Slash`, …; Escape is never
+bindable). Two actions read at the same time can't share a key (the schema and the operations refuse
+it, naming the other action), except pairs that share on purpose (aim up and interact).
+Actions are one list (`CONTROL_ACTIONS`): a new one (e.g. an alternate attack) is one entry there
+plus the runtime code that reads it; older projects get its default keys.
+
+- **Operations:** `setControlKeys {action, keys}` (replaces that action's keys) and
+  `resetControls {action?}`, ordinary undoable edits (the build assistant has them too).
+- **Studio:** Game ▸ **Controls** lists every action with its keys: **Change** then press a key,
+  **+ Key** for another, × removes one, **Reset** per action or **Reset all to defaults**; a refused key
+  says why in the page. Below it, the studio's own shortcuts (undo, chat Enter / Shift+Enter, tabs,
+  lists…). Playtests use the game's keys; the inspector's ability hint and the Map setting show them.
+- **Runtime:** `main.gd` registers the actions with no keys and builds the keyboard part of Godot's
+  InputMap from `project.controls` on every `load`, with the player's overrides on top (protocol
+  `{type: "controls", overrides}`, accepted any time, kept across loads); other events (gamepad) are
+  left alone. Menus also take Godot's ui keys (arrows, Enter, Space). The `state` message reports the
+  keys in effect (`controls`).
+- **Players (exported games):** **?** ▸ **Change keys** lists the actions the game uses: Change /
+  + Key / Reset each, or **Reset to the game's defaults**. Their keys are kept in the browser
+  (localStorage `anomaly-controls:<name>`, beside the save), sent to the runtime before the game
+  loads and on every change, and the controls card shows them.
+- Tests: `packages/core/test/controls.test.ts`, `packages/core/test/gameExport.test.ts`,
+  `e2e/controls.spec.ts` (rebind jump on the page, playtest: the new key jumps, Space doesn't).
 
 ## Props and items
 

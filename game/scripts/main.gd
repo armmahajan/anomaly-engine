@@ -3,7 +3,7 @@ extends Node2D
 ## shows the playtest room (edit mode) or plays the world (rooms and doors) from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 14
+const PROTOCOL_VERSION := 15
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -49,7 +49,7 @@ var _on_message_ref: JavaScriptObject = null
 
 
 func _ready() -> void:
-	_setup_input()
+	_register_actions()
 	_edit_camera = Camera2D.new()
 	add_child(_edit_camera)
 	_edit_camera.make_current()
@@ -127,6 +127,7 @@ func handle_message(message: Dictionary) -> void:
 				_error("invalid_project", problem)
 				return
 			_project = project
+			_apply_controls()
 			_build_world()
 			_apply_stage()
 			_send({"type": "loaded", "revision": int(_project.revision)})
@@ -186,6 +187,13 @@ func handle_message(message: Dictionary) -> void:
 			else:
 				_preview_clips[character_id] = str(clip)
 			_apply_preview_clips()
+		"controls":
+			var overrides = message.get("overrides")
+			if typeof(overrides) != TYPE_DICTIONARY:
+				_error("invalid_controls", "controls.overrides must be an object")
+				return
+			_player_keys = overrides
+			_apply_controls()
 		var other:
 			_error("unknown_message", "unknown message type '%s'" % other)
 
@@ -214,6 +222,7 @@ func run_state() -> Dictionary:
 		"healthBars": _hud.health_bars(),
 		"props": _props.state() if _props != null and is_instance_valid(_props) else [],
 		"camera": _camera_state(),
+		"controls": _controls_state(),
 	}
 
 
@@ -394,25 +403,98 @@ func _entity_states() -> Array:
 
 # --- input -----------------------------------------------------------------
 
-func _setup_input() -> void:
-	_add_action("move_left", [KEY_A, KEY_LEFT])
-	_add_action("move_right", [KEY_D, KEY_RIGHT])
-	_add_action("jump", [KEY_SPACE, KEY_Z])
-	_add_action("attack", [KEY_X, KEY_J])
-	_add_action("aim_up", [KEY_W, KEY_UP])
-	_add_action("aim_down", [KEY_S, KEY_DOWN])
-	_add_action("dash", [KEY_C, KEY_SHIFT, KEY_K])
-	_add_action("interact", [KEY_W, KEY_UP])
-	_add_action("map", [KEY_M, KEY_TAB])
+## The input actions the game scripts read (player.gd, props.gd, modal.gd). Their keys are data:
+## project.controls.bindings (the game's) with the player's overrides (the "controls" message),
+## by key name (packages/core/src/controls/controls.ts KEY_NAMES). Menus also take Godot's ui_* keys.
+const ACTIONS := ["move_left", "move_right", "jump", "attack", "aim_up", "aim_down", "dash", "interact", "map"]
+## Key names that are not a letter or a digit -> Godot keys (by physical position, like the defaults).
+const NAMED_KEYS := {
+	"Space": KEY_SPACE, "Enter": KEY_ENTER, "Shift": KEY_SHIFT, "Ctrl": KEY_CTRL, "Alt": KEY_ALT,
+	"Tab": KEY_TAB, "Backspace": KEY_BACKSPACE, "Up": KEY_UP, "Down": KEY_DOWN, "Left": KEY_LEFT,
+	"Right": KEY_RIGHT, "Comma": KEY_COMMA, "Period": KEY_PERIOD, "Slash": KEY_SLASH,
+	"Semicolon": KEY_SEMICOLON, "Quote": KEY_APOSTROPHE, "BracketLeft": KEY_BRACKETLEFT,
+	"BracketRight": KEY_BRACKETRIGHT, "Minus": KEY_MINUS, "Equal": KEY_EQUAL,
+	"Backslash": KEY_BACKSLASH, "Backquote": KEY_QUOTELEFT, "Insert": KEY_INSERT,
+	"Delete": KEY_DELETE, "Home": KEY_HOME, "End": KEY_END, "PageUp": KEY_PAGEUP,
+	"PageDown": KEY_PAGEDOWN,
+}
+## The player's own keys (protocol "controls"): action -> key names, replacing the game's for that action.
+var _player_keys := {}
 
 
-func _add_action(action: String, keys: Array) -> void:
-	if not InputMap.has_action(action):
-		InputMap.add_action(action)
-	for key in keys:
-		var event := InputEventKey.new()
-		event.physical_keycode = key
-		InputMap.action_add_event(action, event)
+## Every action exists from the start (with no keys until a project arrives), so reading one never fails.
+func _register_actions() -> void:
+	for action in ACTIONS:
+		if not InputMap.has_action(action):
+			InputMap.add_action(action)
+
+
+## Godot's key for a key name ("A", "7", "Space", "Left"), or KEY_NONE.
+static func key_code(key_name: String) -> int:
+	if key_name.length() == 1:
+		var c := key_name.unicode_at(0)
+		if c >= 65 and c <= 90:  # A-Z
+			return KEY_A + (c - 65)
+		if c >= 48 and c <= 57:  # 0-9
+			return KEY_0 + (c - 48)
+	return int(NAMED_KEYS.get(key_name, KEY_NONE))
+
+
+## The keys in effect: the game's (project.controls.bindings) with the player's overrides on top.
+func _bindings() -> Dictionary:
+	var out := {}
+	var controls = _project.get("controls")
+	if typeof(controls) == TYPE_DICTIONARY and typeof(controls.get("bindings")) == TYPE_DICTIONARY:
+		out = controls.bindings.duplicate()
+	for action in _player_keys:
+		if typeof(_player_keys[action]) == TYPE_ARRAY and not _player_keys[action].is_empty():
+			out[action] = _player_keys[action]
+	return out
+
+
+## Rebuild the keyboard part of the input map; other events (e.g. gamepad buttons) stay.
+func _apply_controls() -> void:
+	var bindings := _bindings()
+	for action in bindings:
+		var keys = bindings[action]
+		if typeof(keys) != TYPE_ARRAY:
+			continue
+		var codes := []
+		for key_name in keys:
+			var code := key_code(str(key_name))
+			if code != KEY_NONE and not codes.has(code):
+				codes.append(code)
+		if codes.is_empty():
+			continue  # nothing usable: keep what it has
+		if not InputMap.has_action(action):
+			InputMap.add_action(action)
+		for event in InputMap.action_get_events(action):
+			if event is InputEventKey:
+				InputMap.action_erase_event(action, event)
+		for code in codes:
+			var event := InputEventKey.new()
+			event.physical_keycode = code
+			InputMap.action_add_event(action, event)
+		Input.action_release(action)  # a key held while it changed doesn't stay pressed
+
+
+## Keys per action as the input map has them (protocol state "controls").
+func _controls_state() -> Dictionary:
+	var names := {}
+	for key_name in NAMED_KEYS:
+		names[NAMED_KEYS[key_name]] = key_name
+	var out := {}
+	for action in ACTIONS:
+		var keys := []
+		for event in InputMap.action_get_events(action):
+			if event is InputEventKey:
+				var code: int = event.physical_keycode
+				if code >= KEY_A and code <= KEY_Z or code >= KEY_0 and code <= KEY_9:
+					keys.append(char(code))
+				elif names.has(code):
+					keys.append(names[code])
+		out[action] = keys
+	return out
 
 
 # --- art previews ------------------------------------------------------------

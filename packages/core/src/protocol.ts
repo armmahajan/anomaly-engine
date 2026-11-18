@@ -5,6 +5,7 @@ import type { Clip } from "./art/clip.ts";
 import type { Rig } from "./art/rig.ts";
 import type { WorldLayer, WorldScene } from "./art/world.ts";
 import type { RuntimeProject } from "./world/runtime.ts";
+import type { ControlOverrides } from "./controls/controls.ts";
 
 /**
  * Studio <-> runtime messages, sent with window.postMessage as JSON strings.
@@ -17,7 +18,7 @@ import type { RuntimeProject } from "./world/runtime.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -43,7 +44,12 @@ export type StudioToRuntime =
   /** Images (base64 by file ref) for worlds; the runtime keeps them, so each is sent once. */
   | { type: "images"; images: Record<string, string> }
   /** Edit mode: show a modal of the loaded project over the game (null = close it). */
-  | { type: "previewModal"; modalId: string | null };
+  | { type: "previewModal"; modalId: string | null }
+  /**
+   * The player's own keys (any time, also while playing): per action, keys replacing the game's
+   * (project.controls.bindings); actions left out use the game's. {} = the game's keys. Kept across loads.
+   */
+  | { type: "controls"; overrides: ControlOverrides };
 
 /** Where a world run begins. */
 export interface WorldStart {
@@ -181,6 +187,8 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     props: z.array(z.object({ id: z.string(), visible: z.boolean(), solid: z.boolean() })).default([]),
     /** Where the camera looks (room px, the view's centre) and its zoom (screen px per room px). */
     camera: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).nullable().default(null),
+    /** The keyboard keys in effect per action (the game's, with the player's overrides), by key name. */
+    controls: z.record(z.string(), z.array(z.string())).default({}),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
   /** Play: the player entered a room (at the start of the run, through a door, or on respawn). */

@@ -1,4 +1,4 @@
-import type { ProjectSpec } from "@anomaly/core";
+import { keysText, type ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
 
 /** Game tab: the optional map screen: on / off. */
@@ -11,7 +11,7 @@ export function MapSettings({ project, session, locked }: { project: ProjectSpec
     <div className="map-settings">
       <label className="field-check">
         <input type="checkbox" checked={project.world.map.enabled} disabled={locked} onChange={(e) => void set(e.target.checked)} />
-        Map screen (M / Tab)
+        Map screen ({keysText(project.controls.bindings.map)})
       </label>
       <p className="hint">Shows the rooms the player has visited, plus those revealed by revealMap. The game pauses while it is open.</p>
     </div>
