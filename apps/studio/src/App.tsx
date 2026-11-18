@@ -351,7 +351,7 @@ export function App({ session }: { session: Session }) {
         </aside>
       ) : tab === "wiki" ? (
         <aside className="sidebar">
-          <WikiSidebar project={project} nav={wikiNav} setNav={setWikiNav} locked={locked} />
+          <WikiSidebar project={project} session={session} nav={wikiNav} setNav={setWikiNav} locked={locked} />
           {problem}
         </aside>
       ) : tab === "worlds" ? (

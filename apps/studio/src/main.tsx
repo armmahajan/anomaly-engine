@@ -4,6 +4,7 @@ import { App } from "./App.tsx";
 import { fetchProject, UnauthorizedError } from "./api.ts";
 import { Session } from "./session.ts";
 import "./styles.css";
+import "./content.css";
 
 const STUDIO_API = [
   "getProject",

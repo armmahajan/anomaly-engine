@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   kindLabel,
   slugify,
@@ -14,6 +14,7 @@ import {
 } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { WikiText } from "./WikiText.tsx";
+import { ConfirmButton, ListFilter, ListSection, matches } from "./content/ListSection.tsx";
 
 type PageDraft = Pick<WikiPage, "kind" | "title" | "summary" | "body" | "fields"> & { characterId?: string };
 
@@ -22,38 +23,72 @@ export type WikiNav = { pageId: string | null; editing: null | "page" | { templa
 
 interface SidebarProps {
   project: ProjectSpec;
+  session: Session;
   nav: WikiNav;
   setNav: (nav: WikiNav) => void;
   locked: boolean;
 }
 
-export function WikiSidebar({ project, nav, setNav, locked }: SidebarProps) {
+export function WikiSidebar({ project, session, nav, setNav, locked }: SidebarProps) {
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [query, setQuery] = useState("");
   const { pages } = project.wiki;
-  const drafts = pages.filter((p) => p.status === "draft").length;
-  const shown = reviewOnly ? pages.filter((p) => p.status === "draft") : pages;
+  const drafts = reviewOrder(project);
+  const shown = pages.filter((p) => (!reviewOnly || p.status === "draft") && matches(query, p.title, p.summary, p.id, kindLabel(p.kind)));
   const gaps = wikiGaps(project);
   const characterName = (id?: string) => project.characters.find((c) => c.id === id)?.name ?? id ?? "";
+  const acceptAll = async () => {
+    const result = await session.applyBatch(drafts.map((p) => ({ name: "acceptWikiPage", input: { pageId: p.id } })));
+    if (!result.ok) session.reportProblem(result.error.message);
+  };
 
   return (
     <section className="wiki-sidebar">
-      <h2>Wiki</h2>
-      <div className="list-actions wiki-actions">
+      <div className="side-head">
+        <h2>Wiki</h2>
         <button type="button" disabled={locked} onClick={() => setNav({ pageId: null, editing: { template: { kind: "character" } } })}>
           + Page
         </button>
-        <button type="button" aria-pressed={reviewOnly} className={reviewOnly ? "toggled" : ""} onClick={() => setReviewOnly(!reviewOnly)}>
-          Needs review ({drafts})
-        </button>
       </div>
-      {pages.length === 0 && <p className="hint">The wiki is empty. Describe your game to the director, or add a page.</p>}
-      {wikiKinds({ pages: shown }).map((kind) => (
-        <div key={kind} className="wiki-group">
-          <h3>{kindLabel(kind)}</h3>
-          <ul className="character-list">
-            {shown
-              .filter((p) => p.kind === kind)
-              .map((p) => (
+      {drafts.length > 0 && (
+        <div className="review-bar" data-testid="wiki-review-bar">
+          <p>
+            <strong>{drafts.length}</strong> draft{drafts.length === 1 ? "" : "s"} by the director to review
+          </p>
+          <div className="review-actions">
+            <button type="button" onClick={() => setNav({ pageId: drafts[0]!.id, editing: null })}>
+              Review next →
+            </button>
+            <button type="button" aria-pressed={reviewOnly} className={reviewOnly ? "toggled" : ""} onClick={() => setReviewOnly(!reviewOnly)}>
+              Needs review ({drafts.length})
+            </button>
+            <ConfirmButton
+              label="Accept all…"
+              question={`Make all ${drafts.length} drafts canon? (Undo reverts it.)`}
+              confirmLabel={`Accept ${drafts.length}`}
+              disabled={locked}
+              onConfirm={() => void acceptAll()}
+            />
+          </div>
+        </div>
+      )}
+      {pages.length === 0 ? (
+        <p className="hint">The wiki is empty. Describe your game to the director, or add a page.</p>
+      ) : (
+        <ListFilter value={query} onChange={setQuery} placeholder={`Filter ${pages.length} pages`} label="Filter pages" />
+      )}
+      {pages.length > 0 && shown.length === 0 && <p className="hint">No page matches.</p>}
+      {wikiKinds({ pages: shown }).map((kind) => {
+        const inKind = shown.filter((p) => p.kind === kind);
+        return (
+          <ListSection
+            key={kind}
+            title={kindLabel(kind)}
+            count={inKind.length}
+            forceOpen={query !== "" || inKind.some((p) => p.id === nav.pageId)}
+          >
+            <ul className="character-list">
+              {inKind.map((p) => (
                 <li key={p.id}>
                   <button
                     type="button"
@@ -66,42 +101,50 @@ export function WikiSidebar({ project, nav, setNav, locked }: SidebarProps) {
                   </button>
                 </li>
               ))}
-          </ul>
-        </div>
-      ))}
+            </ul>
+          </ListSection>
+        );
+      })}
       {gaps.length > 0 && (
         <div className="wiki-gaps" data-testid="wiki-gaps">
-          <h3>Gaps ({gaps.length})</h3>
-          <ul>
-            {gaps.map((gap, i) => (
-              <li key={i}>
-                {gap.message}
-                {gap.code === "unwritten_character" && (
-                  <button
-                    type="button"
-                    disabled={locked}
-                    onClick={() =>
-                      setNav({
-                        pageId: null,
-                        editing: { template: { kind: "character", title: characterName(gap.characterId), characterId: gap.characterId } },
-                      })
-                    }
-                  >
-                    Write page
-                  </button>
-                )}
-                {gap.pageId && (
-                  <button type="button" onClick={() => setNav({ pageId: gap.pageId!, editing: null })}>
-                    Open
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <ListSection title="Gaps" count={gaps.length}>
+            <ul>
+              {gaps.map((gap, i) => (
+                <li key={i}>
+                  {gap.message}
+                  {gap.code === "unwritten_character" && (
+                    <button
+                      type="button"
+                      disabled={locked}
+                      onClick={() =>
+                        setNav({
+                          pageId: null,
+                          editing: { template: { kind: "character", title: characterName(gap.characterId), characterId: gap.characterId } },
+                        })
+                      }
+                    >
+                      Write page
+                    </button>
+                  )}
+                  {gap.pageId && (
+                    <button type="button" onClick={() => setNav({ pageId: gap.pageId!, editing: null })}>
+                      Open
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </ListSection>
         </div>
       )}
     </section>
   );
+}
+
+/** Drafts in the order the sidebar lists them (by kind, then as written): the review queue. */
+function reviewOrder(project: ProjectSpec): WikiPage[] {
+  const { pages } = project.wiki;
+  return wikiKinds(project.wiki).flatMap((kind) => pages.filter((p) => p.kind === kind && p.status === "draft"));
 }
 
 interface MainProps {
@@ -114,6 +157,13 @@ interface MainProps {
 }
 
 export function WikiMain({ project, session, nav, setNav, locked, onOpenCharacter }: MainProps) {
+  // Another page (or the editor) starts at its top, not where the last one was scrolled to.
+  const top = useRef<HTMLSpanElement>(null);
+  const editing = nav.editing === null ? "read" : nav.editing === "page" ? "edit" : "new";
+  useEffect(() => {
+    top.current?.closest(".wiki-pane")?.scrollTo({ top: 0 });
+  }, [nav.pageId, editing]);
+  const anchor = <span ref={top} hidden />;
   const { pages } = project.wiki;
   const page = pages.find((p) => p.id === nav.pageId) ?? (nav.pageId === null ? pages.find((p) => p.kind === "overview") : undefined);
   const titles = new Map(pages.map((p) => [p.id, p.title]));
@@ -140,7 +190,9 @@ export function WikiMain({ project, session, nav, setNav, locked, onOpenCharacte
       }
     };
     return (
-      <PageEditor
+      <>
+        {anchor}
+        <PageEditor
         key={isNew ? "new" : page!.id}
         initial={initial}
         project={project}
@@ -148,13 +200,15 @@ export function WikiMain({ project, session, nav, setNav, locked, onOpenCharacte
         heading={isNew ? "New page" : `Editing “${page!.title}”`}
         onSave={(values, characterChanged) => void save(values, characterChanged)}
         onCancel={() => setNav({ pageId: page?.id ?? null, editing: null })}
-      />
+        />
+      </>
     );
   }
 
   if (!page) {
     return (
       <div className="wiki-main wiki-empty">
+        {anchor}
         <h1>Your game's wiki</h1>
         <p className="hint">
           The wiki is the game's bible: its story, characters, places and lore. Tell the director your creative direction and it
@@ -166,60 +220,89 @@ export function WikiMain({ project, session, nav, setNav, locked, onOpenCharacte
 
   const linkedFrom = pages.filter((p) => wikiLinks(p.body).includes(page.id));
   const character = project.characters.find((c) => c.id === page.characterId);
+  const queue = reviewOrder(project);
+  const nextDraft = queue.find((p) => p.id !== page.id);
+  const hasFacts = Object.keys(page.fields).length > 0 || page.characterId;
   return (
     <article className="wiki-main" data-testid="wiki-article">
+      {anchor}
       <div className="wiki-meta">
         <span className="tag">{kindLabel(page.kind)}</span>
-        {page.status === "draft" ? (
-          <>
-            <span className="tag draft">Draft by the director</span>
-            <button type="button" disabled={locked} onClick={() => void session.applyOperation("acceptWikiPage", { pageId: page.id }).then(report)}>
-              Accept
-            </button>
-            <button
-              type="button"
-              disabled={locked}
-              onClick={async () => {
-                if (report(await session.applyOperation("deleteWikiPage", { pageId: page.id }))) setNav({ pageId: null, editing: null });
-              }}
-            >
-              Discard
-            </button>
-          </>
-        ) : (
-          <span className="tag canon">Canon</span>
+        {page.status === "canon" && <span className="tag canon">Canon</span>}
+        {page.status === "canon" && nextDraft && (
+          <button type="button" className="wiki-next" onClick={() => setNav({ pageId: nextDraft.id, editing: null })}>
+            Next draft to review →
+          </button>
         )}
         <button type="button" className="wiki-edit" disabled={locked} onClick={() => setNav({ pageId: page.id, editing: "page" })}>
           Edit
         </button>
       </div>
+      {page.status === "draft" && (
+        <div className="wiki-review" data-testid="wiki-review">
+          <div className="wiki-review-text">
+            <span className="tag draft">Draft by the director</span>
+            <span className="hint">
+              Accept it as canon, edit it (saving makes it canon), or discard it.
+              {queue.length > 1 && ` ${queue.findIndex((p) => p.id === page.id) + 1} of ${queue.length} drafts.`}
+            </span>
+          </div>
+          <div className="wiki-review-actions">
+            <button
+              type="button"
+              className="primary"
+              disabled={locked}
+              onClick={() => void session.applyOperation("acceptWikiPage", { pageId: page.id }).then(report)}
+            >
+              Accept
+            </button>
+            <button
+              type="button"
+              disabled={locked}
+              title="Delete this draft (Undo restores it)"
+              onClick={async () => {
+                if (report(await session.applyOperation("deleteWikiPage", { pageId: page.id }))) setNav({ pageId: nextDraft?.id ?? null, editing: null });
+              }}
+            >
+              Discard
+            </button>
+            {nextDraft && (
+              <button type="button" className="wiki-skip" onClick={() => setNav({ pageId: nextDraft.id, editing: null })}>
+                Skip →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <h1>{page.title}</h1>
       {page.summary && <p className="wiki-summary">{page.summary}</p>}
-      {(Object.keys(page.fields).length > 0 || page.characterId) && (
-        <dl className="wiki-fields">
-          {Object.entries(page.fields).map(([k, v]) => (
-            <div key={k}>
-              <dt>{k}</dt>
-              <dd>{v}</dd>
-            </div>
-          ))}
-          {page.characterId && (
-            <div>
-              <dt>in the game</dt>
-              <dd>
-                {character ? (
-                  <button type="button" className="wiki-link" onClick={() => onOpenCharacter(character.id)}>
-                    {character.name} →
-                  </button>
-                ) : (
-                  <span className="wiki-link missing">{page.characterId} (deleted)</span>
-                )}
-              </dd>
-            </div>
-          )}
-        </dl>
-      )}
-      <WikiText text={page.body} titles={titles} onNavigate={(id) => setNav({ pageId: id, editing: null })} />
+      <div className={`wiki-body${hasFacts ? " with-facts" : ""}`}>
+        {hasFacts && (
+          <dl className="wiki-fields">
+            {Object.entries(page.fields).map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+            {page.characterId && (
+              <div>
+                <dt>in the game</dt>
+                <dd>
+                  {character ? (
+                    <button type="button" className="wiki-link" onClick={() => onOpenCharacter(character.id)}>
+                      {character.name} →
+                    </button>
+                  ) : (
+                    <span className="wiki-link missing">{page.characterId} (deleted)</span>
+                  )}
+                </dd>
+              </div>
+            )}
+          </dl>
+        )}
+        <WikiText text={page.body} titles={titles} onNavigate={(id) => setNav({ pageId: id, editing: null })} />
+      </div>
       {linkedFrom.length > 0 && (
         <p className="wiki-backlinks">
           Linked from:{" "}
@@ -335,7 +418,7 @@ function PageEditor({ initial, project, locked, heading, onSave, onCancel }: Edi
       <div className="field">
         <label htmlFor="wiki-body">Body</label>
         <textarea id="wiki-body" rows={16} value={body} onChange={(e) => setBody(e.target.value)} />
-        <p className="hint">Markdown: # heading, - list, **bold**, *emphasis*. Link pages with [[page_id]] or [[page_id|text]].</p>
+        <p className="hint">Markdown: # heading, - list, 1. numbered, &gt; quote, **bold**, *emphasis*, `code`. Link pages with [[page_id]] or [[page_id|text]].</p>
       </div>
       <div className="list-actions">
         <button type="submit" disabled={locked || !title.trim() || !validKind}>
