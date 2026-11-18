@@ -1881,3 +1881,21 @@ body.resizing iframe {
 .check-steps summary { cursor: pointer; color: var(--muted); }
 .check-steps ol { margin: 4px 0; padding-left: 22px; max-height: 260px; overflow-y: auto; }
 .check-room { color: var(--muted); }
+
+/* The character's name, editable in place in the inspector title. */
+.inspector-title .name-input {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin-left: -5px;
+  width: min(100%, 16em);
+}
+.inspector-title .name-input:hover:not(:disabled),
+.inspector-title .name-input:focus {
+  border-color: var(--border, #3a4050);
+  background: var(--input-bg, rgba(255, 255, 255, 0.04));
+  outline: none;
+}

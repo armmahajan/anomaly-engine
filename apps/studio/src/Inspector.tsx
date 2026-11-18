@@ -119,7 +119,12 @@ export function Inspector({ character, roomId, spawns, defaultSpawn, session, lo
   return (
     <section className="inspector">
       <h2 className="inspector-title">
-        {character.name}
+        <NameField
+          key={`${character.id}:${character.name}`}
+          name={character.name}
+          disabled={locked}
+          onCommit={(name) => session.updateCharacter({ characterId: character.id, changes: { name } })}
+        />
         {wikiPageId && onOpenWiki && (
           <button type="button" className="wiki-link" onClick={() => onOpenWiki(wikiPageId)}>
             Wiki page →
@@ -474,6 +479,46 @@ interface FieldProps {
   disabled: boolean;
   compact?: boolean;
   onCommit: (value: number) => Promise<ChangeResult>;
+}
+
+/** The character's name, editable in place: Enter or leaving the field saves it (one undo step), Escape reverts. */
+function NameField({ name, disabled, onCommit }: { name: string; disabled: boolean; onCommit: (name: string) => Promise<ChangeResult> }) {
+  const [draft, setDraft] = useState(name);
+  const [error, setError] = useState<string | null>(null);
+  const pending = useRef(false);
+  const commit = async () => {
+    const next = draft.trim();
+    if (pending.current || next === name) return;
+    if (!next) {
+      setDraft(name);
+      return;
+    }
+    pending.current = true;
+    const result = await onCommit(next);
+    pending.current = false;
+    if (!result.ok) setError(result.error.issues[0]?.message ?? result.error.message);
+  };
+  return (
+    <span className="name-field">
+      <input
+        className="name-input"
+        aria-label="Character name"
+        value={draft}
+        disabled={disabled}
+        maxLength={80}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") {
+            setDraft(name);
+            setError(null);
+          }
+        }}
+      />
+      {error && <span className="field-error">{error}</span>}
+    </span>
+  );
 }
 
 function NumberField({ id, label, ariaLabel, unit, value, disabled, compact, onCommit }: FieldProps) {
