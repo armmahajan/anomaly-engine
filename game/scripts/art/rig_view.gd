@@ -48,6 +48,13 @@ var _hidden := {}
 var _source := {}
 ## Images found so far, by file ref.
 var _found := {}
+## Where weapons are held (rig.grips): id -> {bone, at (rest, rig space), angle (radians)}.
+var _grips := {}
+## The rest pose's bounds (parts), for holding a weapon in front of a rig without a grip.
+var _rest_bounds := Rect2(-12, -40, 24, 40)
+
+## Emitted after every pose is evaluated (the weapon view follows the grip with no frame of lag).
+signal posed
 
 
 func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
@@ -59,6 +66,8 @@ func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
 	_source = source if typeof(source) == TYPE_DICTIONARY and typeof(source.get("anchor")) == TYPE_ARRAY else {}
 	_build_bones(rig.get("bones", []))
 	_build_parts(rig.get("parts", []), ink_color, ink_width)
+	_build_grips(rig.get("grips", []))
+	_rest_bounds = rest_bounds_of(rig)
 	# Images (a cutout's source, part textures) are drawn several times smaller than their pixels:
 	# sample their mipmaps (the shared textures have them) so edges don't shimmer as pieces turn.
 	if _parts.any(func(part): return part.tex_file != ""):
@@ -442,6 +451,70 @@ func _evaluate() -> void:
 			_pose[id] = _pose[parent] * Transform2D(0.0, bone.pivot - parent_pivot) * local
 		else:
 			_pose[id] = Transform2D(0.0, bone.pivot) * local
+	posed.emit()
+
+
+# --- grips (where weapons are held) ----------------------------------------------
+
+func _build_grips(raw: Variant) -> void:
+	_grips.clear()
+	if typeof(raw) != TYPE_ARRAY:
+		return
+	for g in raw:
+		if typeof(g) != TYPE_DICTIONARY or typeof(g.get("at")) != TYPE_ARRAY:
+			continue
+		var bone := str(g.get("bone", ""))
+		if not _bones.has(bone):
+			warnings.append("grip '%s' is on unknown bone '%s'" % [g.get("id"), bone])
+			continue
+		_grips[str(g.get("id", "hand"))] = {"bone": bone, "at": Geo.v(g.at), "angle": deg_to_rad(float(g.get("angle", 0.0)))}
+
+
+func has_grip(id := "hand") -> bool:
+	return _grips.has(id)
+
+
+## A grip on the current pose, in this view's space: the origin is where the hand closes and the
+## x axis points the way the held weapon points (it turns and scales with the grip's bone).
+## Null when the rig has no such grip.
+func grip_transform(id := "hand") -> Variant:
+	var g = _grips.get(id)
+	if g == null:
+		return null
+	var pivot: Vector2 = _bones[g.bone].pivot
+	return _pose.get(g.bone, Transform2D(0.0, pivot)) * Transform2D(g.angle, g.at - pivot)
+
+
+## Where a rig without a grip holds a weapon: in front of the body at chest height, pointing
+## forward, moving with the root bone.
+func front_transform() -> Transform2D:
+	var at := Vector2(_rest_bounds.end.x * 0.6, _rest_bounds.position.y + _rest_bounds.size.y * 0.45)
+	if _bone_order.is_empty():
+		return Transform2D(0.0, at)
+	var root: String = _bone_order[0]
+	var pivot: Vector2 = _bones[root].pivot
+	return _pose.get(root, Transform2D(0.0, pivot)) * Transform2D(0.0, at - pivot)
+
+
+## The rest pose's bounds (part outlines; ellipses by their larger radius).
+static func rest_bounds_of(rig: Dictionary) -> Rect2:
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for part in rig.get("parts", []):
+		if typeof(part) != TYPE_DICTIONARY or typeof(part.get("shape")) != TYPE_DICTIONARY:
+			continue
+		var shape: Dictionary = part.shape
+		var pts: Array = shape.get("points", [])
+		if str(shape.get("type")) == "ellipse":
+			var c = shape.get("center", [0, 0])
+			var r := maxf(float(shape.get("rx", 0)), float(shape.get("ry", 0)))
+			pts = [[float(c[0]) - r, float(c[1]) - r], [float(c[0]) + r, float(c[1]) + r]]
+		for p in pts:
+			lo = lo.min(Vector2(float(p[0]), float(p[1])))
+			hi = hi.max(Vector2(float(p[0]), float(p[1])))
+	if lo.x == INF:
+		return Rect2(-12, -40, 24, 40)
+	return Rect2(lo, hi - lo)
 
 
 func _normalized_time() -> float:
