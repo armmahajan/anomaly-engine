@@ -91,6 +91,38 @@ describe("ChatService", () => {
     expect((await editPlayer()).ok).toBe(true);
   });
 
+  it("edit/retry replaces the latest exchange, only once its saved changes are undone", async () => {
+    const histories: string[][] = [];
+    const recording: TurnRunner = (request) => {
+      histories.push(request.history.map((m) => `${m.role}: ${m.content}`));
+      return fastCharger(request);
+    };
+    const chat = await ChatService.open(store, recording);
+    await chat.send({ message: "Add a faster Charger" });
+    await chat.idle();
+
+    // Its changes still stand: replacing would hide them.
+    expect(await chat.send({ message: "Add a fast Charger", replace: 0 })).toMatchObject({ ok: false, error: { code: "invalid_request" } });
+    // Only a user message that is the latest one can be replaced.
+    expect(await chat.send({ message: "Add a fast Charger", replace: 1 })).toMatchObject({ ok: false, error: { code: "stale_revision" } });
+    expect(chat.getState().entries).toHaveLength(2);
+
+    await store.undo({ baseRevision: 1 });
+    expect(await chat.send({ message: "Add a fast Charger", replace: 0 })).toEqual({ ok: true });
+    await chat.idle();
+    expect(chat.getState().entries.map((e) => (e.role === "user" ? e.text : e.outcome))).toEqual(["Add a fast Charger", "committed"]);
+    expect(histories[1]).toEqual([]); // the replaced exchange is not part of the conversation any more
+    expect(store.getState().project.characters.map((c) => c.id)).toContain("fast_charger");
+    const reopened = await ChatService.open(store, recording);
+    expect(reopened.getState().entries.map((e) => e.role)).toEqual(["user", "assistant"]);
+
+    // An earlier exchange can't be replaced once a later message exists.
+    await store.undo({ baseRevision: store.getState().project.revision });
+    await chat.send({ message: "Add a faster Charger" });
+    await chat.idle();
+    expect(await chat.send({ message: "again", replace: 0 })).toMatchObject({ ok: false, error: { code: "stale_revision" } });
+  });
+
   it("refuses to start a turn during a playtest", async () => {
     const chat = await ChatService.open(store, fastCharger);
     await store.setPlaytest({ active: true, clientId: "a" });
