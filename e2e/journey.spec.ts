@@ -57,7 +57,7 @@ test("pitch to played game: design, build from the design, art, check, play to t
   expect(drawn.world.modals.every((m) => m.image)).toBe(true);
 
   // Check the game proves it can be finished.
-  await page.getByRole("button", { name: "Check the game" }).click();
+  await page.getByRole("button", { name: "Check the game", exact: true }).click();
   await expect(page.getByTestId("check-verdict")).toContainText("✓ Beatable, no dead ends", { timeout: 60_000 });
 
   // Play from the title to the ending.

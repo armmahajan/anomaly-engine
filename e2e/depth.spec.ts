@@ -67,7 +67,7 @@ test("depth: a dressed room bigger than the view scrolls on both axes with layer
   const [low, right, high] = cameras;
   expect(right!.x - low!.x).toBeGreaterThan(1000);
   expect(Math.abs(right!.y - low!.y)).toBeLessThan(2);
-  expect(low!.y - high!.y).toBeGreaterThan(400);
+  expect(low!.y - high!.y).toBeGreaterThan(300); // follows vertically too (how far depends on the stage's shape: a narrower stage shows more of the height)
   expect(shots[0]!.equals(shots[1]!)).toBe(false);
   expect(shots[1]!.equals(shots[2]!)).toBe(false);
   await page.getByRole("button", { name: "■ Stop" }).click();

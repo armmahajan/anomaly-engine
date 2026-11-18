@@ -29,7 +29,7 @@ test("edits persist, undo works, and outside edits reach the studio", async ({ p
 
   // Edit -> written to disk.
   await setPatrolSpeed(page, "222");
-  await expect(page.getByText(`rev ${r0 + 1}`)).toBeVisible();
+  await expect(page.getByTestId("save-status")).toHaveAttribute("title", new RegExp(`change #${r0 + 1}\\)`)); // saved as that revision
   expect(await diskSpeed()).toBe(222);
 
   // Reload -> still there, and the runtime is rebuilt from it.

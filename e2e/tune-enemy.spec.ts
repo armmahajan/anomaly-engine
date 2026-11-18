@@ -12,7 +12,7 @@ test("tune the enemy, playtest, reset, tune again", async ({ page }) => {
 
   // Edit while stopped -> runtime rebuilds the scene from the new revision.
   await setPatrolSpeed(page, "300");
-  await expect(page.getByText(`rev ${r0 + 1}`)).toBeVisible();
+  await expect(page.getByTestId("save-status")).toHaveAttribute("title", new RegExp(`change #${r0 + 1}\\)`)); // saved as that revision
   await expect.poll(async () => (await runtimeState(page)).revision).toBe(r0 + 1);
 
   // In edit mode the world is frozen.
@@ -62,7 +62,7 @@ test("tune the enemy, playtest, reset, tune again", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText(">=0");
   await setPatrolSpeed(page, "fast");
   await expect(page.getByRole("alert")).toHaveText("Enter a number");
-  await expect(page.getByText(`rev ${r0 + 1}`)).toBeVisible();
+  await expect(page.getByTestId("save-status")).toHaveAttribute("title", new RegExp(`change #${r0 + 1}\\)`)); // saved as that revision
   expect((await runtimeState(page)).revision).toBe(r0 + 1);
   await page.screenshot({ path: "test-results/3-invalid.png" });
 
