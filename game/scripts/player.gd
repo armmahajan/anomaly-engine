@@ -4,6 +4,8 @@ extends CharacterBody2D
 
 ## A sword hit connected (main.gd freezes the world briefly: hit-stop).
 signal landed_hit
+## A weapon attack landed a hit: freeze the world `frames` physics frames, shake the camera `shake` px.
+signal weapon_hit(frames: int, shake: float)
 signal died
 ## A ground pound smashed a breakable platform (main.gd clears what stood on it).
 signal smashed(rect: Rect2)
@@ -12,9 +14,12 @@ signal touched_hazard
 
 var character_id := ""
 var spawn_id := ""
+## A weapon attack's phase ("windup", "active", "recovery"; "" otherwise), reported like an enemy's.
+var phase := ""
 ## The play camera (play_camera.gd).
 var camera = null
-## "slash_<direction>" while swinging, "hurt" while invulnerable, else null (reported to the studio).
+## "slash_<direction>" while swinging (the built-in attack), "attack:<id>" while making a weapon attack,
+## "hurt" while invulnerable, else null (reported to the studio).
 var behavior_state = null
 var health := 0
 var max_health := 0
@@ -54,9 +59,20 @@ var _recoil := 0.0
 var _recoil_direction := 0.0
 var _rig: Node2D = null
 var _preview_clip := ""
+var _recoil_speed := RECOIL_SPEED
+## The weapons (combat/arsenal.gd): loadout slots, picking attacks, combos, ammo. Its attacks run in
+## combat/weapon_runner.gd. An empty attack slot leaves the built-in attack (above) as it was.
+var arsenal = null
+var _weapon_view: Node2D = null
+var _shown_weapon := ""
+## The rig is posed by an attack's own clip (manual time) until the attack ends.
+var _clip_posed := false
 
 const CharacterArt := preload("res://scripts/art/character_art.gd")
 const PlayCamera := preload("res://scripts/play_camera.gd")
+const Arsenal := preload("res://scripts/combat/arsenal.gd")
+const WeaponRunner := preload("res://scripts/combat/weapon_runner.gd")
+const WeaponView := preload("res://scripts/art/weapon_view.gd")
 
 # Movement. Mirrors packages/core/src/movement/simulate.ts `step` line for
 # line (game/test/movement.test.ts compares the two); counters are in frames.
@@ -156,6 +172,13 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 		add_child(_rig)
 		_update_rig()
 
+	arsenal = Arsenal.new()
+	arsenal.setup(bounds.get("weapons"), _buffer_frames)
+	_weapon_view = WeaponView.new()
+	add_child(_weapon_view)
+	arsenal.view = _weapon_view
+	_show_weapon()
+
 	camera = PlayCamera.new()
 	camera.target = self
 	camera.rows = float(bounds.get("viewRows", 14))
@@ -217,11 +240,15 @@ func _physics_process(delta: float) -> void:
 			_vx = _kick_dir * _tune("wallJump", "kickSpeed", 340)
 		else:
 			_vx = direction * _run_speed
-			if direction != 0.0 and signf(direction) != _facing:
+			# A weapon attack keeps the way it faces until it ends.
+			if direction != 0.0 and signf(direction) != _facing and not arsenal.busy():
 				_facing = signf(direction)
 				queue_redraw()
+		var lunge: float = arsenal.runner.lunge_now() if arsenal.busy() else 0.0
+		if lunge > 0.0:
+			_vx = _facing * lunge
 		if _recoil > 0.0:
-			_vx = _recoil_direction * RECOIL_SPEED
+			_vx = _recoil_direction * _recoil_speed
 		_jump(on_floor)
 		if Input.is_action_just_released("jump") and _vy < 0.0:
 			_vy *= JUMP_CUT  # short hop when jump is released early
@@ -244,8 +271,11 @@ func _physics_process(delta: float) -> void:
 			_kick_frames = 0
 			if not on_floor:
 				_air_dashes -= 1
-		if Input.is_action_just_pressed("attack") and _cooldown <= 0.0:
+		# The built-in attack, when the attack slot holds no weapon (projects without weapons: always).
+		var built_in: bool = arsenal.weapon_for("attack").is_empty()
+		if built_in and Input.is_action_just_pressed("attack") and _cooldown <= 0.0 and not arsenal.busy():
 			_start_slash()
+		arsenal.update(self, not on_floor, _slash != "")
 
 	_move(delta)
 	if _touched_hazard:
@@ -261,6 +291,9 @@ func _physics_process(delta: float) -> void:
 		_air_dashes = 1
 	if _slash != "":
 		_strike()
+	arsenal.after_move(self)
+	phase = arsenal.runner.phase if arsenal.busy() else ""
+	_show_weapon()
 	velocity = Vector2(_vx, _vy)
 
 	var shown = _shown_state()
@@ -290,6 +323,12 @@ func _update_rig() -> void:
 	_rig.scale.x = _facing
 	var blinking := _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07
 	_rig.modulate = Color(1, 0.45, 0.45, 0.6) if blinking else Color.WHITE
+	if arsenal != null and arsenal.busy() and _preview_clip == "":
+		_clip_posed = arsenal.runner.pose_rig(_rig, CharacterArt.first_clip)
+		return
+	if _clip_posed:
+		_rig.manual_time = false
+		_clip_posed = false
 	var slots: Array
 	if _preview_clip != "":
 		slots = [_preview_clip]
@@ -436,6 +475,8 @@ static func _span(lo: float, hi: float, motion: float, r_lo: float, r_hi: float)
 func _shown_state():
 	if _slash != "":
 		return "slash_" + _slash
+	if arsenal != null and arsenal.busy():
+		return "attack:" + str(arsenal.runner.attack.id)
 	if _dashing:
 		return "dash"
 	if _pounding:
@@ -492,6 +533,7 @@ func _strike() -> void:
 		"forward":
 			_recoil = RECOIL_TIME
 			_recoil_direction = -_facing
+			_recoil_speed = RECOIL_SPEED
 	landed_hit.emit()
 
 
@@ -521,6 +563,7 @@ func hit(direction: float, knockback: float, damage: int) -> void:
 	_dash_frames = 0
 	_pounding = false
 	_kick_frames = 0
+	arsenal.cancel()
 	_vx = direction * knockback
 	_vy = -knockback * 0.45
 	_invulnerable = INVULNERABLE_TIME
@@ -532,6 +575,87 @@ func hit(direction: float, knockback: float, damage: int) -> void:
 
 func rect() -> Rect2:
 	return Rect2(position.x - _size.x / 2.0, position.y - _size.y, _size.x, _size.y)
+
+
+## Whether a hit now would hurt (not invulnerable, alive).
+func can_be_hurt() -> bool:
+	return _invulnerable <= 0.0 and health > 0
+
+
+# --- wielding weapons (the wielder API of combat/weapon_runner.gd) ---------------------------
+
+func size() -> Vector2:
+	return _size
+
+
+func facing_sign() -> float:
+	return _facing
+
+
+## Everything a weapon attack of the player's can hit: enemies, then props and pogo shots.
+func weapon_targets() -> Array:
+	return enemies + targets
+
+
+func weapon_solids() -> Array:
+	return solids
+
+
+## The runner started an attack (arsenal.gd).
+func weapon_started(runner) -> void:
+	_show_weapon(runner.weapon)
+	queue_redraw()
+
+
+## A hit landed: hit-stop and shake every hit; the pogo bounce and the recoil once per attack.
+func weapon_landed(attack: Dictionary, _point: Vector2, first: bool, bounce: bool) -> void:
+	if bounce:
+		_vy = -_pogo_velocity
+	if first:
+		_weapon_recoil(attack, bounce)
+	weapon_hit.emit(WeaponRunner.frames(float(attack.get("hitStop", 0.05))), float(attack.get("shake", 0.0)))
+
+
+## Projectiles left: the recoil.
+func weapon_fired(attack: Dictionary) -> void:
+	_weapon_recoil(attack, false)
+
+
+## Pushed back against the aim at the attack's recoil speed (sideways for a while, or up or down at once).
+func _weapon_recoil(attack: Dictionary, bounced: bool) -> void:
+	var speed := float(attack.get("movement", {}).get("recoil", 0.0))
+	if speed <= 0.0 or not arsenal.busy():
+		return
+	var aim: Vector2 = arsenal.runner.aim
+	if absf(aim.x) > 0.3:
+		_recoil = RECOIL_TIME
+		_recoil_direction = -signf(aim.x) * _facing
+		_recoil_speed = speed * absf(aim.x)
+	if aim.y < -0.3:
+		_vy = maxf(_vy, speed * -aim.y)
+	elif aim.y > 0.3 and not bounced:
+		_vy = minf(_vy, -speed * aim.y)
+
+
+func weapon_texture(ref) -> Texture2D:
+	var world := get_parent()
+	var main: Node = world.get_parent() if world != null else null
+	if ref == null or main == null or not "_textures" in main:
+		return null
+	var texture = main._textures.get(str(ref))
+	return texture if texture is Texture2D else null
+
+
+## Show the weapon being used, else the one in the attack slot ({} = none: the built-in attack).
+func _show_weapon(weapon = null) -> void:
+	if _weapon_view == null or arsenal == null:
+		return
+	if weapon == null:
+		weapon = arsenal.runner.weapon if arsenal.busy() else arsenal.weapon_for("attack")
+	var id := str(weapon.get("id", ""))
+	if id != _shown_weapon:
+		_shown_weapon = id
+		_weapon_view.set_weapon(weapon, _rig)
 
 
 func center() -> Vector2:

@@ -47,7 +47,7 @@ func _simulate(scenario: Dictionary) -> Dictionary:
 			}, true)
 			samples.append(sample)
 		await physics_frame
-	for action in ["move_left", "move_right", "jump", "attack", "aim_up", "aim_down", "dash", "interact", "map"]:
+	for action in ["move_left", "move_right", "jump", "attack", "alt_attack", "special_attack", "weapon_cycle", "aim_up", "aim_down", "dash", "interact", "map"]:
 		Input.action_release(action)
 	Input.flush_buffered_events()
 	var error: String = main.last_error

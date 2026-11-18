@@ -6,6 +6,8 @@ extends CharacterBody2D
 const Registry := preload("res://primitives/registry.gd")
 const CharacterArt := preload("res://scripts/art/character_art.gd")
 const Attack := preload("res://scripts/combat/attack.gd")
+const WeaponRunner := preload("res://scripts/combat/weapon_runner.gd")
+const WeaponView := preload("res://scripts/art/weapon_view.gd")
 
 ## The sword (or anything else) brought its health to 0.
 signal killed
@@ -42,6 +44,8 @@ var dead := false
 var hold_air := false
 ## Its summons (summon primitive), alive or not.
 var summons: Array = []
+## The weapon attack it is making (useWeapon: combat/weapon_runner.gd, the player's code), or null.
+var weapon_runner = null
 
 const FLASH_TIME := 0.1
 const RECOIL_SPEED := 260.0
@@ -93,6 +97,11 @@ var _death_clip := false
 var _death_anim := DEATH_POP_TIME
 var _death_linger := DEATH_LINGER
 var _death_fade := DEATH_FADE
+## The project's weapons by id, and how this enemy's held weapon is shown (weapon_view.gd).
+var _weapons := {}
+var _weapon_view: Node2D = null
+var _shown_weapon := ""
+var _clip_posed := false
 
 
 func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
@@ -133,6 +142,12 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 		_rig = CharacterArt.make_view(_asset, art)
 		add_child(_rig)
 		_update_rig()
+	var weapons = bounds.get("weapons")
+	if typeof(weapons) == TYPE_DICTIONARY:
+		for w in weapons.get("list", []):
+			_weapons[str(w.id)] = w
+	_weapon_view = WeaponView.new()
+	add_child(_weapon_view)
 
 
 func _physics_process(delta: float) -> void:
@@ -206,6 +221,7 @@ func _enter(state_id: String) -> void:
 	hold_air = false
 	set_tint(null)
 	show_attack(null)
+	stop_weapon()
 	if _hidden:
 		appear(false)
 	var action: Dictionary = _states[state_id].action
@@ -219,15 +235,15 @@ func _touch_player() -> void:
 	player.hit(direction if direction != 0.0 else facing, _knockback, _contact_damage)
 
 
-## Struck by the player's sword: flash, get pushed along `push`, maybe die.
-func take_hit(damage: int, push: Vector2) -> void:
+## Struck by the player's sword (or weapon): flash, get pushed along `push` at `speed` px/s, maybe die.
+func take_hit(damage: int, push: Vector2, speed := RECOIL_SPEED) -> void:
 	if dead or _hidden:
 		return
 	health = maxi(0, health - damage)
 	was_hit = true
 	_flash = FLASH_TIME
 	# Armor resists the push, not the damage.
-	_recoil = push * RECOIL_SPEED * (1.0 - _armor)
+	_recoil = push * speed * (1.0 - _armor)
 	_recoil_time = RECOIL_TIME
 	queue_redraw()
 	if health == 0:
@@ -241,6 +257,7 @@ func _die(push: Vector2) -> void:
 	dead = true
 	collision_layer = 0
 	show_attack(null)
+	stop_weapon()
 	shaking = false
 	hold_air = false
 	phase = ""
@@ -343,6 +360,101 @@ func show_attack(box, live := false, color := Color.WHITE) -> void:
 	if shown != _attack:
 		_attack = shown
 		queue_redraw()
+
+
+# --- wielding weapons (useWeapon; the wielder API of combat/weapon_runner.gd) ------------------
+
+## Start an attack of a weapon: `attack_id` (null = its first), aimed as authored ("facing") or, for
+## thrusts and projectiles, at the player ("player"). False when there is no such weapon or attack.
+func start_weapon(weapon_id: String, attack_id, aim_mode: String) -> bool:
+	var weapon: Dictionary = _weapons.get(weapon_id, {})
+	var attack := {}
+	for a in weapon.get("attacks", []):
+		if attack_id == null or str(a.id) == str(attack_id):
+			attack = a
+			break
+	if attack.is_empty():
+		return false
+	var aim := Vector2.RIGHT
+	var shape := str(attack.shape.type)
+	if aim_mode == "player" and player != null and shape in ["thrust", "projectile"]:
+		var to: Vector2 = player.center() - center()
+		if to.length() > 0.001:
+			aim = Vector2(to.x * facing, to.y).normalized()
+	weapon_runner = WeaponRunner.new(weapon, attack, aim)
+	weapon_runner.view = _weapon_view
+	if str(weapon.id) != _shown_weapon:
+		_shown_weapon = str(weapon.id)
+		_weapon_view.set_weapon(weapon, _rig)
+	return true
+
+
+## This frame of the weapon attack (its lunge, its hits); false once it is over. The windup flashes
+## like any attack's warning.
+func step_weapon() -> bool:
+	if weapon_runner == null:
+		return false
+	var now: String = weapon_runner.current_phase()
+	phase = now
+	if now == "windup":
+		Attack.warn(self, str(weapon_runner.weapon.get("art", {}).get("spark", "#fff2b0")))
+	else:
+		Attack.unwarn(self)
+	var lunge: float = weapon_runner.lunge_now()
+	if lunge > 0.0:
+		velocity.x = facing * lunge
+	if weapon_runner.step(self):
+		return true
+	phase = ""
+	weapon_runner = null
+	return false
+
+
+## Leaving the state (or dying) ends the attack.
+func stop_weapon() -> void:
+	if weapon_runner != null and _weapon_view != null:
+		_weapon_view.set_phase(weapon_runner.attack, "", weapon_runner.aim, facing)
+	weapon_runner = null
+
+
+func facing_sign() -> float:
+	return facing
+
+
+func weapon_targets() -> Array:
+	return [player] if player != null and is_instance_valid(player) else []
+
+
+func weapon_solids() -> Array:
+	return []
+
+
+func weapon_landed(attack: Dictionary, _point: Vector2, first: bool, _bounce: bool) -> void:
+	if first:
+		weapon_fired(attack)
+	var main := _main()
+	if main == null:
+		return
+	var stop := WeaponRunner.frames(float(attack.get("hitStop", 0.05)))
+	if stop > 0:
+		main.hit_stop(stop)
+	var strength := float(attack.get("shake", 0.0))
+	if strength > 0.0 and main._fx != null:
+		main._fx.shake(strength, 0.2)
+
+
+## Pushed back against its facing (recoil), when it hits or fires.
+func weapon_fired(attack: Dictionary) -> void:
+	var speed := float(attack.get("movement", {}).get("recoil", 0.0))
+	if speed > 0.0:
+		_recoil = Vector2(-facing * speed, 0.0)
+		_recoil_time = RECOIL_TIME
+
+
+func weapon_texture(ref) -> Texture2D:
+	var main := _main()
+	var texture = main._textures.get(str(ref)) if main != null and ref != null else null
+	return texture if texture is Texture2D else null
 
 
 ## Teleport: vanish, marking where it will appear.
@@ -487,6 +599,13 @@ func _update_rig() -> void:
 	if _preview_clip != "":
 		_rig.play(_preview_clip)
 		return
+	var mapped = _asset.get("stateClips", {}).get(behavior_state)
+	if weapon_runner != null and not (mapped != null and _rig.has_clip(str(mapped))):
+		_clip_posed = weapon_runner.pose_rig(_rig, CharacterArt.first_clip)
+		return
+	if _clip_posed:
+		_rig.manual_time = false
+		_clip_posed = false
 	if _flash > 0.0 and _rig.has_clip("hurt"):
 		_rig.play("hurt")
 		return

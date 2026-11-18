@@ -33,6 +33,10 @@ var room_id := ""
 var entry := Vector2.ZERO
 var abilities: Array = []
 var visited: Array = []
+## Weapons the player has (ids, in the order they came: the loadout's starts, then giveWeapon) and
+## what each loadout slot holds (slot id -> weapon id, "" = empty). Saved with the run.
+var weapons: Array = []
+var slots := {}
 
 var _rooms := {}
 var _world_handlers: Array = []
@@ -70,6 +74,7 @@ func start(project: Dictionary, start: Dictionary) -> String:
 	events.reset()
 	abilities = start.get("abilities", []).duplicate()
 	visited = []
+	_start_weapons()
 	_origin = {"room": str(start.room), "at": Vector2(start.x, start.y)}
 	var from := _origin
 	if start.get("continue", false):
@@ -212,6 +217,93 @@ func return_to_safe_ground() -> void:
 	_place(player, _safe, Vector2.ZERO)
 
 
+# --- weapons (events.gd: giveWeapon, takeWeapon, the weapon condition; the player's arsenal.gd reads them)
+
+func _loadout_slots() -> Array:
+	return _project.get("weapons", {}).get("loadout", {}).get("slots", [])
+
+
+## A fresh run: each loadout slot holds the weapon it starts with.
+func _start_weapons() -> void:
+	weapons = []
+	slots = {}
+	for slot in _loadout_slots():
+		var id := str(slot.start) if slot.get("start") != null else ""
+		slots[str(slot.id)] = id
+		if id != "" and not id in weapons:
+			weapons.append(id)
+
+
+func has_weapon(id: String) -> bool:
+	return id in weapons
+
+
+## The weapon in the slot bound to a control action ("" = none).
+func weapon_in(action: String) -> String:
+	for slot in _loadout_slots():
+		if str(slot.action) == action:
+			return str(slots.get(str(slot.id), ""))
+	return ""
+
+
+## Give a weapon: into `slot` (moved out of any other), else the first empty slot, else carried.
+func give_weapon(id: String, slot) -> void:
+	if not id in weapons:
+		weapons.append(id)
+	if slot != null and slots.has(str(slot)):
+		for other in slots:
+			if slots[other] == id:
+				slots[other] = ""
+		slots[str(slot)] = id
+	elif not id in slots.values():
+		for s in _loadout_slots():
+			if str(slots.get(str(s.id), "")) == "":
+				slots[str(s.id)] = id
+				break
+	_weapons_changed()
+
+
+## Take a weapon away (its slot empties).
+func take_weapon(id: String) -> void:
+	weapons.erase(id)
+	for s in slots:
+		if slots[s] == id:
+			slots[s] = ""
+	_weapons_changed()
+
+
+## weapon_cycle: the main slot (the one on the attack action, else the first) takes the next weapon the
+## player has that no other slot holds.
+func cycle_weapon() -> void:
+	var list := _loadout_slots()
+	if list.is_empty():
+		return
+	var main_slot := str(list[0].id)
+	for s in list:
+		if str(s.action) == "attack":
+			main_slot = str(s.id)
+			break
+	var free := weapons.filter(func(w): return not slots.keys().any(func(k): return k != main_slot and slots[k] == w))
+	if free.is_empty():
+		return
+	var at: int = free.find(slots.get(main_slot, ""))
+	slots[main_slot] = free[(at + 1) % free.size()]
+	_weapons_changed()
+
+
+func item_count(item: String) -> int:
+	return int(events.items.get(item, 0))
+
+
+## Spend ammo: like the takeItem effect (props re-check their conditions).
+func spend_item(item: String, count: int) -> void:
+	events.run_effects([{"type": "takeItem", "item": item, "count": count}], {})
+
+
+func _weapons_changed() -> void:
+	events.changed.emit()
+
+
 func grant_ability(ability: String) -> void:
 	if not ability in abilities:
 		abilities.append(ability)
@@ -225,6 +317,7 @@ func save_run() -> void:
 	var data := JSON.stringify({
 		"room": room_id, "entry": {"x": entry.x, "y": entry.y}, "abilities": abilities, "visited": visited,
 		"flags": events.flags.keys(), "items": events.items, "checkpoint": events.checkpoint,
+		"weapons": weapons, "slots": slots,
 		"modals": main._modals.save_data(),
 	})
 	var storage = _storage()
@@ -253,6 +346,12 @@ func load_run() -> Dictionary:
 			events.items[str(item)] = int(data.items[item])
 	if typeof(data.get("checkpoint")) == TYPE_DICTIONARY:
 		events.checkpoint = data.checkpoint
+	if typeof(data.get("weapons")) == TYPE_ARRAY:
+		weapons = data.weapons.map(func(w): return str(w))
+	if typeof(data.get("slots")) == TYPE_DICTIONARY:
+		for slot in data.slots:
+			if slots.has(str(slot)):
+				slots[str(slot)] = str(data.slots[slot])
 	if typeof(data.get("modals")) == TYPE_DICTIONARY:
 		main._modals.load_data(data.modals)
 	return {"room": str(data.room), "at": Vector2(float(data.entry.x), float(data.entry.y))}

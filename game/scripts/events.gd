@@ -1,7 +1,7 @@
 extends RefCounted
 ## The game-logic engine (core events/events.ts is the contract). Handlers
 ## ({on, when, do}) on the world, the current room, its props and its spawns
-## react to events; conditions read the run's flags, items, abilities and
+## react to events; conditions read the run's flags, items, abilities, weapons and
 ## visited rooms; effects run in order.
 ##
 ## Events are queued (`fire`) and handled by `flush`, which world_runtime.gd
@@ -28,7 +28,7 @@ const MAX_EVENTS_PER_FLUSH := 200
 
 func _init(world_run: Node) -> void:
 	run = world_run
-	for type in ["setFlag", "giveItem", "takeItem", "grantAbility", "heal", "damage", "respawn", "returnToSafeGround", "setCheckpoint", "saveRun", "startTimer"]:
+	for type in ["setFlag", "giveItem", "takeItem", "grantAbility", "giveWeapon", "takeWeapon", "heal", "damage", "respawn", "returnToSafeGround", "setCheckpoint", "saveRun", "startTimer"]:
 		register(type, Callable(self, "_effect_" + type))
 
 
@@ -127,6 +127,8 @@ func holds(condition) -> bool:
 			return int(items.get(str(condition.item), 0)) >= int(condition.get("atLeast", 1))
 		"ability":
 			return str(condition.ability) in run.abilities
+		"weapon":
+			return run.has_weapon(str(condition.weapon))
 		"visited":
 			return str(condition.room) in run.visited
 		"all":
@@ -186,6 +188,14 @@ func _effect_takeItem(effect: Dictionary, _context: Dictionary) -> void:
 func _effect_grantAbility(effect: Dictionary, _context: Dictionary) -> void:
 	run.grant_ability(str(effect.ability))
 	changed.emit()
+
+
+func _effect_giveWeapon(effect: Dictionary, _context: Dictionary) -> void:
+	run.give_weapon(str(effect.weapon), effect.get("slot"))
+
+
+func _effect_takeWeapon(effect: Dictionary, _context: Dictionary) -> void:
+	run.take_weapon(str(effect.weapon))
 
 
 func _effect_heal(effect: Dictionary, _context: Dictionary) -> void:
