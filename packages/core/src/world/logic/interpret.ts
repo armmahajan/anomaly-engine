@@ -54,6 +54,8 @@ export interface LogicGame {
   modals: Map<string, Modal>;
   /** grantAbility of these does nothing (gate checks). */
   without: Set<string>;
+  /** Weapons a fresh run starts with (the loadout slots' `start`; world_runtime._start_weapons). */
+  startWeapons: string[];
 }
 
 export function logicGame(project: ProjectSpec, origin: { room: string; at: Point }, without: readonly string[] = []): LogicGame {
@@ -66,6 +68,7 @@ export function logicGame(project: ProjectSpec, origin: { room: string; at: Poin
     enemies: new Set(project.characters.filter((c) => c.kind === "enemy").map((c) => c.id)),
     modals: new Map(world.modals.map((m) => [m.id, m])),
     without: new Set(without),
+    startWeapons: [...new Set(project.weapons.loadout.slots.flatMap((s) => (s.start ? [s.start] : [])))],
   };
 }
 
@@ -158,6 +161,8 @@ export class LogicRun implements RunState {
   static start(game: LogicGame, abilities: readonly string[], saved?: RunSnapshot): LogicRun {
     const run = new LogicRun(game);
     run.abilities = [...abilities];
+    // A fresh run has the loadout's start weapons; a saved one its own (in its flags).
+    if (!saved) for (const w of game.startWeapons) run.flags.add(weaponFlag(w));
     let from = game.origin;
     if (saved) {
       run.abilities = [...saved.abilities];

@@ -6,7 +6,9 @@ import { ruleHandlers } from "../../events/rules.ts";
 import { gridSize } from "../tiles.ts";
 import { DOOR_UP_CARRY, type Prop, type PropSwitch, type WorldRoom } from "../world.ts";
 import { doorEntry, moveTrace, reachableFrom, roomGraph, type RoomGraph, type TraversalMove } from "../traversal.ts";
-import { answers, LogicRun, logicGame, type Checkpoint, type LogicGame, type Point, type RunSnapshot } from "./interpret.ts";
+import { answers, LogicRun, logicGame, weaponFlag, type Checkpoint, type LogicGame, type Point, type RunSnapshot } from "./interpret.ts";
+import { attackBounds, triggerAims, type HitBox } from "../../combat/weaponModel.ts";
+import type { Weapon } from "../../combat/weapon.ts";
 
 export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type RunSnapshot, type RunState } from "./interpret.ts";
 
@@ -37,7 +39,10 @@ export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type Run
  *   (the player may or may not) when standing on a surface or jumping in
  *   place from it overlaps it. Interact: standing or jumping in place.
  *   Hit: the sword's reach from a surface, standing or jumping in place
- *   (not along moves). Events during a move don't change where it ends.
+ *   (not along moves): the built-in attack's, and every attack of the weapons
+ *   the player has (their whole reach, standing for ground attacks and
+ *   jumping in place for air ones, down strikes included: where the pogo is).
+ *   Events during a move don't change where it ends.
  * - Solid props are collision; when they change under the player, the player
  *   stays on the piece of the surface where the event happened (or, for
  *   events with no place, any piece). Props solidifying around the player
@@ -49,7 +54,11 @@ export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type Run
  * - endGame (with or without a modal) is the ending. Saves: the last saveRun of
  *   a step; each distinct one is a Continue start that must also reach an ending.
  * - Only what conditions read is kept: flags they check, item counts up to the
- *   largest they check (plus the largest single take), rooms in visited.
+ *   largest they check (plus the largest single take), rooms in visited, and
+ *   the weapons the player has (a reserved flag each, interpret.ts weaponFlag).
+ * - Weapons: any weapon the player has can be used (loadout slots are not
+ *   tracked); the built-in attack counts while the attack slot starts empty.
+ *   A projectile's reach is its whole flight, solids aside.
  */
 
 /** What the run remembers (a logical state, without the position). */
@@ -102,7 +111,8 @@ export interface CheckOptions {
 }
 
 const MAX_DEAD_REPORTS = 20;
-const ATTACKS = new Set(["strike", "shoot", "slam", "summon"]);
+const ATTACKS = new Set(["strike", "shoot", "slam", "summon", "useWeapon"]);
+const WEAPON_PREFIX = weaponFlag("");
 const ALL_ABILITIES = Object.keys(MOVEMENT_ABILITIES) as MovementAbility[];
 
 /** A logical state. x, y: where on the node the player is (representative; not part of its identity). */
@@ -251,10 +261,16 @@ class WorldModel {
   readonly dangerous = new Set<string>();
   readonly flagsSet = new Set<string>();
   readonly itemsGiven = new Set<string>();
+  readonly weaponsGiven = new Set<string>();
+  /** The project's weapons, and whether the built-in attack is in play (the attack slot starts empty, or there is none). */
+  readonly weapons = new Map<string, Weapon>();
+  readonly builtIn: boolean;
+  private strikeBoxes = new Map<string, { ground: HitBox[]; air: HitBox[] }>();
+  private hits = new WeakMap<RoomGraph, Map<string, Rect[]>>();
   private graphs = new Map<string, RoomGraph>();
   private traces = new WeakMap<TraversalMove, { states: MoveState[]; touches: [string, number][] }>();
   private walkOffs = new WeakMap<RoomGraph, Map<string, TraversalMove[]>>();
-  private reaches = new WeakMap<RoomGraph, Map<string, { touch: Rect[]; hit: Rect[]; hazard: boolean }>>();
+  private reaches = new WeakMap<RoomGraph, Map<string, { touch: Rect[]; tops: [number, number][]; hazard: boolean }>>();
 
   readonly project: ProjectSpec;
   readonly game: LogicGame;
@@ -275,10 +291,20 @@ class WorldModel {
       if (e.type === "takeItem") takes.set(e.item, Math.max(takes.get(e.item) ?? 0, e.count ?? 1));
       if (e.type === "setFlag" && (e.value ?? true)) this.flagsSet.add(e.flag);
       if (e.type === "giveItem") this.itemsGiven.add(e.item);
+      if (e.type === "giveWeapon") this.weaponsGiven.add(e.weapon);
     }
+    // Weapons the player has are kept in the state: conditions read them, and they change what can be struck.
+    for (const w of project.weapons.list) {
+      this.weapons.set(w.id, w);
+      this.flags.add(weaponFlag(w.id));
+    }
+    for (const w of game.startWeapons) this.weaponsGiven.add(w);
+    const attackSlot = project.weapons.loadout.slots.find((s) => s.action === "attack");
+    this.builtIn = !attackSlot || attackSlot.start === null;
     for (const { c } of this.conditions) {
       if (c.type === "flag") this.flags.add(c.flag);
       if (c.type === "visited") this.visited.add(c.room);
+      if (c.type === "weapon") this.flags.add(weaponFlag(c.weapon));
       if (c.type === "item") {
         const n = c.atLeast ?? 1;
         this.itemCaps.set(c.item, Math.max(this.itemCaps.get(c.item) ?? 0, n));
@@ -485,8 +511,19 @@ class WorldModel {
     return t;
   }
 
-  /** What a player on a surface can touch (standing or jumping in place) and strike, and whether a hazard is within reach. */
-  reach(g: RoomGraph, node: string, room: WorldRoom): { touch: Rect[]; hit: Rect[]; hazard: boolean } {
+  /** What a player on a surface can touch (standing or jumping in place) and strike with `weapons` (ids it has), and whether a hazard is within reach. */
+  reach(g: RoomGraph, node: string, room: WorldRoom, weapons: readonly string[] = []): { touch: Rect[]; hit: Rect[]; hazard: boolean } {
+    const base = this.reachBase(g, node, room);
+    let cache = this.hits.get(g);
+    if (!cache) this.hits.set(g, (cache = new Map()));
+    const key = `${node}|${weapons.join(",")}`;
+    let hit = cache.get(key);
+    if (!hit) cache.set(key, (hit = this.strikes(g, node, base.tops, weapons)));
+    return { touch: base.touch, hit, hazard: base.hazard };
+  }
+
+  /** Touches, the top of a jump in place from points along the surface, and hazards near it. */
+  private reachBase(g: RoomGraph, node: string, room: WorldRoom): { touch: Rect[]; tops: [number, number][]; hazard: boolean } {
     let cache = this.reaches.get(g);
     if (!cache) this.reaches.set(g, (cache = new Map()));
     let r = cache.get(node);
@@ -494,15 +531,9 @@ class WorldModel {
     const sf = g.surface(node)!;
     const { hw } = this;
     const h = this.params.height;
-    const reachPx = this.player.stats.attackReach;
-    const wide = this.params.width + 24;
     const solids = g.solids(node.split("@")[1] ?? "");
     const touch: Rect[] = [[sf.x0 - hw, sf.y - h, sf.x1 + hw, sf.y]];
-    const hit: Rect[] = [
-      [sf.x0 + hw, sf.y - h, sf.x1 + hw + reachPx, sf.y],
-      [sf.x0 - hw - reachPx, sf.y - h, sf.x1 - hw, sf.y],
-      [sf.x0 - wide / 2, sf.y - h - reachPx, sf.x1 + wide / 2, sf.y - h],
-    ];
+    const tops: [number, number][] = [];
     if (room.props.some((p) => answers(p, "touch") || answers(p, "interact") || answers(p, "hit") || p.health != null)) {
       const d = deriveMovement(this.params, g.abilities);
       const double = g.abilities.includes("double_jump");
@@ -526,14 +557,60 @@ class WorldModel {
           if (f > 2 && s.onFloor) break;
         }
         touch.push([x - hw, top - h, x + hw, sf.y]);
-        hit.push([x - hw - reachPx, top - h, x + hw + reachPx, sf.y], [x - wide / 2, top - h - reachPx, x + wide / 2, sf.y + reachPx]);
+        tops.push([x, top]);
       }
     }
     const zone: Rect = [sf.x0 - hw - 64, sf.y - h - 64, sf.x1 + hw + 64, sf.y + 96];
     const hazard = solids.some((z) => z.kind === "hazard" && overlaps(zone, [z.x, z.y, z.x + z.width, z.y + z.height]));
-    r = { touch, hit, hazard };
+    r = { touch, tops, hazard };
     cache.set(node, r);
     return r;
+  }
+
+  /** What can be struck from a surface: the built-in attack (player.gd slash_rect) and the weapons' attacks, standing or jumping in place. */
+  private strikes(g: RoomGraph, node: string, tops: readonly [number, number][], weapons: readonly string[]): Rect[] {
+    const sf = g.surface(node)!;
+    const { hw } = this;
+    const h = this.params.height;
+    const hit: Rect[] = [];
+    if (this.builtIn) {
+      const reachPx = this.player.stats.attackReach;
+      const wide = this.params.width + 24;
+      hit.push([sf.x0 + hw, sf.y - h, sf.x1 + hw + reachPx, sf.y], [sf.x0 - hw - reachPx, sf.y - h, sf.x1 - hw, sf.y], [sf.x0 - wide / 2, sf.y - h - reachPx, sf.x1 + wide / 2, sf.y - h]);
+      for (const [x, top] of tops) hit.push([x - hw - reachPx, top - h, x + hw + reachPx, sf.y], [x - wide / 2, top - h - reachPx, x + wide / 2, sf.y + reachPx]);
+    }
+    const boxes = this.weaponBoxes(weapons);
+    // Both ways it can face: x mirrored.
+    const facings = (b: HitBox): HitBox[] => [b, [-b[2], b[1], -b[0], b[3]]];
+    for (const b of boxes.ground.flatMap(facings)) hit.push([sf.x0 + b[0], sf.y - h / 2 + b[1], sf.x1 + b[2], sf.y - h / 2 + b[3]]);
+    for (const b of boxes.air.flatMap(facings)) for (const [x, top] of tops) hit.push([x + b[0], top - h / 2 + b[1], x + b[2], sf.y - h / 2 + b[3]]);
+    return hit;
+  }
+
+  /** The reach of every attack of these weapons (wielder space, facing right), standing and in the air. */
+  private weaponBoxes(weapons: readonly string[]): { ground: HitBox[]; air: HitBox[] } {
+    const key = weapons.join(",");
+    let out = this.strikeBoxes.get(key);
+    if (out) return out;
+    out = { ground: [], air: [] };
+    const body = { width: this.params.width, height: this.params.height };
+    for (const id of weapons) {
+      for (const attack of this.weapons.get(id)?.attacks ?? []) {
+        for (const where of ["ground", "air"] as const) {
+          for (const aim of triggerAims(attack, where)) {
+            const b = attackBounds(attack, aim, body);
+            if (b) out[where].push(b);
+          }
+        }
+      }
+    }
+    this.strikeBoxes.set(key, out);
+    return out;
+  }
+
+  /** The weapons a state's player has. */
+  weaponsOf(s: State): string[] {
+    return s.flags.filter((f) => f.startsWith(WEAPON_PREFIX)).map((f) => f.slice(WEAPON_PREFIX.length));
   }
 
   doorArrival(room: WorldRoom, doorId: string): { room: string; door: string; at: Point } | null {
@@ -820,7 +897,7 @@ function successors(m: WorldModel, s: State): Edge[] {
   for (const move of m.moves(moveGraph, s.node)) out.push(...moveEdges(m, s, base, moveGraph, move, room, here, moveGraph === g));
   if (entering) return out;
 
-  const reach = m.reach(g, s.node, room);
+  const reach = m.reach(g, s.node, room, m.weaponsOf(s));
   const sf = g.surface(s.node)!;
   for (const p of room.props) {
     if (!base.present(p)) continue;
@@ -933,13 +1010,16 @@ function atoms(m: WorldModel, s: State): string[] {
     const n = s.items.find(([i]) => i === item)?.[1] ?? 0;
     for (const t of steps) if (n >= t) out.push(`item:${item}:${t}`);
   }
-  for (const f of m.flags) out.push(`flag:${f}:${s.flags.includes(f) ? 1 : 0}`);
+  for (const f of m.flags) {
+    const has = s.flags.includes(f) ? 1 : 0;
+    out.push(f.startsWith(WEAPON_PREFIX) ? `weapon:${f.slice(WEAPON_PREFIX.length)}:${has}` : `flag:${f}:${has}`);
+  }
   for (const a of s.abilities) out.push(`ability:${a}`);
   out.push(`room:${s.room}`);
   return out;
 }
 
-const KIND_ORDER = ["item", "flag", "ability", "room"];
+const KIND_ORDER = ["item", "weapon", "flag", "ability", "room"];
 
 function explain(search: Search, comp: number[], path: number[]): string {
   const m = search.model;
@@ -967,6 +1047,7 @@ function explain(search: Search, comp: number[], path: number[]): string {
   for (const { c, ref, room } of preferRooms(m.conditions, stuckRooms)) {
     if (c.type === "flag" && c.is !== false && !m.flagsSet.has(c.flag)) return prefix + `${ref}${room ? ` (${room})` : ""} needs flag ${c.flag}, and nothing in the game sets it${nearMiss(m, c.flag)}`;
     if (c.type === "item" && !m.itemsGiven.has(c.item)) return prefix + `${ref}${room ? ` (${room})` : ""} needs item ${c.item}, and nothing in the game gives it`;
+    if (c.type === "weapon" && !m.weaponsGiven.has(c.weapon)) return prefix + `${ref}${room ? ` (${room})` : ""} needs weapon ${c.weapon}, and nothing in the game gives it`;
   }
   return prefix + blocked(m, rep, stuckRooms);
 }
@@ -975,7 +1056,9 @@ function explain(search: Search, comp: number[], path: number[]): string {
 function outOfReach(m: WorldModel, stuck: State[], atom: string): State | null {
   const [kind, id, value] = atom.split(":");
   const provides = (e: Effect) =>
-    (kind === "flag" && e.type === "setFlag" && e.flag === id && (e.value ?? true) === (value === "1")) || (kind === "item" && e.type === "giveItem" && e.item === id);
+    (kind === "flag" && e.type === "setFlag" && e.flag === id && (e.value ?? true) === (value === "1")) ||
+    (kind === "item" && e.type === "giveItem" && e.item === id) ||
+    (kind === "weapon" && (e.type === "giveWeapon" || e.type === "takeWeapon") && e.type === (value === "1" ? "giveWeapon" : "takeWeapon") && e.weapon === id);
   for (const s of stuck) {
     if (!isSurface(s.node)) continue;
     const room = m.room(s.room);
@@ -985,7 +1068,7 @@ function outOfReach(m: WorldModel, stuck: State[], atom: string): State | null {
     if (!providers.length) continue;
     const reachable = stuck.some((t) => {
       if (t.room !== s.room || !isSurface(t.node)) return false;
-      const r = m.reach(m.graphOf(t), t.node, room);
+      const r = m.reach(m.graphOf(t), t.node, room, m.weaponsOf(t));
       return providers.some((p) => [...r.touch, ...r.hit].some((x) => overlaps(x, propRect(p))));
     });
     if (!reachable) return s;
@@ -1000,7 +1083,13 @@ function preferRooms<T extends { room: string | null }>(list: T[], rooms: string
 function say(m: WorldModel, atom: string, stuckRooms: string[], aheadRooms: string[], rep: State): string {
   const [kind, id, value] = atom.split(":") as [string, string, string];
   const refs = preferRooms(
-    m.conditions.filter(({ c }) => (kind === "item" && c.type === "item" && c.item === id) || (kind === "flag" && c.type === "flag" && c.flag === id) || (kind === "ability" && c.type === "ability" && c.ability === id)),
+    m.conditions.filter(
+      ({ c }) =>
+        (kind === "item" && c.type === "item" && c.item === id) ||
+        (kind === "flag" && c.type === "flag" && c.flag === id) ||
+        (kind === "weapon" && c.type === "weapon" && c.weapon === id) ||
+        (kind === "ability" && c.type === "ability" && c.ability === id),
+    ),
     aheadRooms,
   );
   const ref = refs[0];
@@ -1014,6 +1103,10 @@ function say(m: WorldModel, atom: string, stuckRooms: string[], aheadRooms: stri
     const lead = solid ? `${propName(solid)} stays solid (while ${describe(solid.solid)})` : `${who} needs flag ${id}${value === "1" ? "" : " unset"}`;
     if (value === "0") return `${lead}; nothing reachable from here clears flag ${id}`;
     return `${lead}; ${m.flagsSet.has(id) ? `nothing reachable from here sets flag ${id}` : `nothing in the game sets flag ${id}${nearMiss(m, id)}`}`;
+  }
+  if (kind === "weapon") {
+    if (value === "0") return `${who} needs weapon ${id} gone; nothing reachable from here takes it`;
+    return `${who} needs weapon ${id}; ${m.weaponsGiven.has(id) ? `nothing reachable from here gives it` : "nothing in the game gives it"}`;
   }
   if (kind === "ability") return `the way on needs ${id}, which is out of reach from here`;
   return blocked(m, rep, stuckRooms, id);
