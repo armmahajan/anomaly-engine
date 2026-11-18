@@ -3,6 +3,7 @@ import type { ArtState, Character, CharacterAsset, ProjectSpec } from "@anomaly/
 import { fileBase64, fileUrl } from "./api.ts";
 import type { Session } from "./session.ts";
 import { AnimationList } from "./characters/AnimationList.tsx";
+import { BoneEditor } from "./characters/BoneEditor.tsx";
 
 /**
  * Characters mode workbench (main area). Big visuals here; inputs and actions
@@ -47,6 +48,10 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
   const [flip, setFlip] = useState(false);
   const [bones, setBones] = useState(false);
   const [onion, setOnion] = useState(0.5);
+  // The bone editor (Rig step): handles over the stage, which holds the rest pose facing right meanwhile.
+  const [editBones, setEditBones] = useState(false);
+  const [pose, setPose] = useState<Record<string, number> | null>(null);
+  const editing = editBones && step === "rig" && Boolean(asset?.rig);
   const busy = art.running !== null && art.running.characterId === character.id;
 
   const clipIds = asset ? Object.keys(asset.clips) : [];
@@ -104,14 +109,14 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
     session.setStage({
       mode: "character",
       characterId: character.id,
-      clip: currentClip,
+      clip: editing ? null : currentClip,
       time: step === "animation" && !playing ? time : null,
       speed,
-      flip,
-      bones,
+      flip: editing ? false : flip,
+      bones: editing ? false : bones,
       onion: { image, alpha: step === "rig" ? onion : 0 },
     });
-  }, [session, character.id, currentClip, step, playing, step === "animation" && !playing ? time : -1, speed, flip, bones, onion, designRef, designData, project.revision]);
+  }, [session, character.id, currentClip, step, playing, step === "animation" && !playing ? time : -1, speed, flip, bones, onion, designRef, designData, project.revision, editing]);
 
   const sheets = asset?.concepts ?? [];
   const sheetIndex = sheet ?? sheets.length - 1;
@@ -126,7 +131,7 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
       id: "rig",
       label: "② Rig",
       status: asset?.preview?.match ? `${percent(asset.preview.match.silhouette)} match` : asset?.preview?.score !== undefined ? `${asset.preview.score}/10` : asset?.rig ? "built" : "none yet",
-      ready: Boolean(asset?.chosen),
+      ready: Boolean(asset?.chosen || asset?.rig),
     },
     { id: "animation", label: "③ Animation", status: clipIds.length ? `${clipIds.length} clips` : "none yet", ready: Boolean(asset?.rig) },
   ];
@@ -156,12 +161,21 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
               <input type="range" min={0} max={1} step={0.05} value={onion} onChange={(e) => setOnion(Number(e.target.value))} aria-label="onion skin" />
             </label>
           )}
-          <label>
-            <input type="checkbox" checked={bones} onChange={(e) => setBones(e.target.checked)} /> Bones
-          </label>
-          <label>
-            <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} /> Face left
-          </label>
+          {step === "rig" && asset?.rig && (
+            <label title="Fix the rig by hand before animating: move joints, turn and scale bones, reassign parts, place grips">
+              <input type="checkbox" checked={editBones} onChange={(e) => (setEditBones(e.target.checked), setPose(null))} /> Edit bones
+            </label>
+          )}
+          {!editing && (
+            <>
+              <label>
+                <input type="checkbox" checked={bones} onChange={(e) => setBones(e.target.checked)} /> Bones
+              </label>
+              <label>
+                <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} /> Face left
+              </label>
+            </>
+          )}
         </div>
       </div>
 
@@ -218,7 +232,10 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
             </Empty>
           ))}
 
-        {step === "rig" &&
+        {editing && asset?.rig && (
+          <BoneEditor asset={{ ...asset, rig: asset.rig }} direction={project.art.direction} session={session} locked={locked} pose={pose} setPose={setPose} />
+        )}
+        {step === "rig" && !editing &&
           (asset?.chosen ? (
             <figure className="bench-figure">
               <img src={fileUrl(asset.chosen.file)} alt="chosen design" />
