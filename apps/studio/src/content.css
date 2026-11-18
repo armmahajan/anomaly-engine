@@ -871,3 +871,14 @@ a.wiki-link {
   border-top: 1px solid var(--border);
   background: var(--bg);
 }
+
+/* An in-page confirmation inside a row of buttons takes a line of its own. */
+.list-actions:has(.confirm-inline),
+.architect-game-row:has(.confirm-inline) {
+  flex-wrap: wrap;
+}
+
+.list-actions .confirm-inline,
+.architect-game-row .confirm-inline {
+  flex-basis: 100%;
+}
