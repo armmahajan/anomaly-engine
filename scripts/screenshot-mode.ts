@@ -3,12 +3,13 @@
  *   node scripts/screenshot-mode.ts <studio url with ?token=…> <Arena|Characters|Worlds|Wiki> <out-prefix> [label to check ...]
  * Writes <out-prefix>.png, then one more <out-prefix>-<n>.png after ticking each labelled checkbox.
  */
+import { browserGlArgs } from "../packages/server/src/art/glArgs.ts";
 import { chromium } from "playwright-core";
 
 const [url, mode, out, ...checks] = process.argv.slice(2);
 if (!url || !mode || !out) throw new Error("usage: node scripts/screenshot-mode.ts <url> <mode> <out-prefix> [checkbox label ...]");
 
-const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"] });
+const browser = await chromium.launch({ args: browserGlArgs() });
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, ignoreHTTPSErrors: true });
   await page.goto(url);

@@ -96,6 +96,8 @@ test("Export game: the example exports as a standalone web game that plays from 
   await expect(page.getByTestId("export-dialog")).toHaveCount(0);
 
   await loadExample(page);
+  // The page has the example once its rooms arrive (the reset answers before the page catches up).
+  await expect.poll(() => page.evaluate(() => window.studio!.getProject().world.rooms.some((r) => r.id === "entrance"))).toBe(true);
   const name = await page.evaluate(() => window.studio!.getProject().name);
 
   await projectMenu(page).click();

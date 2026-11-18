@@ -1,3 +1,4 @@
+import { browserGlArgs } from "./glArgs.ts";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import {
@@ -447,8 +448,8 @@ export class BrowserRenderer implements Renderer {
   private async launch(): Promise<Page> {
     const { chromium } = await import("playwright-core");
     this.browser = await chromium.launch({
-      // No GPU in headless Chromium: WebGL falls back to SwiftShader.
-      args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
+      // WebGL on the GPU when there is one, else SwiftShader (ANOMALY_GL overrides; see glArgs.ts).
+      args: browserGlArgs(),
     });
     const page = await this.browser.newPage({ viewport: { width: 320, height: 240 } });
     await page.route(`${ORIGIN}/**`, async (route) => {

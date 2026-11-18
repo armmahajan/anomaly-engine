@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { browserGlArgs } from "./packages/server/src/art/glArgs.ts";
 import { E2E_INDEX, E2E_PORT as PORT, E2E_TOKEN, E2E_WORKERS, e2eDataDir } from "./e2e/paths.ts";
 
 // E2E runs its own studios on separate ports with throwaway project dirs, so it never touches
@@ -15,8 +16,8 @@ export default defineConfig({
     baseURL: process.env.BASE_URL ?? `http://localhost:${PORT + E2E_INDEX}`,
     viewport: { width: 1280, height: 720 },
     launchOptions: {
-      // Headless Chromium has no GPU; let WebGL fall back to SwiftShader.
-      args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
+      // WebGL on the GPU when there is one (much faster than SwiftShader); ANOMALY_GL=software forces SwiftShader.
+      args: browserGlArgs(),
     },
   },
   webServer: Array.from({ length: E2E_WORKERS }, (_, i) => ({
