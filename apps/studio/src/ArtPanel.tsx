@@ -92,7 +92,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         id="art-brief"
         className="art-text"
         rows={3}
-        placeholder="e.g. a horned beetle knight with a pale mask"
+        placeholder="e.g. a lanky courier in a patched raincoat with an oversized satchel"
         value={brief}
         disabled={disabled}
         onChange={(e) => setBrief(e.target.value)}
