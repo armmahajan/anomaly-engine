@@ -27,6 +27,8 @@ export default defineConfig({
       STUDIO_CHAT_BACKEND: "fake",
       // Scripted art models (no spend); renders still go through the real runtime.
       STUDIO_ART_BACKEND: "fake",
+      // Live cast and rooms start off; the specs that test them turn them on (e2e/live.spec.ts).
+      STUDIO_LIVE: "off",
     },
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,

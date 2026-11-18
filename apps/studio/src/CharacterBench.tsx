@@ -114,7 +114,8 @@ export function CharacterBench({ character, project, art, session }: Props) {
   const sheetIndex = sheet ?? sheets.length - 1;
   const shown = sheets[sheetIndex];
   const start = (request: Parameters<Session["startArtJob"]>[0]) => void session.startArtJob(request);
-  const disabled = art.running !== null || !art.available;
+  // Another job (another character's art, a world) doesn't block this one: it queues behind it.
+  const disabled = busy || !art.available;
 
   const steps: { id: Step; label: string; status: string; ready: boolean }[] = [
     { id: "concepts", label: "① Concepts", status: sheets.length ? `${sheets.length} sheet${sheets.length > 1 ? "s" : ""}` : "none yet", ready: true },

@@ -39,7 +39,9 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
   const [auto, setAuto] = useState(false);
   const [rigMode, setRigMode] = useState<RigMode>(asset?.rig?.mode ?? project.art.direction.rigMode ?? "vector");
   const [zoom, setZoom] = useState<string | null>(null);
-  const disabled = locked || running !== null || !art.available;
+  // Another character's job doesn't block this one: a new job queues behind it.
+  const queued = art.pending.some((p) => p.characterId === character.id);
+  const disabled = locked || mine || queued || !art.available;
 
   const start = (request: Omit<ArtJobRequest, "characterId">) => void session.startArtJob({ characterId: character.id, ...request });
 

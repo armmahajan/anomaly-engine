@@ -35,9 +35,10 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
   const [roomNote, setRoomNote] = useState("");
   const [newLayout, setNewLayout] = useState(false);
   const [zoom, setZoom] = useState<string | null>(null);
-  const disabled = locked || art.running !== null || !art.available;
   const running = art.running;
   const mine = running !== null && (running.biomeId === biome?.id || (!running.biomeId && running.stage === "worldKit"));
+  // Another job (a character's art) doesn't block this one: it queues behind it.
+  const disabled = locked || mine || !art.available;
   const lastJob = [...art.jobs].reverse().find((j) => j.biomeId !== undefined && j.biomeId === biome?.id) ??
     [...art.jobs].reverse().find((j) => j.stage === "worldKit" && !j.biomeId);
   const edit = async (name: string, input: unknown) => {

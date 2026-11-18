@@ -1881,3 +1881,44 @@ body.resizing iframe {
 .check-steps summary { cursor: pointer; color: var(--muted); }
 .check-steps ol { margin: 4px 0; padding-left: 22px; max-height: 260px; overflow-y: auto; }
 .check-room { color: var(--muted); }
+
+/* Background work (LiveStatus.tsx): never locks editing, only reports. */
+.live-status {
+  position: relative;
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.live-status > summary {
+  cursor: pointer;
+  list-style: none;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-status.busy > summary {
+  color: var(--accent);
+}
+.live-menu {
+  position: absolute;
+  top: 22px;
+  left: 0;
+  z-index: 20;
+  min-width: 260px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel, #1b2133);
+  border: 1px solid #2b3550;
+  border-radius: 4px;
+}
+.tag.work {
+  margin-left: 6px;
+  background: #2f2a4a;
+  color: #b9a7f5;
+}
+.rooms-live.busy {
+  color: var(--accent);
+}

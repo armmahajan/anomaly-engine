@@ -17,6 +17,7 @@ const STUDIO_API = [
   "sendChat",
   "cancelChat",
   "resetProject",
+  "setLive",
 ] as const;
 type StudioApi = Pick<Session, (typeof STUDIO_API)[number]>;
 

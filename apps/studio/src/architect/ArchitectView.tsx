@@ -1,5 +1,6 @@
-import type { ArchitectState, ProjectSpec } from "@anomaly/core";
+import type { ArchitectState, LiveState, ProjectSpec } from "@anomaly/core";
 import type { Session } from "../session.ts";
+import { RoomsLive } from "../LiveStatus.tsx";
 import { PlanView } from "./PlanView.tsx";
 import { RunPanel } from "./RunPanel.tsx";
 import "./architect.css";
@@ -28,6 +29,11 @@ export function ArchitectMain(props: ArchitectProps) {
   return <PlanView {...props} />;
 }
 
-export function ArchitectSidebar({ project, architect, session, locked }: ArchitectProps) {
-  return <RunPanel project={project} architect={architect} session={session} locked={locked} />;
+export function ArchitectSidebar({ project, architect, session, locked, live }: ArchitectProps & { live?: LiveState }) {
+  return (
+    <>
+      {live && <RoomsLive live={live} />}
+      <RunPanel project={project} architect={architect} session={session} locked={locked} />
+    </>
+  );
 }

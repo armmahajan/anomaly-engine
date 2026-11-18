@@ -6,6 +6,8 @@ import {
   type BatchRequest,
   ServerEvent,
   type ChangeResult,
+  type LiveSettings,
+  type LiveState,
   type OperationRequest,
   type PlaytestResult,
   type ProjectState,
@@ -44,6 +46,7 @@ export const sendChat = (agent: AgentId, message: string) => post<{ ok: true }>(
 export const cancelChat = (agent: AgentId) => post<{ ok: true }>(`/api/chat/cancel?agent=${agent}`, {});
 export const startArtJob = (request: ArtJobRequest) => post<{ ok: true; jobId: string }>("/api/art/jobs", request);
 export const cancelArtJob = () => post<{ ok: true }>("/api/art/cancel", {});
+export const setLive = (settings: Partial<LiveSettings>) => post<{ ok: true; live: LiveState }>("/api/live", settings);
 export const startArchitect = (request: ArchitectRunRequest) => post<{ ok: true }>("/api/architect/run", request);
 export const cancelArchitect = () => post<{ ok: true }>("/api/architect/cancel", {});
 /** URL of a stored image (concept sheets, renders). */

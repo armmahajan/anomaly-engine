@@ -14,6 +14,7 @@ import { GamePanel } from "./GameView.tsx";
 import { initialRoomsUi, RoomPainter, RoomsBench, RoomsPanel, type RoomsUi } from "./RoomsView.tsx";
 import { fileUrl } from "./api.ts";
 import { useChatOpen, useSidebarWidth } from "./layout.ts";
+import { characterWork, LiveStatus } from "./LiveStatus.tsx";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
 type Tab = "playtest" | "characters" | "worlds" | "rooms" | "game" | "wiki" | "progression" | "architect";
@@ -255,6 +256,7 @@ export function App({ session }: { session: Session }) {
         <span className={`status status-${state.runtimeStatus}`} data-testid="runtime-status">
           {aiBusy ? "AI is editing…" : statusText(state.runtimeStatus, state.mode)}
         </span>
+        <LiveStatus project={project} art={state.art} live={state.live} session={session} />
         <span className="revision">rev {state.project.revision}</span>
         <span
           className={`server ${state.serverConnected ? "server-on" : "server-off"}`}
@@ -344,7 +346,7 @@ export function App({ session }: { session: Session }) {
 
       {tab === "architect" ? (
         <aside className="sidebar">
-          <ArchitectSidebar project={project} architect={state.architect} session={session} locked={locked} />
+          <ArchitectSidebar project={project} architect={state.architect} session={session} locked={locked} live={state.live} />
           {problem}
         </aside>
       ) : tab === "wiki" ? (
@@ -370,7 +372,7 @@ export function App({ session }: { session: Session }) {
       ) : tab === "rooms" ? (
         <aside className="sidebar">
           <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
-          <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} />
+          <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} live={state.live} />
           {problem}
         </aside>
       ) : tab === "game" ? (
@@ -407,6 +409,14 @@ export function App({ session }: { session: Session }) {
                     );
                   })()}
                   {c.name}
+                  {(() => {
+                    const work = characterWork(c.id, state.art, state.live);
+                    return work && (
+                      <span className="tag work" data-testid={`character-work-${c.id}`}>
+                        {work}
+                      </span>
+                    );
+                  })()}
                   <span className="kind">{c.kind}</span>
                 </button>
               </li>

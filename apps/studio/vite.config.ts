@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin, type PreviewServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import basicSsl from "@vitejs/plugin-basic-ssl";
-import { artOptionsFromEnv, createProjectServer, loadOrCreateToken } from "@anomaly/server";
+import { artOptionsFromEnv, createProjectServer, liveSettingsFromEnv, loadOrCreateToken } from "@anomaly/server";
 import { DEFAULT_CLAUDE_MODEL, runClaudeCodeTurn, type TurnRunner } from "@anomaly/agent";
 
 // Godot's web runtime only starts in a secure context (HTTPS or localhost).
@@ -29,7 +29,8 @@ function projectApi(mode: string): Plugin {
     // Server-side secrets (OPENROUTER_API_KEY) come from the repo's .env; the process env wins.
     const env = { ...loadEnv(mode, repoRoot, ["OPENROUTER_", "STUDIO_"]), ...process.env };
     const art = artOptionsFromEnv(env, gameDir);
-    const { handler } = await createProjectServer(dataDir, { token, runner: await chatRunner(), art });
+    // STUDIO_LIVE (default on): wiki characters become game characters and the progression becomes rooms as the creator designs.
+    const { handler } = await createProjectServer(dataDir, { token, runner: await chatRunner(), art, live: liveSettingsFromEnv(env) });
     server.middlewares.use(handler);
     server.httpServer?.on("close", () => void art.renderer.close());
 
