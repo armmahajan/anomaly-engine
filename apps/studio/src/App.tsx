@@ -12,13 +12,37 @@ import { currentWorld, WorldBench, type WorldUi } from "./WorldBench.tsx";
 import { WorldPanel } from "./WorldPanel.tsx";
 import { GamePanel } from "./GameView.tsx";
 import { initialRoomsUi, RoomPainter, RoomsBench, RoomsPanel, type RoomsUi } from "./RoomsView.tsx";
-import { fileUrl } from "./api.ts";
-import { useChatOpen, useSidebarWidth } from "./layout.ts";
-import { characterWork, LiveStatus } from "./LiveStatus.tsx";
+import { load, save, useChatOpen, useSidebarWidth } from "./layout.ts";
+import { LiveStatus } from "./LiveStatus.tsx";
+import { ConfirmHost, askConfirm } from "./ui/confirm.tsx";
+import { SidePanel } from "./ui/SidePanel.tsx";
+import { CharacterList } from "./CharacterList.tsx";
+import { ProjectMenu } from "./shell/ProjectMenu.tsx";
+import { StudioTabs, type TabGroup } from "./shell/StudioTabs.tsx";
+import { PlayControls } from "./shell/PlayControls.tsx";
+import { SaveStatus } from "./shell/SaveStatus.tsx";
+import "./shell.css";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
 type Tab = "playtest" | "characters" | "worlds" | "rooms" | "game" | "wiki" | "progression" | "architect";
 const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Worlds", rooms: "Rooms", game: "Game", wiki: "Wiki", progression: "Progression", architect: "Architect" };
+/** The tabs in the creator's order: design the game, build it, play it. */
+const TAB_GROUPS: readonly TabGroup<Tab>[] = [
+  { label: "Design", tabs: ["wiki", "progression", "architect"] },
+  { label: "Build", tabs: ["rooms", "worlds", "characters", "game"] },
+  { label: "Play", tabs: ["playtest"] },
+];
+/** Each tab's tooltip: what it is for. */
+const TAB_HINT: Partial<Record<Tab, string>> = {
+  wiki: "The game's story, characters, places and lore",
+  progression: "Regions, abilities, how they connect and the story beats",
+  architect: "Turns the progression into a world of rooms and proves it can be finished",
+  rooms: "The game's rooms: tiles, doors, enemies, props and rules",
+  worlds: "The art of each region: its kit of pieces, backdrops and atmosphere",
+  characters: "Characters' art, rigs and animation",
+  game: "The whole game: check it, its art, rules, map and screens",
+  playtest: "Play the playtest room and tune characters while you play",
+};
 /** Design documents (the director's tabs): the game is hidden and the chat is the director's. */
 const DESIGN_TABS: readonly Tab[] = ["wiki", "progression"];
 /** Tabs that show a document instead of the game. */
@@ -30,10 +54,17 @@ export function App({ session }: { session: Session }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>("crawler");
-  const [tab, setTab] = useState<Tab>("playtest");
+  // The studio reopens on the tab it was left on (per browser).
+  const [tab, setTab] = useState<Tab>(() => {
+    const saved = load<string>("anomaly.tab", "playtest");
+    return Object.hasOwn(TAB_LABEL, saved) ? (saved as Tab) : "playtest";
+  });
+  useEffect(() => save("anomaly.tab", tab), [tab]);
   const [wikiNav, setWikiNav] = useState<WikiNav>({ pageId: null, editing: null });
   const [progressionNav, setProgressionNav] = useState<ProgressionNav>({ selected: null, creating: null });
-  const [sidebarWidth, startResize] = useSidebarWidth();
+  const [sidebarWidth, startResize, setSidebarWidth] = useSidebarWidth();
+  const sideResize = { width: sidebarWidth, startResize, setWidth: setSidebarWidth };
+  const [characterQuery, setCharacterQuery] = useState("");
   const [chatOpen, setChatOpen] = useChatOpen();
   const [worldUi, setWorldUi] = useState<WorldUi>({
     biomeId: null,
@@ -70,7 +101,8 @@ export function App({ session }: { session: Session }) {
   const aiBusy = Object.values(state.chats).some((c) => c.running !== null);
   const locked = playing || aiBusy;
   const { project } = state;
-  const selected = project.characters.find((c) => c.id === selectedId) ?? null;
+  // A selection that no longer exists (another project, a deleted character) falls back to the first character.
+  const selected = project.characters.find((c) => c.id === selectedId) ?? project.characters[0] ?? null;
   const characterIds = project.characters.map((c) => c.id);
   const { playtest } = project.world;
   const testRoom = project.world.rooms.find((r) => r.id === playtest?.room) ?? null;
@@ -114,19 +146,25 @@ export function App({ session }: { session: Session }) {
   const deleteSelected = async () => {
     if (!selected) return;
     const spawnCount = project.world.rooms.flatMap((r) => r.spawns).filter((s) => s.characterId === selected.id).length;
-    if (!window.confirm(`Delete ${selected.name} and its ${spawnCount} spawn(s)? (Undo can restore it.)`)) return;
+    const ok = await askConfirm({
+      title: `Delete ${selected.name}?`,
+      message: spawnCount === 0 ? "Undo can restore it." : `${spawnCount === 1 ? "Its spawn goes" : `Its ${spawnCount} spawns go`} with it. Undo can restore them.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     if (report(await session.applyOperation("deleteCharacter", { characterId: selected.id }))) setSelectedId("player");
   };
 
   const loadExample = async () => {
-    if (!window.confirm("Replace the project with the example game? The current project and chat are backed up first.")) return;
     if (report(await session.resetProject("example"))) setSelectedId("player");
   };
 
   const resetProject = async () => {
-    if (!window.confirm("Start over from the starter project? The current project and chat are backed up first.")) return;
     if (report(await session.resetProject())) setSelectedId("crawler");
   };
+
+  const renameProject = async (name: string) => report(await session.applyOperation("renameProject", { name }));
 
   /** The playtest room plays in Playtest mode and the world in Rooms mode: opening another mode ends a playtest. */
   const openTab = (next: Tab) => {
@@ -208,69 +246,57 @@ export function App({ session }: { session: Session }) {
     }
   };
 
+  const openRoom = (roomId: string) => {
+    setRoomsUi((ui) => ({ ...ui, roomId, spot: null, propId: null }));
+    openTab("rooms");
+  };
+
   return (
     <div
       className={`studio mode-${tab}${chatOpen ? "" : " chat-closed"}`}
       style={{ "--side-w": `${sidebarWidth}px` } as React.CSSProperties}
     >
       <header className="toolbar">
-        <span className="title">{state.project.name}</span>
-        <nav className="tabs" role="tablist">
-          {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
-            <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "selected" : ""} onClick={() => openTab(t)}>
-              {TAB_LABEL[t]}
-              {drafts[t] > 0 && <span className="tab-count">{drafts[t]}</span>}
-            </button>
-          ))}
-        </nav>
-        <button type="button" onClick={() => void onPlay()} disabled={!session.canPlay()}>
-          ▶ Play
-        </button>
-        {state.seed !== null && (
-          <button
-            type="button"
-            onClick={() => void onPlay(state.seed!)}
-            disabled={!session.canPlay()}
-            title="Play again with the same random choices"
-          >
-            ⟲ Seed {state.seed}
+        <ProjectMenu
+          name={project.name}
+          locked={locked}
+          onRename={renameProject}
+          onExample={() => void loadExample()}
+          onReset={() => void resetProject()}
+        />
+        <StudioTabs groups={TAB_GROUPS} labels={TAB_LABEL} hints={TAB_HINT} counts={drafts} countHint="Drafts awaiting your review" active={tab} onOpen={openTab} />
+        <div className="toolbar-end">
+          <PlayControls
+            project={project}
+            playing={playing}
+            canPlay={session.canPlay()}
+            seed={state.seed}
+            status={aiBusy ? "AI is editing…" : statusText(state.runtimeStatus, state.mode)}
+            statusClass={aiBusy ? "status-busy" : `status-${state.runtimeStatus} status-${state.mode}`}
+            onPlay={(seed) => void onPlay(seed)}
+            onStop={session.stop}
+            onPlayFromStart={(start) => {
+              openTab("rooms");
+              void onPlayWorld(start);
+            }}
+            onOpenRoom={openRoom}
+          />
+          <button type="button" onClick={() => void session.undo()} disabled={locked || !state.canUndo} title="Undo (Ctrl/Cmd+Z)">
+            ↶ Undo
           </button>
-        )}
-        <button type="button" onClick={session.stop} disabled={!playing}>
-          ■ Stop
-        </button>
-        <button
-          type="button"
-          onClick={() => void session.undo()}
-          disabled={locked || !state.canUndo}
-          title="Undo (Ctrl/Cmd+Z)"
-        >
-          ↶ Undo
-        </button>
-        <button type="button" onClick={() => void resetProject()} disabled={locked}>
-          Reset…
-        </button>
-        <button type="button" onClick={() => void loadExample()} disabled={locked} title="A small game made from the primitives: props, items, modals, a sealed fight, an ability gate">
-          Example…
-        </button>
-        <span className={`status status-${state.runtimeStatus}`} data-testid="runtime-status">
-          {aiBusy ? "AI is editing…" : statusText(state.runtimeStatus, state.mode)}
-        </span>
-        <LiveStatus project={project} art={state.art} live={state.live} session={session} />
-        <span className="revision">rev {state.project.revision}</span>
-        <span
-          className={`server ${state.serverConnected ? "server-on" : "server-off"}`}
-          title={state.serverConnected ? "Connected to project server" : "Project server disconnected"}
-        >
-          ●
-        </span>
+          <LiveStatus project={project} art={state.art} live={state.live} session={session} />
+          <SaveStatus connected={state.serverConnected} revision={project.revision} />
+        </div>
       </header>
+      <ConfirmHost />
 
       {/* The game stays mounted (and sized) in every mode so it never reboots; modes only move it. */}
       <main className={`viewport${documentTab ? " offstage" : ""}`} aria-hidden={documentTab}>
         <iframe ref={frameRef} src="/game/index.html" title="Game" className="game-frame" />
         {tab === "playtest" && !playing && state.runtimeStatus === "ready" && (
-          <div className="edit-badge">Edit mode — press Play to test</div>
+          <div className="edit-badge" data-testid="edit-badge">
+            Editing <b>{testRoom?.name ?? "the playtest room"}</b> · ▶ Play to try it
+          </div>
         )}
         {tab === "rooms" && !playing && state.runtimeStatus === "ready" && (
           <RoomPainter project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} />
@@ -345,18 +371,15 @@ export function App({ session }: { session: Session }) {
       )}
 
       {tab === "architect" ? (
-        <aside className="sidebar">
+        <SidePanel label="Architect" resize={sideResize} footer={problem}>
           <ArchitectSidebar project={project} architect={state.architect} session={session} locked={locked} live={state.live} />
-          {problem}
-        </aside>
+        </SidePanel>
       ) : tab === "wiki" ? (
-        <aside className="sidebar">
+        <SidePanel label="Wiki pages" resize={sideResize} footer={problem}>
           <WikiSidebar project={project} nav={wikiNav} setNav={setWikiNav} locked={locked} />
-          {problem}
-        </aside>
+        </SidePanel>
       ) : tab === "worlds" ? (
-        <aside className="sidebar">
-          <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
+        <SidePanel label="Worlds" resize={sideResize} footer={problem}>
           <WorldPanel
             project={project}
             art={state.art}
@@ -367,77 +390,47 @@ export function App({ session }: { session: Session }) {
             setSelected={setWorldSelected}
             locked={locked}
           />
-          {problem}
-        </aside>
+        </SidePanel>
       ) : tab === "rooms" ? (
-        <aside className="sidebar">
-          <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
+        <SidePanel label="Rooms" resize={sideResize} footer={problem}>
           <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} live={state.live} />
-          {problem}
-        </aside>
+        </SidePanel>
       ) : tab === "game" ? (
-        <aside className="sidebar">
-          <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
+        <SidePanel label="Game" resize={sideResize} footer={problem}>
           <GamePanel project={project} session={session} art={state.art} locked={locked} />
-          {problem}
-        </aside>
+        </SidePanel>
       ) : checks ? (
-        <aside className="sidebar">
+        <SidePanel label="Progression" resize={sideResize} footer={problem}>
           <ProgressionSidebar project={project} report={checks} nav={progressionNav} setNav={setProgressionNav} locked={locked} />
-          {problem}
-        </aside>
+        </SidePanel>
       ) : (
-      <aside className="sidebar">
-        <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
-        <section>
-          <h2>Characters</h2>
-          <ul className="character-list">
-            {project.characters.map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  data-testid={`character-${c.id}`}
-                  className={c.id === selectedId ? "selected" : ""}
-                  onClick={() => setSelectedId(c.id)}
-                >
-                  {(() => {
-                    const look = project.art.assets.find((a) => a.id === c.appearance);
-                    return look?.kind === "character" && look.preview ? (
-                      <img className="swatch-img" src={fileUrl(look.preview.file)} alt="" />
-                    ) : (
-                      <span className="swatch" style={{ background: c.color }} />
-                    );
-                  })()}
-                  {c.name}
-                  {(() => {
-                    const work = characterWork(c.id, state.art, state.live);
-                    return work && (
-                      <span className="tag work" data-testid={`character-work-${c.id}`}>
-                        {work}
-                      </span>
-                    );
-                  })()}
-                  <span className="kind">{c.kind}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="list-actions">
-            <button type="button" onClick={() => void addEnemy()} disabled={locked}>
-              + Enemy
-            </button>
-            <button
-              type="button"
-              onClick={() => void duplicateSelected()}
-              disabled={locked || selected?.kind !== "enemy"}
-            >
-              Duplicate
-            </button>
-            <button type="button" onClick={() => void deleteSelected()} disabled={locked || selected?.kind !== "enemy"}>
-              Delete
-            </button>
-          </div>
-        </section>
+      <SidePanel label="Characters" resize={sideResize} footer={problem}>
+        <CharacterList
+          project={project}
+          art={state.art}
+          live={state.live}
+          selectedId={selected?.id ?? null}
+          onSelect={setSelectedId}
+          query={characterQuery}
+          setQuery={setCharacterQuery}
+          actions={
+            <div className="list-actions">
+              <button type="button" onClick={() => void addEnemy()} disabled={locked}>
+                + Enemy
+              </button>
+              <button
+                type="button"
+                onClick={() => void duplicateSelected()}
+                disabled={locked || selected?.kind !== "enemy"}
+              >
+                Duplicate
+              </button>
+              <button type="button" onClick={() => void deleteSelected()} disabled={locked || selected?.kind !== "enemy"}>
+                Delete
+              </button>
+            </div>
+          }
+        />
         {selected && tab === "characters" && (
           <ArtPanel key={selected.id} character={selected} project={project} art={state.art} session={session} locked={playing || Object.values(state.chats).some((c) => c.running !== null)} />
         )}
@@ -456,8 +449,7 @@ export function App({ session }: { session: Session }) {
             onOpenWiki={openWikiPage}
           />
         )}
-        {problem}
-      </aside>
+      </SidePanel>
       )}
 
       <ChatPanel

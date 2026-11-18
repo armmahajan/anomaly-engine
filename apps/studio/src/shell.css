@@ -1,0 +1,895 @@
+/* The studio shell: toolbar (project menu, grouped tabs, play controls, auto-build,
+   save status), the side-panel frame and the shared list parts (ui/*), the
+   in-page confirmation. Imported by App.tsx after styles.css. */
+
+:root {
+  --accent-soft: #2b3550;
+  --danger: #e5677d;
+  --row-h: 28px;
+  --panel-pad: 12px;
+  /* The level-1 list header's height: level-2 headers stick just below it. */
+  --list-head-h: 32px;
+}
+
+/* --- toolbar --------------------------------------------------------------- */
+
+.studio > .toolbar {
+  gap: 14px;
+  padding: 0 10px;
+  min-width: 0;
+}
+
+.toolbar button {
+  white-space: nowrap;
+}
+
+.toolbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.toolbar-end > *,
+.play-controls > * {
+  flex: none;
+}
+
+/* When the toolbar is full, the auto-build line and the play target give way (they ellipsize); tabs never do. */
+.toolbar-end > .live-status,
+.toolbar-end > .play-controls,
+.play-controls > .play-target {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* The play controls shrink only as far as the play target allows. */
+.toolbar-end > .play-controls {
+  min-width: auto;
+}
+
+.play-controls > .play-target {
+  min-width: 56px;
+}
+
+.caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 6px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.6;
+  vertical-align: middle;
+}
+
+/* Popover menus anchored under a toolbar button. */
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid #333a4a;
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.45);
+  font-size: 13px;
+  color: var(--text);
+  white-space: normal;
+}
+
+.menu h2 {
+  margin: 4px 6px 2px;
+  font-size: 11px;
+}
+
+.menu h3 {
+  margin: 8px 6px 2px;
+  font-size: 10px;
+}
+
+.menu [role="menuitem"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+}
+
+.menu [role="menuitem"]:hover:not(:disabled),
+.menu [role="menuitem"]:focus-visible {
+  background: #232a3a;
+  outline: none;
+}
+
+.menu [role="menuitem"] small,
+.menu-actions small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.menu [role="menuitem"].danger:not(:disabled) {
+  color: var(--danger);
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}
+
+.menu-note,
+.menu p {
+  margin: 2px 6px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px 2px;
+}
+
+.menu-actions button {
+  text-align: left;
+}
+
+/* Project menu: the game's name. */
+.project-menu {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 90px;
+}
+
+.project-name {
+  display: flex;
+  align-items: center;
+  max-width: 220px;
+  padding: 4px 8px;
+  background: transparent;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.project-name:hover,
+.project-name[aria-expanded="true"] {
+  background: #232733;
+  border-color: var(--border);
+}
+
+.project-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-name-input {
+  flex: none;
+  max-width: 260px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 3px 8px;
+  outline: none;
+}
+
+/* Tabs, grouped: a small label over each group's tabs. */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 0;
+  align-self: stretch;
+  flex: none;
+}
+
+.tab-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 10px;
+}
+
+.tab-group + .tab-group {
+  border-left: 1px solid var(--border);
+}
+
+.tab-group:first-child {
+  padding-left: 0;
+}
+
+.tab-group-label {
+  padding-left: 9px;
+  font-size: 9px;
+  line-height: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #636a7c;
+}
+
+.tab-group-tabs {
+  display: flex;
+  gap: 1px;
+}
+
+.tabs button {
+  position: relative;
+  padding: 3px 9px;
+  border-radius: 4px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.tabs button:hover:not(.selected) {
+  color: var(--text);
+  background: #1f232d;
+}
+
+.tabs button.selected {
+  color: var(--text);
+  background: #252b3a;
+  border-color: transparent;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tab-count {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Play controls: ▶ Play, what it plays, the seed, ■ Stop, the runtime status. */
+.play-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.play-button:not(:disabled) {
+  background: #24402c;
+  border-color: #3b6b47;
+  color: #cfeec0;
+}
+
+.play-button:not(:disabled):hover {
+  background: #2d5137;
+}
+
+.play-target {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 180px;
+  padding: 4px 6px;
+  overflow: hidden;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.play-target-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-status .live-summary {
+  max-width: min(360px, 100%);
+}
+
+.play-target small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.play-target:hover,
+.play-target[aria-expanded="true"] {
+  background: #232733;
+  border-color: var(--border);
+}
+
+.play-target.missing {
+  color: #e0af68;
+}
+
+.play-target-panel {
+  width: 300px;
+}
+
+.play-target-panel p b {
+  color: var(--text);
+}
+
+.toolbar .status {
+  margin: 0 0 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.toolbar .status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+}
+
+/* Editing is the resting state: said to screen readers, not shown (Stop is disabled, the stage says it). */
+.toolbar .status.status-ready.status-edit {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.seed-button {
+  padding: 4px 8px;
+}
+
+.toolbar .status.status-ready.status-play {
+  color: var(--ok);
+}
+
+.toolbar .status.status-busy {
+  color: var(--accent);
+}
+
+.toolbar .status.status-unavailable {
+  color: var(--error);
+}
+
+/* Auto-build (LiveStatus.tsx). */
+.live-status {
+  position: relative;
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.live-summary {
+  display: flex;
+  align-items: center;
+  max-width: 360px;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.live-summary:hover,
+.live-summary[aria-expanded="true"] {
+  background: #232733;
+  border-color: var(--border);
+}
+
+.live-status.on .live-summary {
+  color: var(--text);
+}
+
+.live-status.busy .live-summary {
+  color: var(--accent);
+}
+
+.live-status.failed .live-summary {
+  color: var(--error);
+}
+
+.live-waiting {
+  color: var(--muted);
+}
+
+.live-menu {
+  left: auto;
+  right: 0;
+  width: 320px;
+  top: calc(100% + 6px);
+  padding: 8px 6px;
+  gap: 4px;
+  border-color: #333a4a;
+}
+
+.live-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.live-switch:hover {
+  background: #1f2430;
+}
+
+.live-switch input {
+  margin-top: 2px;
+}
+
+.live-switch span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.live-switch small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.live-now {
+  margin: 0 6px 4px;
+  padding-left: 16px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* Save status: replaces "rev 54" and the bare dot. */
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.save-status.saved {
+  color: var(--muted);
+}
+
+.save-status.saved::before {
+  content: "✓";
+  color: var(--ok);
+}
+
+.save-status.offline {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #3a1f27;
+  color: var(--error);
+}
+
+.save-status.offline::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* A narrow window: the group labels and the play target's caption go first. */
+/* A narrower window: tighter tabs, and the controls that can give way do (ellipsis). */
+@media (max-width: 1400px) {
+  .studio > .toolbar {
+    gap: 10px;
+  }
+  .tab-group {
+    padding: 0 6px;
+  }
+  .tabs button {
+    padding: 3px 7px;
+  }
+  .play-target small {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .tab-group-label {
+    display: none;
+  }
+}
+
+/* --- the stage's edit-mode note ------------------------------------------- */
+
+.edit-badge {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  pointer-events: none;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #9aa1b2;
+  background: rgb(10 12 16 / 0.55);
+  border-radius: 4px;
+  opacity: 0.85;
+}
+
+.edit-badge b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* --- side panel frame (ui/SidePanel.tsx) ----------------------------------- */
+
+/* The aside is the frame (resize handle, footer); its body scrolls. */
+.sidebar.side-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.side-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--panel-pad);
+}
+
+.side-panel h2 {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.side-panel .character-list button {
+  min-height: var(--row-h);
+  /* Keyboard navigation scrolls items into view below the sticky headers. */
+  scroll-margin-top: calc(var(--list-head-h) * 2 + 4px);
+  scroll-margin-bottom: 8px;
+}
+
+.side-panel .character-list button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.side-panel .character-list button:hover:not(.selected):not(:disabled) {
+  background: #1f232d;
+}
+
+.item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The drag handle on the panel's left edge (the border between it and the stage). */
+.side-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 6;
+}
+
+.side-resize:hover,
+.side-resize:focus-visible,
+body.resizing .side-resize {
+  background: linear-gradient(90deg, var(--accent) 0, var(--accent) 3px, transparent 3px);
+  opacity: 0.8;
+  outline: none;
+}
+
+/* The last problem stays in view at the bottom of the panel. */
+.side-panel-footer {
+  flex: none;
+  padding: 8px var(--panel-pad) var(--panel-pad);
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.side-panel-footer .problem {
+  margin: 0;
+  background: #2a1820;
+}
+
+/* --- list sections (ui/ListSection.tsx) ------------------------------------ */
+
+.list-section {
+  margin-bottom: 14px;
+}
+
+.list-section.level-2 {
+  margin-bottom: 6px;
+}
+
+.list-section-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--list-head-h);
+  margin: 0 calc(-1 * var(--panel-pad));
+  padding: 0 var(--panel-pad);
+  background: var(--panel);
+}
+
+.list-section.level-1.open > .list-section-head {
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.list-section.level-2 > .list-section-head {
+  top: var(--list-head-h);
+  z-index: 3;
+  min-height: 26px;
+}
+
+/* A group outside any level-1 section sticks to the top itself. */
+.list-section.level-2 > .list-section-head {
+  top: 0;
+}
+
+.list-section.level-1 .list-section.level-2 > .list-section-head {
+  top: var(--list-head-h);
+}
+
+.list-section-heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.list-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 2px;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  text-align: left;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.list-section.level-2 > .list-section-head .list-section-toggle {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: #9097a8;
+}
+
+.list-section-toggle:hover {
+  color: var(--text);
+}
+
+.list-section-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.list-chevron {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transition: transform 0.12s;
+  opacity: 0.8;
+}
+
+.list-section.open > .list-section-head .list-chevron {
+  transform: rotate(90deg);
+}
+
+.list-section-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-count {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: #232836;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.list-section-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.list-section-actions button {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.list-section-body {
+  padding-top: 4px;
+}
+
+.list-section-hint {
+  font-size: 12px;
+}
+
+.list-section .character-list {
+  margin-bottom: 8px;
+}
+
+.list-section-body > .list-actions {
+  margin: 0 0 4px;
+}
+
+.list-empty {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* --- list filter (ui/ListFilter.tsx) --------------------------------------- */
+
+.list-filter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 2px 0 8px;
+}
+
+.list-filter input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 56px 4px 8px;
+}
+
+.list-filter input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.list-filter input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.list-filter-count {
+  position: absolute;
+  right: 26px;
+  color: var(--muted);
+  font-size: 11px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.list-filter-clear {
+  position: absolute;
+  right: 3px;
+  padding: 0 6px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.list-filter-clear:hover {
+  color: var(--text);
+}
+
+/* --- in-page confirmation (ui/confirm.tsx) --------------------------------- */
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 18vh;
+  background: rgb(5 7 10 / 0.55);
+}
+
+.confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px 18px 14px;
+  background: var(--panel);
+  border: 1px solid #333a4a;
+  border-radius: 8px;
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.5);
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+
+.confirm-message {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.confirm-actions button {
+  padding: 5px 14px;
+}
+
+.confirm-actions button.primary {
+  background: #2b3a5c;
+  border-color: var(--accent);
+}
+
+.confirm-actions button.danger {
+  background: #4a1f2a;
+  border-color: var(--danger);
+  color: #ffd7de;
+}
+
+.confirm-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

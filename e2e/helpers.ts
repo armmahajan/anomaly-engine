@@ -92,6 +92,24 @@ export async function resetProject(page: Page) {
     .toBe(true);
 }
 
+/** The project menu (the game's name at the toolbar's left). */
+export const projectMenu = (page: Page) => page.getByRole("button", { name: /project menu/ });
+
+/** The in-page confirmation (ui/confirm.tsx): press its confirming button. */
+export async function confirmInPage(page: Page, button: string | RegExp) {
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: button }).click();
+  await expect(dialog).toHaveCount(0);
+}
+
+/** Project menu ▸ Load the example game…, confirmed in the page. */
+export async function loadExample(page: Page) {
+  await projectMenu(page).click();
+  await page.getByRole("menuitem", { name: /Load the example game/ }).click();
+  await confirmInPage(page, "Load the example");
+}
+
 /** Wait until the studio has seen a revision newer than `base` and the runtime has loaded it. */
 export async function waitForRuntimeAfter(page: Page, base: number) {
   await expect

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectConsoleErrors, openStudio, resetProject, runtimeState } from "./helpers.ts";
+import { collectConsoleErrors, loadExample, openStudio, resetProject, runtimeState } from "./helpers.ts";
 
 test.afterEach(async ({ page }) => resetProject(page));
 
@@ -45,10 +45,9 @@ test("Game tab: rules are presets, and a game handler built in the editor runs i
   expect(consoleErrors).toEqual([]);
 });
 
-test("Example… loads the example game, and ▶ Play starts it on its title", async ({ page }) => {
+test("Load the example game loads it, and ▶ Play starts it on its title", async ({ page }) => {
   await openStudio(page);
-  page.once("dialog", (dialog) => void dialog.accept());
-  await page.getByRole("button", { name: "Example…" }).click();
+  await loadExample(page);
   await expect.poll(async () => (await project(page)).world.rooms.map((r) => r.id)).toContain("summit");
   await expect.poll(async () => (await runtimeState(page)).room).toBe("entrance");
   await page.getByRole("button", { name: "▶ Play" }).click();
