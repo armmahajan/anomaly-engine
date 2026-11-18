@@ -149,6 +149,7 @@ export const ArtStage = z.enum([
   "modalArt",
   "itemArt",
   "gameArt",
+  "artDirection",
 ]);
 export type ArtStage = z.infer<typeof ArtStage>;
 
@@ -167,6 +168,7 @@ export const CHARACTER_STAGES: readonly ArtStage[] = ["concepts", "choose", "rig
  *   modalArt: illustrate modal `modalId`
  *   itemArt:  draw icons for the items that have none
  *   gameArt:  everything the game still needs (core gameArtPlan), step by step; `steps` limits it to those step ids
+ *   artDirection: write the art direction (style, palette, outlines) from the wiki; only while it is a default
  */
 export const ArtJobRequest = z
   .strictObject({

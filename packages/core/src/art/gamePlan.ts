@@ -1,5 +1,6 @@
 import type { ProjectSpec } from "../schema.ts";
 import { dressingOutOfDate } from "../world/world.ts";
+import { isDefaultArtDirection } from "./asset.ts";
 import { ACTION_CLIP_SLOTS, ACTION_PHASE_SLOTS, ENEMY_CLIP_SLOTS, PLAYER_CLIP_SLOTS, type ClipSlot } from "./clip.ts";
 
 /**
@@ -13,10 +14,10 @@ import { ACTION_CLIP_SLOTS, ACTION_PHASE_SLOTS, ENEMY_CLIP_SLOTS, PLAYER_CLIP_SL
  * prop is for: props are drawn from their names, sizes and handlers.
  */
 
-export type ArtStepKind = "character" | "biome" | "room" | "props" | "modal" | "items";
+export type ArtStepKind = "direction" | "character" | "biome" | "room" | "props" | "modal" | "items";
 
 export interface ArtStepRequest {
-  stage: "auto" | "animate" | "worldKit" | "worldCompose" | "propArt" | "modalArt" | "itemArt";
+  stage: "artDirection" | "auto" | "animate" | "worldKit" | "worldCompose" | "propArt" | "modalArt" | "itemArt";
   characterId?: string;
   biomeId?: string;
   /** The biome made by this earlier step (worldKit) of the plan. */
@@ -45,6 +46,7 @@ export interface ArtStep {
 
 /** Rough USD per step with the default models (Haiku 5.5 + gpt-image-1-mini). */
 export const ART_COST_ESTIMATES = {
+  direction: 0.003, // one text call (free on Claude Code)
   character: 0.03,
   animate: 0.01,
   biome: 0.09, // three medium background planes, medium piece sheets, a low ground, labelling
@@ -93,12 +95,33 @@ export function roomGroups(project: ProjectSpec): { group: string; rooms: string
   return [...groups].map(([group, rooms]) => ({ group, rooms }));
 }
 
+/**
+ * What a group's place is, in the creator's words: the region's name, its wiki page's summary and
+ * its look fields (rooms without a region: the game's name and overview). The art direction is
+ * not repeated here: every prompt adds it, and a theme is stored as the biome's brief.
+ */
 function themeFor(project: ProjectSpec, group: string, options: GameArtOptions): string {
   if (options.themes?.[group]) return options.themes[group];
   const region = project.progression.regions.find((r) => r.id === group);
-  const page = region?.wikiPageId ? project.wiki.pages.find((p) => p.id === region.wikiPageId) : undefined;
-  const place = region ? `${region.name}${page?.summary ? `: ${page.summary}` : ""}` : project.name;
-  return `${place}. ${project.art.direction.style}`.slice(0, 2000);
+  const page = region?.wikiPageId
+    ? project.wiki.pages.find((p) => p.id === region.wikiPageId)
+    : region
+      ? undefined
+      : project.wiki.pages.find((p) => p.kind === "overview");
+  const looks = Object.entries(page?.fields ?? {})
+    .filter(([k]) => /appearance|look|mood|tone|setting|atmosphere|climate|terrain/i.test(k))
+    .map(([k, v]) => `${k}: ${v}`);
+  const name = region?.name ?? project.name;
+  return [`${name}${page?.summary ? `: ${page.summary}` : ""}`, ...looks].join(". ").slice(0, 2000);
+}
+
+/**
+ * Whether the art direction should be written from the design: the look is still a default
+ * (nobody chose one) and the wiki has an overview to write it from. A direction the creator
+ * edited is never replaced.
+ */
+export function artDirectionWanted(project: ProjectSpec): boolean {
+  return isDefaultArtDirection(project.art.direction) && project.wiki.pages.some((p) => p.kind === "overview");
 }
 
 export function gameArtPlan(project: ProjectSpec, options: GameArtOptions = {}): ArtStep[] {
@@ -213,6 +236,17 @@ export function gameArtPlan(project: ProjectSpec, options: GameArtOptions = {}):
       description: `draw icons for ${project.world.items.filter((i) => !i.icon).map((i) => i.name).join(", ")}`,
       request: { stage: "itemArt" },
       estimatedCost: ART_COST_ESTIMATES.items,
+    });
+  }
+  // The look comes first: every later step paints with it. Only worth a step when something is drawn.
+  if (steps.length > 0 && artDirectionWanted(project)) {
+    steps.unshift({
+      id: "direction",
+      kind: "direction",
+      reason: "missing",
+      description: "write the art direction from the wiki",
+      request: { stage: "artDirection" },
+      estimatedCost: ART_COST_ESTIMATES.direction,
     });
   }
   return steps;

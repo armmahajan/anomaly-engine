@@ -8,6 +8,7 @@ import {
   DuplicateCharacterInput,
   Effect,
   gameArtPlan,
+  isDefaultArtDirection,
   GameCondition,
   GameEvent,
   EnemyCharacter,
@@ -421,6 +422,20 @@ const artTools: ToolSpec[] = [
         { stage: "worldCompose", biomeId: biome.id, feedback: p.data.direction, newLayout: p.data.newLayout, dressRoom: p.data.dressRoom },
         `a new room for ${biome.name}`,
       );
+    },
+  },
+  {
+    name: "writeArtDirection",
+    description: "Queue writing the art direction (style, palette, outlines) from the wiki's overview and places. Only replaces the default look; free.",
+    schema: z.strictObject({}),
+    run: (draft) => {
+      if (!isDefaultArtDirection(draft.current.art.direction)) {
+        return { ok: false, error: { code: "invalid_input", message: "the art direction was chosen already; change it with setArtDirection" } };
+      }
+      if (!draft.current.wiki.pages.some((p) => p.kind === "overview")) {
+        return { ok: false, error: { code: "invalid_input", message: "the wiki has no overview to write it from" } };
+      }
+      return queue(draft, { stage: "artDirection" }, "the art direction, from the wiki");
     },
   },
   {

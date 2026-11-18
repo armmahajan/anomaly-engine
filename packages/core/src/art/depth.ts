@@ -75,7 +75,7 @@ export const PLANE_RECIPE: readonly PlaneRecipe[] = [
     mist: 0,
     transparent: false,
     prompt:
-      "The farthest background of a 2D side-scrolling platformer, a wide panorama of nothing but sky (or the far ceiling of a cavern): its light, soft clouds, haze or glow; very low detail, smooth gradients, no strong shapes at the left or right edge. Nothing stands in it: no ground, no horizon line of land, no trees, no plants, no buildings, no objects, no lanterns or lamps.",
+      "The farthest background of a 2D side-scrolling platformer, a wide panorama of nothing but the setting's sky (or whatever lies farthest away overhead there): its light, haze, clouds or glow; very low detail, smooth gradients, no strong shapes at the left or right edge. Nothing stands in it: no ground, no horizon line of land, no buildings, no plants, no objects, no lamps or light sources.",
   },
   {
     name: "far",
@@ -87,7 +87,7 @@ export const PLANE_RECIPE: readonly PlaneRecipe[] = [
     mist: 0.45,
     transparent: true,
     prompt:
-      "A distant parallax layer of a 2D side-scrolling platformer: a wide band of far-away silhouettes (ridges, spires, towers, canopy, cavern walls) rising from the bottom edge to about two thirds of the height, solid down to the bottom edge across the whole width, flat and low contrast, faded by distance. Only landscape and architecture: no figures, no creatures, no lanterns, lamps or glowing objects. Everything above them fully transparent.",
+      "A distant parallax layer of a 2D side-scrolling platformer: a wide band of far-away silhouettes of the setting's own landforms and buildings (whatever this place has) rising from the bottom edge to about two thirds of the height, solid down to the bottom edge across the whole width, flat and low contrast, faded by distance. Only landscape and architecture: no figures, no creatures, no lamps or glowing objects. Everything above them fully transparent.",
   },
   {
     name: "near",
@@ -99,6 +99,6 @@ export const PLANE_RECIPE: readonly PlaneRecipe[] = [
     mist: 0.3,
     transparent: true,
     prompt:
-      "A middle-distance parallax layer of a 2D side-scrolling platformer: a wide band of nearer silhouettes (rocks, ruins, trees, roots, pillars) rising from the bottom edge to about half of the height, solid down to the bottom edge across the whole width, with a varied skyline of gaps and peaks, darker and more detailed than the distance. Only landscape and architecture: no figures, no creatures, no lanterns, lamps or glowing objects. Everything above them fully transparent.",
+      "A middle-distance parallax layer of a 2D side-scrolling platformer: a wide band of nearer silhouettes of the setting's own landforms, growth and buildings (whatever this place has) rising from the bottom edge to about half of the height, solid down to the bottom edge across the whole width, with a varied skyline of gaps and peaks, darker and more detailed than the distance. Only landscape and architecture: no figures, no creatures, no lamps or glowing objects. Everything above them fully transparent.",
   },
 ];

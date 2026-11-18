@@ -4,7 +4,7 @@ import type { Rig } from "./rig.ts";
 /**
  * A small hand-made rig + clips: a worked example for the AI's prompts and a
  * fixture for tests. A 44x36 beetle (the starter Charger's box): domed
- * shell, pale mask-like head, curved horn, glowing eye, three visible legs.
+ * shell, pale head, curved horn, glowing eye, three visible legs. Only its format matters to prompts.
  */
 export function exampleRig(): Rig {
   const dark = "#2a2a33";

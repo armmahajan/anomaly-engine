@@ -191,7 +191,7 @@ describe("world stages", () => {
 
   it("keeps the kit prompts free of characters and baked-in light sources in the ground", () => {
     const prompts = worldPrompts("a sunken garden", createDefaultProject().art.direction);
-    expect(prompts.ground).toMatch(/no objects, no lanterns/);
+    expect(prompts.ground).toMatch(/no objects, no lamps or light sources/);
     expect(prompts.structures).toMatch(/transparent background/);
     for (const p of Object.values(prompts)) expect(p).toMatch(/No characters/);
   });

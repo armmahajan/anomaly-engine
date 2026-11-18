@@ -29,6 +29,7 @@ export * from "./art/depth.ts";
 export * from "./art/gamePlan.ts";
 export * from "./art/worldOperations.ts";
 export * from "./art/worldSnap.ts";
+export * from "./art/compositionLimits.ts";
 export * from "./art/fileRef.ts";
 export * from "./world/tiles.ts";
 export * from "./world/world.ts";

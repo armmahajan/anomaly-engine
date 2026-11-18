@@ -112,7 +112,10 @@ export class FakeVisionModel implements VisionModel {
 
     const prompt = request.content.map((c) => (c.type === "text" ? c.text : "")).join("\n");
     let reply: unknown;
-    if (prompt.includes("That reply was invalid")) reply = { rig: exampleRig(), clips: exampleClips(), cell: 0, reason: "fixed", score: 7, issues: [] };
+    const asked = (request.history ?? []).map((h) => (typeof h.content === "string" ? h.content : h.content.map((c) => (c.type === "text" ? c.text : "")).join("\n"))).join("\n");
+    if (prompt.includes("That reply was invalid") && asked.includes("Plan the kit of sprites")) reply = fakeKitPlan(asked);
+    else if (prompt.includes("That reply was invalid") && asked.includes("Write the art direction for this game")) reply = fakeDirection(asked);
+    else if (prompt.includes("That reply was invalid")) reply = { rig: exampleRig(), clips: exampleClips(), cell: 0, reason: "fixed", score: 7, issues: [] };
     else if (prompt.includes("Pick the single best design")) reply = { cell: 1, reason: "clearest silhouette" };
     else if (prompt.includes("Which way is this character facing")) reply = { facing: "left" };
     else if (prompt.includes("Build the rig")) reply = { rig: exampleRig(), notes: "beetle" };
@@ -121,6 +124,8 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("Score the animation")) reply = { score: 8, issues: [], clips: exampleClips() };
     else if (prompt.includes("Plan the cutout rig")) reply = fakeCutoutPlan(request);
     else if (prompt.includes("Review the cutout rig")) reply = { score: 8, issues: ["the head could turn further"], plan: null };
+    else if (prompt.includes("Write the art direction for this game")) reply = fakeDirection(prompt);
+    else if (prompt.includes("Plan the kit of sprites")) reply = fakeKitPlan(prompt);
     else if (prompt.includes("Non-empty cells")) {
       reply = {
         pieces: [
@@ -156,6 +161,56 @@ export class FakeVisionModel implements VisionModel {
     else reply = fakeGameReply(prompt) ?? { error: "fake model got an unexpected prompt" };
     return { text: "```json\n" + JSON.stringify(reply) + "\n```", usage, model: this.id };
   }
+}
+
+// --- art direction and kit plans ---------------------------------------------------
+
+/** A direction "from the wiki": names the game and the overview's first words, so tests can tell. */
+function fakeDirection(prompt: string): unknown {
+  const game = prompt.match(/^Game: (.+)$/m)?.[1] ?? "the game";
+  const overview = prompt.match(/^Overview\. (.+)$/m)?.[1]?.slice(0, 80) ?? "";
+  return {
+    style: `Painted 2D game art for ${game}, drawn from its design: ${overview}. Clean outlines, simple bold shapes.`,
+    palette: ["#101820", "#f0e6d2", "#3a6ea5", "#c8553d", "#8fb339", "#f2c14e"],
+    ink: "#101820",
+    inkWidth: 1.4,
+    boil: 0.2,
+  };
+}
+
+const STOP = new Set(["a", "an", "the", "of", "and", "with", "in", "on", "at", "to", "its", "for", "from", "under", "over", "set"]);
+
+/** A kit plan built from the place's own words (each item names the place), with every role composition needs. */
+function fakeKitPlan(prompt: string): unknown {
+  const place = prompt.match(/^Place: (.+)$/m)?.[1] ?? "place";
+  const words = place.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2 && !STOP.has(w));
+  const [a = "place", b = a] = words;
+  const item = (name: string, role: string) => ({ name, look: `a ${name} of the ${a} ${b}`, role });
+  return {
+    structures: [
+      item(`${a} tower`, "standing"),
+      item(`${b} wall`, "standing"),
+      item(`${a} column`, "standing"),
+      item(`${b} gate`, "standing"),
+      item(`${a} mass`, "standing"),
+      item(`${b} spire`, "standing"),
+      item(`${a} drape`, "hanging"),
+      item(`${b} overhang`, "hanging"),
+      item(`${a} beam`, "span"),
+    ],
+    props: [
+      item(`${a} lamp`, "light"),
+      item(`${b} glow`, "light"),
+      item(`${a} pebbles`, "ground"),
+      item(`${b} sprigs`, "ground"),
+      item(`${a} shards`, "ground"),
+      item(`${b} pile`, "ground"),
+      item(`${a} tufts`, "ground"),
+      item(`${b} debris`, "ground"),
+      item(`${a} tassel`, "hanging"),
+    ],
+    ground: `packed ${a} ${b} ground`,
+  };
 }
 
 // --- game art stages (props) -------------------------------------------------------

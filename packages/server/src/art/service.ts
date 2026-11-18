@@ -23,6 +23,7 @@ import {
   propArtStage,
   modalArtStage,
   itemArtStage,
+  artDirectionStage,
   StageError,
   type ArtContext,
   type ArtRenderer,
@@ -269,6 +270,9 @@ export class ArtService {
           },
         });
       switch (r.stage) {
+        case "artDirection":
+          add("artDirection", () => artDirectionStage(ctx), true);
+          break;
         case "auto": {
           const c = { characterId: r.characterId! };
           add("concepts", () => generateConcepts(ctx, c), true);
@@ -404,6 +408,9 @@ export class ArtService {
         break;
       case "gameArt":
         stages.push(...this.gameArtSteps(ctx, running));
+        break;
+      case "artDirection":
+        stages.push({ stage: "artDirection", run: () => artDirectionStage(ctx) });
         break;
       case "auto": {
         // Auto takes the AI's picks; feedback and sheet/cell choices apply to the first stage only.

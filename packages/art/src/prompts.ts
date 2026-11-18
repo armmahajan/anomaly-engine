@@ -98,7 +98,7 @@ Part: {"id", "bone", "z", "shape", "fill", "shade"?, "ink"?, "glow"?, "opacity"?
     {"type": "stroke", "points": [[x,y], ...2-32], "width", "widthEnd", "smooth"}  open tapered line in image pixels (thin legs, antennae, tails, whiskers, detail lines).
   fill: "#rrggbb" (line color for strokes); pick it from the concept. shade: {"color": "#rrggbb", "angle": degrees (90 = darker toward the bottom)} for simple form shading.
   ink: outline thickness multiplier (default 1; 0 for glows/highlights/detail lines). Outlines are drawn automatically.
-  glow: true for glowing eyes, lanterns, souls. bendTo: a second bone the part bends toward (cloaks, tails, soft bodies).`;
+  glow: true for glowing eyes, lights and other glowing parts. bendTo: a second bone the part bends toward (cloaks, tails, soft bodies).`;
 
 /** The example rig moved into a 512px canvas, so the example matches the coordinates we ask for. */
 function exampleCanvasRig(): string {

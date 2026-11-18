@@ -27,7 +27,7 @@ const OVERHANG = 0.25;
 const SPAN_END = 0.25;
 /** Two supports this close in height (px) carry a span between them. */
 const SPAN_LEVEL = 16;
-/** A structure holds things up along this middle share of its width (images are wider at the base: plants, rubble). */
+/** A structure holds things up along this middle share of its width (images are often wider at the base). */
 const SUPPORT_TOP = 0.6;
 
 export interface SnapRoom {
