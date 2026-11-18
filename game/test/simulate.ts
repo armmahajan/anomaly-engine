@@ -20,7 +20,7 @@ export interface Scenario {
   input?: { action: Input; from: number; to: number }[];
 }
 
-export type Input = "move_left" | "move_right" | "jump" | "attack" | "aim_up" | "aim_down" | "dash" | "interact" | "map";
+export type Input = "move_left" | "move_right" | "jump" | "attack" | "alt_attack" | "special_attack" | "weapon_cycle" | "aim_up" | "aim_down" | "dash" | "interact" | "map";
 
 export interface Sample {
   frame: number;
@@ -39,6 +39,8 @@ export interface Sample {
   mapOpen: boolean;
   healthBars: string[];
   props: { id: string; visible: boolean; solid: boolean }[];
+  /** Weapons the player has, what each loadout slot holds, and the HUD's weapon rows (null outside a run). */
+  weapons: { owned: string[]; slots: Record<string, string>; hud: { slot: string; label: string; weapon: string; name: string; ammo: Record<string, number> }[] } | null;
 }
 
 /** Run scenarios in one headless Godot process, 1/60 s per frame. */

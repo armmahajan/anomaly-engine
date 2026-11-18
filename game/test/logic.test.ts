@@ -49,7 +49,7 @@ function project(): ProjectSpec {
       return {
         ...room,
         spawns: [
-          { ...room.spawns[0]!, handlers: [{ on: on("enemyKilled"), do: [{ type: "giveItem", item: "trophy" }, { type: "grantAbility", ability: "dash" }] }] },
+          { ...room.spawns[0]!, handlers: [{ on: on("enemyKilled"), do: [{ type: "giveItem", item: "trophy" }, { type: "grantAbility", ability: "dash" }, { type: "giveWeapon", weapon: "relic" }] }] },
           { id: "ghost_1", characterId: "crawler", x: 25 * TILE, y: 17 * TILE, when: flag("haunted") },
         ],
         handlers: [
@@ -84,16 +84,18 @@ function project(): ProjectSpec {
     }
     return room;
   });
+  const weapon = (id: string) => ({ id, name: id, attacks: [{ id: "swing", name: "Swing", shape: { type: "arc", radius: 60 } }] });
   return ProjectSpec.parse({
     ...base,
     id: "logic_mirror",
+    weapons: { list: [weapon("starter"), weapon("relic")], loadout: { slots: [{ id: "main", label: "Main", action: "attack", start: "starter" }] } },
     world: {
       ...base.world,
       rooms,
       rules: { onDeath: "checkpoint", save: "room", hazardDamage: 0 },
       items: ["coin", "gem", "chip", "trophy", "life", "token"].map((id) => ({ id, name: id })),
       modals: [
-        { id: "need", title: "Need", buttons: [{ label: "OK", do: [{ type: "setFlag", flag: "told" }] }, { label: "Give", do: [{ type: "giveItem", item: "gem" }, { type: "showModal", modal: "thanks" }] }] },
+        { id: "need", title: "Need", buttons: [{ label: "OK", do: [{ type: "setFlag", flag: "told" }, { type: "takeWeapon", weapon: "starter" }] }, { label: "Give", do: [{ type: "giveItem", item: "gem" }, { type: "showModal", modal: "thanks" }] }] },
         { id: "thanks", title: "Thanks" },
         { id: "end", title: "End" },
       ],
@@ -106,6 +108,8 @@ function project(): ProjectSpec {
         { on: on("enemyKilled", { character: "crawler" }), when: [{ type: "all", of: [item("trophy"), { type: "ability", ability: "dash" }] }], do: [{ type: "setFlag", flag: "any_crawler" }] },
         { on: on("hazardTouched"), do: [{ type: "setFlag", flag: "ouch" }, { type: "setCheckpoint" }] },
         { on: on("playerDied"), do: [{ type: "giveItem", item: "life" }] },
+        // Weapons: the loadout's start weapon is held from the start (taken by the "need" modal's OK); the crawler gives the relic.
+        { on: on("enemyKilled", { character: "crawler" }), when: [{ type: "weapon", weapon: "relic" }, { type: "not", of: { type: "weapon", weapon: "starter" } }], do: [{ type: "setFlag", flag: "armed" }] },
         { on: on("roomEntered", { room: "spikes" }), when: [{ type: "visited", room: "cistern" }], do: [{ type: "setFlag", flag: "back_trip" }] },
         { on: on("roomEntered", { room: "hall" }), do: [{ type: "endGame", modal: "end" }] },
       ],
@@ -249,7 +253,9 @@ describe("the logic engine mirrors the runtime", () => {
   it("covers what it claims (the script reaches every handler)", () => {
     const last = runtime.at(-1)!;
     const seen = new Set(runtime.flatMap((s) => s.flags));
-    for (const f of ["a", "b", "gem_taken", "opened", "told", "crate_broken", "cistern_entered", "cleared", "timed", "ouch", "spikes_entered", "back_trip"]) expect(seen, f).toContain(f);
+    for (const f of ["a", "b", "gem_taken", "opened", "told", "crate_broken", "cistern_entered", "cleared", "timed", "ouch", "spikes_entered", "back_trip", "armed", "weapon:starter", "weapon:relic"]) expect(seen, f).toContain(f);
+    expect(runtime[0]!.flags).toContain("weapon:starter");
+    expect(last.flags).not.toContain("weapon:starter");
     expect(seen).not.toContain("wrong_room");
     // Judged when the first kill happened, before the spawn's own handler gave the trophy and dash; the second kill sets it.
     const kills = STEPS.flatMap((s, i) => (s.do === "kill" ? [i + 1] : []));

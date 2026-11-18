@@ -1,5 +1,6 @@
 extends Node2D
-## Play-mode HUD: the player's health as a row of pips, the items they hold (icon or color, and count) under it, and a titled health
+## Play-mode HUD: the player's health as a row of pips, the items they hold (icon or color, and count) under it,
+## the weapons in their loadout slots (with ammo counts) under those, and a titled health
 ## bar for every enemy alive in the current room whose spawn asks for one
 ## (spawn.healthBar), stacked in spawn order from the top.
 
@@ -14,6 +15,8 @@ const BAR_TOP := 30.0
 ## The held items row, under the health pips.
 const ITEM_TOP := 46.0
 const ITEM_SIZE := 22.0
+## The weapon rows (loadout slots holding a weapon, with their ammo), under the items.
+const WEAPON_TOP := 86.0
 
 
 func _process(_delta: float) -> void:
@@ -31,6 +34,7 @@ func _draw() -> void:
 			draw_arc(at, 9.0, 0.0, TAU, 24, Color("#e8e3d3", 0.45), 2.0)
 	var font := ThemeDB.fallback_font
 	_draw_items(font)
+	_draw_weapons(font)
 	var bars := _bars()
 	for i in bars.size():
 		var enemy: Node = bars[i].enemy
@@ -105,3 +109,17 @@ func _draw_items(font: Font) -> void:
 		draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 3, Color(0, 0, 0, 0.7))
 		draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#e8e3d3"))
 		x += ITEM_SIZE + 12.0 + font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+
+
+## Each loadout slot holding a weapon: "Label: Name", and the ammo its attacks spend (held count).
+func _draw_weapons(font: Font) -> void:
+	if player == null or not "arsenal" in player or player.arsenal == null:
+		return
+	var y := WEAPON_TOP
+	for row in player.arsenal.hud_rows():
+		var text := "%s: %s" % [row.label, row.name]
+		for item in row.ammo:
+			text += "  %s ×%d" % [item, row.ammo[item]]
+		draw_string_outline(font, Vector2(18.0, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 3, Color(0, 0, 0, 0.7))
+		draw_string(font, Vector2(18.0, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#e8e3d3"))
+		y += 18.0

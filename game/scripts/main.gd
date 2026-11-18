@@ -216,6 +216,8 @@ func run_state() -> Dictionary:
 		"flags": events.flags.keys() if playing else [],
 		"items": events.items.duplicate() if playing else {},
 		"abilities": _run.abilities.duplicate() if playing else [],
+		# Weapons the player has, each loadout slot's, and the HUD's weapon rows (with ammo counts).
+		"weapons": {"owned": _run.weapons.duplicate(), "slots": _run.slots.duplicate(), "hud": _player.arsenal.hud_rows() if _player != null and is_instance_valid(_player) else []} if playing else null,
 		"checkpoint": events.checkpoint.duplicate() if playing and not events.checkpoint.is_empty() else null,
 		"modal": _modals.current(),
 		"mapOpen": _modals.map_open(),
@@ -322,6 +324,14 @@ func _hit_stop() -> void:
 	hit_stop(HIT_STOP_FRAMES)
 
 
+## A weapon attack of the player's landed: its hit-stop and camera shake.
+func _on_weapon_hit(frames: int, shake: float) -> void:
+	if frames > 0:
+		hit_stop(frames)
+	if shake > 0.0 and _fx != null:
+		_fx.shake(shake, 0.2)
+
+
 ## Freeze the room for `frames` physics frames (play only).
 func hit_stop(frames: int) -> void:
 	if _mode == "play" and _world != null:
@@ -406,7 +416,7 @@ func _entity_states() -> Array:
 ## The input actions the game scripts read (player.gd, props.gd, modal.gd). Their keys are data:
 ## project.controls.bindings (the game's) with the player's overrides (the "controls" message),
 ## by key name (packages/core/src/controls/controls.ts KEY_NAMES). Menus also take Godot's ui_* keys.
-const ACTIONS := ["move_left", "move_right", "jump", "attack", "aim_up", "aim_down", "dash", "interact", "map"]
+const ACTIONS := ["move_left", "move_right", "jump", "attack", "alt_attack", "special_attack", "weapon_cycle", "aim_up", "aim_down", "dash", "interact", "map"]
 ## Key names that are not a letter or a digit -> Godot keys (by physical position, like the defaults).
 const NAMED_KEYS := {
 	"Space": KEY_SPACE, "Enter": KEY_ENTER, "Shift": KEY_SHIFT, "Ctrl": KEY_CTRL, "Alt": KEY_ALT,
@@ -651,6 +661,7 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 		player.setup(_player_character(), bounds, at, _project.get("art", {}))
 		player.spawn_id = "player"
 		player.landed_hit.connect(_hit_stop)
+		player.weapon_hit.connect(_on_weapon_hit)
 		player.died.connect(_restart_run, CONNECT_DEFERRED)
 		player.smashed.connect(_on_smashed)
 		player.touched_hazard.connect(_run.on_hazard_touched)
@@ -665,6 +676,7 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 	player.enemies = level.enemies
 	for enemy in level.enemies:
 		enemy.player = player
+	player.arsenal.run = _run if _run.active else null
 	_player = player
 	_hud.player = player
 	if _mode == "play":
@@ -676,7 +688,7 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 
 ## What characters set up from (the world's gravity, the room's size, the run's abilities).
 func _room_bounds(room: Dictionary, abilities: Array) -> Dictionary:
-	return {"gravity": _project.world.get("gravity", 1800), "width": room.width, "height": room.height, "playerAbilities": abilities, "viewRows": view_rows()}
+	return {"gravity": _project.world.get("gravity", 1800), "width": room.width, "height": room.height, "playerAbilities": abilities, "viewRows": view_rows(), "weapons": _project.get("weapons", {})}
 
 
 ## Tiles the play view shows top to bottom (world.camera.rows).

@@ -79,8 +79,8 @@ e2e/            Playwright acceptance test.
   `game/primitives/`, one small file each). The runtime reports its
   primitive list on boot and the studio flags any mismatch.
   - Actions: patrol, wait, chase, charge, telegraph, retreat, returnHome,
-    jump, hover, and the attacks strike, shoot, leap, slam, summon, teleport
-    (see "Enemy combat primitives"). Conditions: playerWithin, playerBeyond, after, hitWall,
+    jump, hover, and the attacks strike, shoot, leap, slam, summon, teleport,
+    useWeapon (see "Enemy combat primitives" and "Weapons"). Conditions: playerWithin, playerBeyond, after, hitWall,
     actionDone, atLedge, onGround, airborne, playerAbove, playerBelow,
     playerLevel, playerInFront, playerBehind, canSeePlayer, wasHit,
     healthBelow, chance.
@@ -696,6 +696,57 @@ attacks follow), copy, delete, and attach to an enemy state (`stateClips`) or a 
 mirrored in `apps/studio/src/characters/rigView.ts`): drag a joint (carrying the drawing or not), turn
 or scale a bone, reassign parts, add or remove bones, place grips, and a pose test that isn't saved.
 Cutout pieces show the design at its place, so their bones only move their joints.
+
+**Mechanics** (`packages/core/src/combat/weaponModel.ts`, mirrored line for line by the runtime's
+`game/scripts/combat/weapon_runner.gd`; the player's side is `combat/arsenal.gd`, an enemy's `useWeapon`
+runs the same runner):
+
+- **Frames:** windup, active (at least one) and recovery are whole 60 fps frames from the frame the attack
+  starts; then the attack's own cooldown runs. Coordinates are the wielder's: the centre of its box,
+  facing right, mirrored when it faces left. Hits are strict overlaps, each target once per attack.
+- **Shapes:** `arc` sweeps from `from` to `to` over the active frames (each frame hits the slice it passes
+  over; angles turn with the aim); `box` is centred on the wielder's front along the aim plus `offset`,
+  its width along the aim; `thrust` runs `length` from the centre along the aim; `projectile` fires on the
+  first active frame from the centre, a fan of `count` across `spread`, moving from the next frame (gravity,
+  then move, then age; it breaks on a solid or when its lifetime runs out), hitting what its wielder hits
+  (never the wielder), passing through `pierce` targets.
+- **Picking (player):** a press picks the attack whose trigger matches the held aim (down only in the air),
+  ground or air, with no hold: an exact aim beats `any`, an attack that is no combo's `next` beats one that
+  is, then list order. A release after holding picks the longest `hold` reached (a tap attack of the same
+  weapon still fires on the press). A press during an attack is buffered for the jump-buffer frames; when
+  an attack with a combo `next` ends, its `window` opens and a press in it makes the next attack (outside
+  it, the press starts over). A press during the attack's cooldown is ignored, like the built-in attack's.
+- **Movement and feedback:** `lunge` drives the wielder forward while active; `recoil` pushes it back
+  against the aim on its first hit (or when projectiles leave); a downward `pogo` attack bounces the player
+  (their `pogoVelocity`) off enemies, props that bounce, spikes and breakable tiles (without touching or
+  breaking them); `hitStop` freezes the room and `shake` shakes the camera on each hit. The player keeps
+  facing one way while a weapon attack runs; being hurt cancels it.
+- **Ammo** is spent when the attack starts (as `takeItem`); with too few the attack doesn't start. The HUD
+  lists each loadout slot's weapon with the ammo it spends.
+- **Owned weapons** live in the run (`world_runtime.gd`: the weapons the player has and each slot's), saved
+  with it; `giveWeapon` puts a weapon in its slot (moved out of any other), else the first empty slot, else
+  carries it; `takeWeapon` empties its slot; `weapon_cycle` swaps the main slot through the weapons no other
+  slot holds. The runtime's `state` reports them (`weapons {owned, slots, hud}`); the player's
+  `behaviorState` is `attack:<id>` and `phase` its phase while making one.
+- **Art:** every wielder has a weapon view (`game/scripts/art/weapon_view.gd`) told the weapon, each phase
+  (with the aim) and each hit. An attack's `clip`, when the wielder's art has it, is posed over the whole
+  attack; else the phase slots (windup, strike, recover, attack).
+- **Lints** (`combat/weaponLint.ts`): `weapon_out_of_reach` (an attack can't touch the smallest enemy, or an
+  enemy's the player), `weapon_one_shot` (a fight the game waits on: a health bar, a death handler, a
+  cleared room), `weapon_too_weak` (more than 40 hits), `projectile_short_lived`, `ammo_no_supply`,
+  `weapon_no_attacks`, `weapon_unknown` (giveWeapon, takeWeapon, conditions, useWeapon), `loadout_no_keys`,
+  and `unwarned_attack` for an enemy weapon attack with a windup under `MIN_WARNING`.
+- **Checker:** the weapons the player has are reserved flags in its state (`weapon:<id>`; the loadout's
+  start weapons from the start), so a barrier or handler needing a weapon opens only once it is held, and
+  what can be struck from a surface is the built-in attack's reach (while the attack slot starts empty)
+  plus every attack of the weapons held (ground attacks standing, air ones jumping in place, down strikes
+  included: where the pogo is). Slots aren't tracked (any weapon held counts) and a projectile's reach is
+  its whole flight, solids aside.
+- **Tests:** `game/test/weapons.test.ts` (each shape hits only while active, on the frame the model says,
+  reaching within 2 px of its setting; projectiles fly speed x lifetime; pogo off enemies, spikes and
+  breakables; combos, holds, ammo, cycling, no self-hits; enemies' useWeapon; a project with no weapon in
+  the attack slot plays frame for frame as before), `game/test/logic.test.ts` (the mirror with weapons),
+  `packages/core/test/weaponModel.test.ts`, `weaponCheck.test.ts`, `weaponLint.test.ts`.
 
 ## Enemy combat primitives
 

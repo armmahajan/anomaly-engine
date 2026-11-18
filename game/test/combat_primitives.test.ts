@@ -169,15 +169,13 @@ describe("contract", () => {
     const registry = readFileSync(join(GAME_DIR, "primitives/registry.gd"), "utf8");
     const actions = registry.slice(registry.indexOf("ACTIONS"), registry.indexOf("CONDITIONS"));
     const files = Object.fromEntries([...actions.matchAll(/"(\w+)": preload\("res:\/\/primitives\/actions\/(\w+)\.gd"\)/g)].map((m) => [m[1]!, m[2]!]));
-    // PENDING (weapons target, W1): the runtime's useWeapon action. W1 adds it to the registry and deletes this filter.
-    const PENDING = ["useWeapon"];
-    expect(Object.keys(files)).toEqual(ACTION_TYPES.filter((t) => !PENDING.includes(t)));
+    expect(Object.keys(files)).toEqual(ACTION_TYPES);
     for (const [type, file] of Object.entries(files)) {
       const source = readFileSync(join(GAME_DIR, `primitives/actions/${file}.gd`), "utf8");
       const params = source.slice(source.indexOf("const PARAMS"), source.indexOf("}", source.indexOf("const PARAMS")));
       expect([...params.matchAll(/"(\w+)":/g)].map((m) => m[1]).sort(), type).toEqual(primitiveParams("action", type).map((p) => p.name).sort());
     }
-    expect(readdirSync(join(GAME_DIR, "primitives/actions")).filter((f) => f.endsWith(".gd"))).toHaveLength(ACTION_TYPES.length - PENDING.length);
+    expect(readdirSync(join(GAME_DIR, "primitives/actions")).filter((f) => f.endsWith(".gd"))).toHaveLength(ACTION_TYPES.length);
     // Every scenario above (all six attacks, armor, summons) loaded: simulate throws on a runtime error.
     expect(r.summon.length).toBeGreaterThan(0);
   });
