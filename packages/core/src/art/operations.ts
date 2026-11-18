@@ -67,7 +67,7 @@ export const SetArtDirectionInput = z.strictObject({
     ink: z.string().optional(),
     inkWidth: z.number().optional(),
     boil: z.number().optional(),
-    rigMode: z.enum(["vector", "cutout"]).optional().describe("How characters are rigged: vector (flat shapes) or cutout (pieces of the concept image)."),
+    rigMode: z.enum(["vector", "cutout", "traced"]).optional().describe("How characters are rigged: vector (flat shapes), cutout (pieces of the concept image) or traced (those pieces redrawn as flat shapes)."),
   }),
 });
 
