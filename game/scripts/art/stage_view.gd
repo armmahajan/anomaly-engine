@@ -22,6 +22,8 @@ var _message: Label
 ## The held weapon (stage.weapon), its attack (whose phases follow the clip's time), and what it was built from.
 var _weapon: Node2D = null
 var _attack := {}
+## The clip that attack plays (its phases follow only that clip).
+var _attack_clip := ""
 var _weapon_key := ""
 
 
@@ -149,6 +151,7 @@ func _hold(project: Dictionary, held: Variant) -> void:
 		_holder.add_child(_weapon)
 		_weapon.set_weapon(weapon, _rig)
 	_attack = RenderService._attack_of(weapon, held.get("attack"))
+	_attack_clip = RenderService.attack_clip(weapon, _attack)
 	if _attack.is_empty():
 		_weapon.set_phase({}, "", Vector2.RIGHT, 1.0)
 
@@ -156,7 +159,7 @@ func _hold(project: Dictionary, held: Variant) -> void:
 func _process(_delta: float) -> void:
 	if _weapon == null or _rig == null or _attack.is_empty():
 		return
-	var phase := RenderService.phase_at(_attack, _rig.clip_time())
+	var phase := RenderService.phase_at(_attack, _rig.clip_time()) if _rig.current_clip() == _attack_clip else ""
 	if phase != _weapon._phase:
 		_weapon.set_phase(_attack, phase, Vector2.RIGHT, 1.0)
 

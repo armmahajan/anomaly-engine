@@ -198,12 +198,13 @@ describe("weapon sprite stage", () => {
 });
 
 describe("rig grips", () => {
-  it("places the hand grip at the front arm's hand, pointing forward when the arm hangs", () => {
+  it("places the hand grip at the front arm's hand, pointing down and forward when the arm hangs", () => {
     const grip = handGrip(humanoidRig())!;
     expect(grip).toMatchObject({ id: "hand", bone: "arm_near_lower" });
     expect(grip.at[0]).toBeCloseTo(-1, 0);
     expect(grip.at[1]).toBeCloseTo(-14, 0);
-    expect(Math.abs(grip.angle)).toBeLessThan(15);
+    expect(grip.angle).toBeGreaterThan(35);
+    expect(grip.angle).toBeLessThan(65);
   });
 
   it("keeps a valid hand grip, skips rigs without arms, and survives the canvas round trip", () => {

@@ -231,10 +231,17 @@ const normAngle = (a: number) => ((((a + 180) % 360) + 360) % 360) - 180;
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
 /**
+ * Degrees the held weapon turns forward of the forearm (a cocked wrist): a hanging arm holds it down
+ * and forward, and pointing it anywhere in front (an arc's sweep, a thrust) keeps the arm in front
+ * of the body rather than swinging it behind.
+ */
+const GRIP_TURN = 35;
+
+/**
  * Where a humanoid rig holds a weapon: the `hand` grip at the end of its front arm (the arm path's
  * last bone whose parts are drawn in front), at its hand part if it has one, else near the far end
- * of its parts; at rest the weapon points across the forearm (forward when the arm hangs). Null
- * when the rig has no arm.
+ * of its parts; at rest the weapon points GRIP_TURN forward of the forearm (down and forward when
+ * the arm hangs). Null when the rig has no arm.
  */
 export function handGrip(rig: Rig): Grip | null {
   const partsOf = new Map<string, Rig["parts"]>();
@@ -253,7 +260,7 @@ export function handGrip(rig: Rig): Grip | null {
   if (dist(at, pivot) < 1) at = [pivot[0] + 0.85 * (far[0] - pivot[0]), pivot[1] + 0.85 * (far[1] - pivot[1])];
   const along = dist(at, pivot) >= 1 ? at : far;
   const forearm = (Math.atan2(along[1] - pivot[1], along[0] - pivot[0]) * 180) / Math.PI;
-  return { id: "hand", bone: end.id, at: [r1(at[0]), r1(at[1])], angle: Math.round(normAngle(forearm - 90)) };
+  return { id: "hand", bone: end.id, at: [r1(at[0]), r1(at[1])], angle: Math.round(normAngle(forearm - GRIP_TURN)) };
 }
 
 /** The rig with a `hand` grip (a valid one it has is kept). Never fails: a rig without arms comes back as it was. */
@@ -368,10 +375,12 @@ function windupStart(rest: number, cocked: number, windupSeconds: number, hitSpe
  * How the held weapon moves through an attack, from its shape and timing ([t, degrees] keys):
  *  - `angles`: where the weapon points. An arc is cocked back past its start in the windup, sweeps
  *    from -> to over the active window and follows through; a thrust or box points along the aim,
- *    projectiles are raised along it and released at the start of the active window.
+ *    projectiles are raised above it and released down onto it early in the active window.
  *  - `reach` (thrust, box, projectile): which way the upper arm points (world degrees): pulled back
- *    in the windup, driven along the aim in the active window (the hand travels with it).
- * Both end at rest (`rest` = the grip's angle, `restUpper` = the upper arm's rest direction).
+ *    (a thrust) or raised (projectiles) in the windup, driven along the aim in the active window (the
+ *    hand travels forward with it).
+ * Thrusts and projectiles snap into their anticipation pose as they start; everything ends at rest
+ * (`rest` = the grip's angle, `restUpper` = the upper arm's rest direction).
  */
 export function attackMotion(attack: Pick<WeaponAttack, "shape" | "timing" | "trigger">, rest: number, restUpper = 90): { angles: Keys; reach: Keys | null } {
   const { duration, activeFrom: a, activeTo: b } = attackTiming(attack);
@@ -391,17 +400,11 @@ export function attackMotion(attack: Pick<WeaponAttack, "shape" | "timing" | "tr
     angles.push([a, from], [b, to], [b + (1 - b) * 0.35, to - back * 8], [1, rest]);
   } else {
     const projectile = s.type === "projectile";
-    const raised = projectile ? aim - 25 : aim - 12;
-    angles.push([0, windupStart(rest, raised, windupSeconds, 60 / activeSeconds)]);
-    if (a > 0.02) angles.push([a * 0.6, raised]);
-    angles.push(projectile ? [a, aim - 20] : [a, aim - 8], [a + (b - a) * (projectile ? 0.4 : 0.6), projectile ? aim + 4 : aim], [b, aim], [1, rest]);
-    // The upper arm: pulled back toward the body, then along the aim (a projectile's stays raised along it).
-    const back = projectile ? aim - 10 : aim + 100;
-    const drive = projectile ? aim - 20 : aim;
-    reach = [[0, windupStart(restUpper, back, windupSeconds, Math.abs(drive - back) / activeSeconds)]];
-    if (a > 0.02) reach.push([a * 0.7, back]);
-    reach.push([a, back], [a + (b - a) * 0.6, drive], [b, drive], [1, restUpper]);
-    reach = cleanKeys(reach);
+    const raised = projectile ? aim - 30 : aim - 12;
+    angles.push([0, raised], [a, raised + 4], [a + (b - a) * (projectile ? 0.4 : 0.6), projectile ? aim + 4 : aim], [b, aim], [1, rest]);
+    // The upper arm: pulled back by the body (a thrust) or raised (projectiles), then driven along the aim.
+    const back = projectile ? aim - 60 : aim + 110;
+    reach = cleanKeys([[0, back], [a, back + (projectile ? 5 : -5)], [a + (b - a) * 0.6, aim], [b, aim], [1, restUpper]]);
   }
   return { angles: cleanKeys(angles), reach };
 }
@@ -441,13 +444,16 @@ const SAMPLES = 60;
 export function checkWeaponClip(rig: Rig, grip: Grip, attack: WeaponAttack, clip: Clip, length: number): WeaponClipCheck {
   const { activeFrom, activeTo } = attackTiming(attack);
   const targets = attackAngles(attack, grip.angle);
+  const aimRad = (AIM_ANGLE[attack.trigger.aim] * Math.PI) / 180;
+  const [aimX, aimY] = [Math.cos(aimRad), Math.sin(aimRad)];
   let peak = 0;
   let fastest = -1;
   let prev = tipAt(rig, grip, clip, 0, length);
   for (let i = 1; i <= SAMPLES; i++) {
     const t = i / SAMPLES;
     const tip = tipAt(rig, grip, clip, t, length);
-    const speed = dist(tip, prev);
+    // A swing is judged by how fast the tip moves; a thrust or a shot by how fast it is driven along the aim.
+    const speed = attack.shape.type === "arc" ? dist(tip, prev) : Math.max(0, (tip[0] - prev[0]) * aimX + (tip[1] - prev[1]) * aimY);
     if (speed > fastest) {
       fastest = speed;
       peak = t - 0.5 / SAMPLES;

@@ -89,9 +89,10 @@ export type Stage =
       onion: { image: string | null; alpha: number };
       /**
        * A weapon of the project to show held at the rig's `hand` grip (weapon_view.gd), absent or
-       * null = none. With `attack`, the clip's time drives that attack's phases (the trail shows
-       * during its active window), as when the attack's clip plays in the game. Its sprite must
-       * have been sent with `images`.
+       * null = none. With `attack`, while that attack's clip plays (its `clip`, else
+       * `<weapon>_<attack>`) the clip's time drives the attack's phases (the trail shows during its
+       * active window), as in the game. Its sprite must have been sent with `images`. The stage's
+       * framing does not change (it fits the rig's rest bounds as before).
        */
       weapon?: { id: string; attack?: string | null } | null;
     }
@@ -133,8 +134,8 @@ export interface RenderRigRequest {
   images?: Record<string, string>;
   /**
    * A weapon held at the rig's `hand` grip in every frame (weapon_view.gd); its sprite goes in
-   * `images`. With `attack`, a frame of a clip shows that attack's phase at the frame's time
-   * (the trail behind the tip during its active window).
+   * `images`. With `attack`, frames of that attack's clip (its `clip`, else `<weapon>_<attack>`)
+   * show its phase at the frame's time (the trail behind the tip during its active window).
    */
   weapon?: { weapon: Weapon; attack?: string | null };
 }

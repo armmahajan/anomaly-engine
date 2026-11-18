@@ -105,7 +105,7 @@ func _render_one(request: Dictionary) -> Dictionary:
 		viewport.add_child(view)
 		view.play(str(clip) if clip != null else "")
 		if not weapon.is_empty():
-			_hold_weapon(viewport, view, weapon, attack if clip != null else {}, time, i, textures)
+			_hold_weapon(viewport, view, weapon, attack if clip != null and str(clip) == attack_clip(weapon, attack) else {}, time, i, textures)
 		view.pose_at(time, i)
 
 	viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
@@ -163,6 +163,16 @@ static func phase_at(attack: Dictionary, seconds: float) -> String:
 	if seconds < windup + active + recovery:
 		return "recovery"
 	return ""
+
+
+## The clip an attack plays on its wielder: its `clip`, else "<weapon>_<attack>" (core attackClipName).
+static func attack_clip(weapon: Dictionary, attack: Dictionary) -> String:
+	if attack.is_empty():
+		return ""
+	var clip = attack.get("clip")
+	if clip != null and str(clip) != "":
+		return str(clip)
+	return ("%s_%s" % [weapon.get("id", ""), attack.get("id", "")]).left(64)
 
 
 ## The weapon's attack by id ({} for none).
