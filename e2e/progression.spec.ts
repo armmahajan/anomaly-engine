@@ -30,7 +30,7 @@ test("the director drafts the progression; the creator reviews it, the studio ch
   await expect(page.getByTestId("progression-status")).toContainText("Finishable");
   await expect(page.getByTestId("critical-path")).toHaveText("Critical path: ◆ Dash → ◆ Lamp Key");
   for (const heading of ["Sphere 0", "Sphere 1", "Sphere 2"]) await expect(graph.getByText(heading)).toBeVisible();
-  expect(await column("gate")).toBe(await column("city"));
+  expect(Math.abs((await column("gate")) - (await column("city")))).toBeLessThanOrEqual(1); // the graph is scaled to fit: same column, within a pixel
   expect(await column("tower")).toBeGreaterThan(await column("city"));
   expect(await column("deep")).toBeGreaterThan(await column("tower"));
   await expect(node("city")).toContainText("☠ Charger");

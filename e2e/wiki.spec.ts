@@ -47,7 +47,7 @@ test("the narrative director drafts the wiki; the creator reviews, edits and ext
 
   // A page of a brand-new kind gets its own group.
   await page.getByRole("button", { name: "+ Page" }).click();
-  await page.getByLabel("Title").fill("The Hollow Bell");
+  await page.getByLabel("Title", { exact: true }).fill("The Hollow Bell");
   await page.getByLabel("Kind").fill("relic");
   await page.getByLabel("Body").fill("Rung once by [[hero]].");
   await page.getByRole("button", { name: "Save as canon" }).click();
@@ -82,7 +82,7 @@ test("the narrative director drafts the wiki; the creator reviews, edits and ext
 
   // A gap turns into a pre-filled page for the in-game character.
   await page.getByTestId("wiki-gaps").getByRole("listitem").filter({ hasText: "Crawler" }).getByRole("button", { name: "Write page" }).click();
-  await expect(page.getByLabel("Title")).toHaveValue("Crawler");
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Crawler");
   await expect(page.getByLabel("In-game character")).toHaveValue("crawler");
   await page.getByLabel("role value").fill("vermin of the drowned streets");
   await page.getByRole("button", { name: "Save as canon" }).click();

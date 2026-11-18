@@ -40,7 +40,7 @@ test("the director drafts characters: they join the cast and get drawn while the
   await expect(article).toContainText("Remembers the flood, and the bell before it.");
   await expect(article.getByText("Canon", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "+ Page" }).click();
-  await page.getByLabel("Title").fill("The Bell");
+  await page.getByLabel("Title", { exact: true }).fill("The Bell");
   await page.getByLabel("Body").fill("Guarded by [[moth_knight]].");
   await page.getByRole("button", { name: "Save as canon" }).click();
   await expect(article.getByRole("heading", { level: 1 })).toHaveText("The Bell");

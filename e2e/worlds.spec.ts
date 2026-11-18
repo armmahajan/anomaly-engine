@@ -76,8 +76,9 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   await page.getByRole("button", { name: "↶ Undo" }).click();
   await expect.poll(async () => (await project(page)).world.rooms[0]!.grid).toEqual(tiles);
 
-  // Scenery and Rooms point at each other: the first dressing dresses the arena.
-  const dressing = first.rooms[0]!;
+  // Scenery and Rooms point at each other: the arena shows the dressing it wears (the last one composed for it).
+  const worn = (await project(page)).world.rooms[0]!.dressing!;
+  const dressing = (await biome(page))!.rooms.find((r) => r.id === worn.room)!;
   await panel.getByTestId(`dressing-${dressing.id}`).click();
   await expect(panel.getByTestId(`dressing-${dressing.id}`)).toContainText(`→ ${arena.name}`);
   await expect(page.getByLabel("game room it dresses")).toHaveValue(arena.id);
