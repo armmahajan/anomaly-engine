@@ -1,4 +1,6 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -13,6 +15,7 @@ import { BrowserRenderer } from "../src/art/renderer.ts";
  */
 
 const exportDir = fileURLToPath(new URL("../../../apps/studio/public/game", import.meta.url));
+const gameDir = fileURLToPath(new URL("../../../game", import.meta.url));
 const hasExport = existsSync(join(exportDir, "index.html"));
 
 const SPRITE = `${"c".repeat(32)}.png`;
@@ -66,6 +69,22 @@ function centroid(px: Pixels, cell: number, columns: number, pick: (r: number, g
   }
   return n > 0 ? [sx / n, sy / n] : null;
 }
+
+const GODOT = process.env.GODOT ?? "godot";
+const hasGodot = spawnSync(GODOT, ["--version"], { stdio: "ignore" }).status === 0;
+
+describe.skipIf(!hasGodot)("held weapon (headless Godot)", () => {
+  it("stays in the hand of a wielder facing left, points forward, and hides with no weapon", () => {
+    const rig = withHandGrip(humanoidRig());
+    const grip = rig.grips![0]!;
+    const clip = fitWeaponClip(rig, grip, swing, Clip.parse({ duration: attackTiming(swing).duration, loop: false }));
+    const weapon = Weapon.parse({ id: "blade", name: "Blade", attacks: [swing], art: { sprite: SPRITE, grip: [8, 8], tip: [63, 8], scale: 0.5 } });
+    const file = join(mkdtempSync(join(tmpdir(), "weapon-")), "in.json");
+    writeFileSync(file, JSON.stringify({ rig, clips: { blade_swing: clip }, direction: defaultArtDirection(), weapon, clip: "blade_swing" }));
+    const out = execFileSync(GODOT, ["--headless", "--path", gameDir, "--script", "res://tests/weapon_probe.gd", "--", file], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 });
+    expect(out).toContain("OK");
+  }, 90_000);
+});
 
 describe.skipIf(!hasExport || process.env.SKIP_BROWSER_TESTS === "1")("held weapon (weapon_view.gd in the web export)", () => {
   it("keeps the sprite's grip within 4 px of the rig's hand grip across a walk and an attack", async () => {
