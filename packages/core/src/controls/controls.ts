@@ -112,6 +112,9 @@ export const CONTROL_ACTIONS = [
   { id: "dash", label: "Dash", description: "Dash (with the dash ability).", defaults: ["C", "Shift", "K"], context: "play" },
   { id: "interact", label: "Interact", description: "Use what the player overlaps (a prop's interact event).", defaults: ["W", "Up"], context: "play", shares: ["aim_up"] },
   { id: "map", label: "Map", description: "Open and close the map screen (when the game has one).", defaults: ["M", "Tab"], context: "play" },
+  { id: "alt_attack", label: "Alt attack", description: "Use the weapon in the loadout slot bound to it (when the game has one).", defaults: ["V", "N"], context: "play" },
+  { id: "special_attack", label: "Special attack", description: "Use the weapon in the loadout slot bound to it (when the game has one).", defaults: ["F", "U"], context: "play" },
+  { id: "weapon_cycle", label: "Switch weapon", description: "Swap the main slot to the next weapon the player has (when the game allows it).", defaults: ["Q", "I"], context: "play" },
 ] as const satisfies readonly ControlActionInfo[];
 
 export type ControlActionId = (typeof CONTROL_ACTIONS)[number]["id"];

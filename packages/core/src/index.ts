@@ -69,3 +69,6 @@ export * from "./controls/controls.ts";
 export * from "./controls/operations.ts";
 export * from "./export/gameExport.ts";
 export * from "./export/bootPage.ts";
+export * from "./combat/weapon.ts";
+export * from "./combat/weaponOperations.ts";
+export * from "./art/rigEdit.ts";

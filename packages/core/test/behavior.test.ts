@@ -28,7 +28,7 @@ function validateWithChargerBehavior(edit: (b: Behavior & Record<string, unknown
 
 describe("behavior schema", () => {
   it("lists the primitive types the runtime must implement", () => {
-    expect(ACTION_TYPES).toEqual(["patrol", "wait", "chase", "charge", "telegraph", "retreat", "returnHome", "jump", "hover", "strike", "shoot", "leap", "slam", "summon", "teleport"]);
+    expect(ACTION_TYPES).toEqual(["patrol", "wait", "chase", "charge", "telegraph", "retreat", "returnHome", "jump", "hover", "strike", "shoot", "leap", "slam", "summon", "teleport", "useWeapon"]);
     expect(CONDITION_TYPES).toEqual([
       "playerWithin",
       "playerBeyond",

@@ -185,6 +185,8 @@ export class LogicRun implements RunState {
         return (this.items.get(c.item) ?? 0) >= (c.atLeast ?? 1);
       case "ability":
         return this.abilities.includes(c.ability);
+      case "weapon":
+        return this.flags.has(weaponFlag(c.weapon));
       case "visited":
         return this.visited.includes(c.room);
       case "all":
@@ -259,6 +261,13 @@ export class LogicRun implements RunState {
         }
         case "grantAbility":
           if (!this.game.without.has(e.ability) && !this.abilities.includes(e.ability)) this.abilities.push(e.ability);
+          break;
+        // Weapons the player has: a reserved flag per weapon, saved with the run like flags (WEAPON_FLAG).
+        case "giveWeapon":
+          this.flags.add(weaponFlag(e.weapon));
+          break;
+        case "takeWeapon":
+          this.flags.delete(weaponFlag(e.weapon));
           break;
         case "damage":
           if (e.amount > 0) this.damaged = true;
@@ -433,3 +442,6 @@ export function matches(on: Handler["on"], event: LogicEvent, scope: { room?: st
 
 /** Does a prop answer an event (props.gd _answers)? */
 export const answers = (prop: Prop, type: string) => prop.handlers.some((h) => h.on.type === type);
+
+/** The checker's record of a weapon the player has (flags can't contain ":", so it never clashes with a creator's flag). */
+export const weaponFlag = (weapon: string) => `weapon:${weapon}`;

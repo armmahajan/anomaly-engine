@@ -160,6 +160,14 @@ export const Action = z
         color: WarnColor,
       })
       .describe("Vanish, mark the spot, reappear there. Done on reappearing."),
+    z
+      .strictObject({
+        type: z.literal("useWeapon"),
+        weapon: Id.describe("A weapon in the project's weapons list."),
+        attack: Id.nullable().default(null).describe("One of its attacks (null = its first)."),
+        aim: z.enum(["facing", "player"]).default("facing").describe("Facing: the attack as authored; player: aimed at the player (projectiles and thrusts)."),
+      })
+      .describe("Attack with a weapon, the same way the player does (its windup, active and recovery). Done after its recovery."),
   ])
   .describe("What the character does while in a state.");
 export type Action = z.infer<typeof Action>;

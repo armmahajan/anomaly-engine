@@ -1,3 +1,4 @@
+import { Weapons } from "./combat/weapon.ts";
 import { SCHEMA_VERSION, type EnemyCharacter, type ProjectSpec } from "./schema.ts";
 import { defaultWiki } from "./wiki/wiki.ts";
 import { defaultProgression } from "./progression/progression.ts";
@@ -91,6 +92,7 @@ export function createDefaultProject(): ProjectSpec {
     progression: defaultProgression(),
     architect: defaultArchitectPlan(),
     controls: defaultControls(),
+    weapons: Weapons.parse({}),
     art: defaultArtSection(),
     world: {
       ...defaultWorld(),

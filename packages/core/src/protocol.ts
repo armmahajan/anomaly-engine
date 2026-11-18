@@ -18,7 +18,7 @@ import type { ControlOverrides } from "./controls/controls.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { ACTION_TYPES, ARCHITECT_OPERATION_NAMES, createDefaultProject, fixtureProject, OPERATION_NAMES, PROGRESSION_OPERATION_NAMES, WIKI_OPERATION_NAMES } from "@anomaly/core";
-import { buildSystemPrompt, Draft, executeTool, ART_TOOL_NAMES, NARRATIVE_TOOLS, PIPELINE_ONLY_OPERATIONS, READ_TOOL_NAMES, summarizeProject, toolDefinitions } from "../src/index.ts";
+import { buildSystemPrompt, Draft, executeTool, ART_TOOL_NAMES, NARRATIVE_TOOLS, PIPELINE_ONLY_OPERATIONS, READ_TOOL_NAMES, STUDIO_ONLY_OPERATIONS, summarizeProject, toolDefinitions } from "../src/index.ts";
 
 const definitions = toolDefinitions();
 const byName = Object.fromEntries(definitions.map((d) => [d.function.name, d.function]));
 const run = (draft: Draft, name: string, args: unknown) => executeTool(draft, name, JSON.stringify(args)) as Record<string, any>;
 
 describe("tool definitions", () => {
-  it("expose every core operation except the director's and pipeline-only art ones, plus the read tools, with valid names", () => {
-    const excluded: string[] = [...WIKI_OPERATION_NAMES, ...PROGRESSION_OPERATION_NAMES, ...ARCHITECT_OPERATION_NAMES, ...PIPELINE_ONLY_OPERATIONS];
+  it("expose every core operation except the director's, pipeline-only art ones and the bone editor's, plus the read tools, with valid names", () => {
+    const excluded: string[] = [...WIKI_OPERATION_NAMES, ...PROGRESSION_OPERATION_NAMES, ...ARCHITECT_OPERATION_NAMES, ...PIPELINE_ONLY_OPERATIONS, ...STUDIO_ONLY_OPERATIONS];
     const build = OPERATION_NAMES.filter((n) => !excluded.includes(n));
     expect(Object.keys(byName).sort()).toEqual([...build, ...READ_TOOL_NAMES, ...ART_TOOL_NAMES].sort());
     for (const d of [...definitions, ...toolDefinitions(NARRATIVE_TOOLS)]) {
@@ -22,7 +22,9 @@ describe("tool definitions", () => {
 
   it("are plain JSON a provider can accept", () => {
     expect(JSON.parse(JSON.stringify(definitions))).toEqual(definitions);
-    expect(JSON.stringify(definitions).length).toBeLessThan(58_000); // 40k before the game-world tools (+7.6k), handlers (+1.7k); about 2.5k left per domain (props, modals, combat)
+    // 40k before the game-world tools (+7.6k), handlers (+1.7k), props, modals, combat and controls; weapons +11k
+    // (setWeaponAttack carries the attack schema once; createWeapon stays small). Keep new domains this lean.
+    expect(JSON.stringify(definitions).length).toBeLessThan(72_000);
     expect(JSON.stringify(toolDefinitions(NARRATIVE_TOOLS)).length).toBeLessThan(40_000);
   });
 

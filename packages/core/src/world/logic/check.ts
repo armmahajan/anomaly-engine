@@ -225,6 +225,8 @@ function describe(c: GameCondition | PropSwitch): string {
       return `${(c.atLeast ?? 1) > 1 ? `${c.atLeast} of ` : ""}item ${c.item}`;
     case "ability":
       return `ability ${c.ability}`;
+    case "weapon":
+      return `weapon ${c.weapon}`;
     case "visited":
       return `visited ${c.room}`;
     case "all":

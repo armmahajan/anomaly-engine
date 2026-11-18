@@ -147,6 +147,17 @@ export const RigSource = z.strictObject({
 });
 export type RigSource = z.infer<typeof RigSource>;
 
+/** Where a held weapon attaches: a point on a bone (rig space at rest), and the angle the weapon points at rest. */
+export const Grip = z.strictObject({
+  id: Id.describe('Usually "hand" (the near, front hand); others for a second hand or a back slot.'),
+  bone: Id.describe("The bone it moves with (the forearm or hand)."),
+  at: Point.describe("Where the hand closes, rig space at rest."),
+  angle: z.number().min(-360).max(360).default(0).describe("Degrees the held weapon points at rest (0 = forward, 90 = down)."),
+});
+export type Grip = z.infer<typeof Grip>;
+
+export const MAX_GRIPS = 4;
+
 export const RIG_MODES = ["vector", "cutout", "traced"] as const;
 export type RigMode = (typeof RIG_MODES)[number];
 
@@ -158,6 +169,8 @@ export const Rig = z
     source: RigSource.optional(),
     bones: z.array(Bone).min(1).max(MAX_BONES).describe("Skeleton. Exactly one root (parent null), usually at the feet/body."),
     parts: z.array(Part).min(1).max(MAX_PARTS),
+    /** Where weapons are held (absent = none yet: the runtime holds a weapon at the front of the body). */
+    grips: z.array(Grip).max(MAX_GRIPS).optional(),
   })
   .superRefine((rig, ctx) => {
     const boneIds = new Set<string>();
@@ -168,6 +181,9 @@ export const Rig = z
       if (b.parent === null) roots++;
     });
     if (roots !== 1) ctx.addIssue({ code: "custom", path: ["bones"], message: `a rig needs exactly one root bone (found ${roots})` });
+    rig.grips?.forEach((g, i) => {
+      if (!boneIds.has(g.bone)) ctx.addIssue({ code: "custom", path: ["grips", i, "bone"], message: `grip "${g.id}" is on unknown bone "${g.bone}"` });
+    });
     rig.bones.forEach((b, i) => {
       if (b.parent !== null && !boneIds.has(b.parent)) {
         ctx.addIssue({ code: "custom", path: ["bones", i, "parent"], message: `unknown parent bone "${b.parent}" (bones: ${[...boneIds].join(", ")})` });

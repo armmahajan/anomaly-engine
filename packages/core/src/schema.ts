@@ -9,6 +9,7 @@ import { Dressing } from "./art/world.ts";
 import { World, worldIssues } from "./world/world.ts";
 import { ArchitectPlan, architectIssues, defaultArchitectPlan } from "./architect/plan.ts";
 import { Controls } from "./controls/controls.ts";
+import { Weapons, weaponIssues } from "./combat/weapon.ts";
 
 /**
  * The canonical project representation. Runtime-neutral: units are pixels,
@@ -121,12 +122,15 @@ export const ProjectSpec = z
     architect: ArchitectPlan.default(defaultArchitectPlan),
     /** The game's keys per action (players may override them in their browser). Older projects get today's keys. */
     controls: Controls.prefault({}),
+    /** Weapons and the loadout (combat/weapon.ts). Older projects get none: the built-in attack. */
+    weapons: Weapons.prefault({}),
   })
   .superRefine((project, ctx) => {
     for (const issue of progressionIssues(project.progression, project.characters)) ctx.addIssue({ code: "custom", ...issue });
     for (const issue of architectIssues(project.architect, project.progression)) ctx.addIssue({ code: "custom", ...issue });
     const enemies = new Set(project.characters.filter((c) => c.kind === "enemy").map((c) => c.id));
     for (const issue of worldIssues(project.world, enemies)) ctx.addIssue({ code: "custom", ...issue });
+    for (const issue of weaponIssues(project.weapons, new Set(project.world.items.map((i) => i.id)))) ctx.addIssue({ code: "custom", ...issue });
     const regions = new Set(project.progression.regions.map((r) => r.id));
     project.world.rooms.forEach((room, i) => {
       if (room.regionId !== undefined && !regions.has(room.regionId)) {

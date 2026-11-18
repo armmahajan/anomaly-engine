@@ -73,6 +73,7 @@ export const Clip = z.strictObject({
   tracks: z.array(Track).max(64).default([]),
   motions: z.array(Motion).max(64).default([]),
   visibility: z.array(PartVisibility).max(32).default([]).describe("Show/hide parts over time: blinks, smears, effects."),
+  direction: z.string().max(600).optional().describe("What the creator asked this animation to be (kept to redo it: the animation list)."),
 });
 export type Clip = z.infer<typeof Clip>;
 

@@ -45,6 +45,7 @@ export type GameCondition =
   | { type: "flag"; flag: string; is: boolean }
   | { type: "item"; item: string; atLeast: number }
   | { type: "ability"; ability: MovementAbility }
+  | { type: "weapon"; weapon: string }
   | { type: "visited"; room: string }
   | { type: "all"; of: GameCondition[] }
   | { type: "any"; of: GameCondition[] }
@@ -55,6 +56,7 @@ export const GameCondition: z.ZodType<GameCondition, unknown> = z.lazy(() =>
     z.strictObject({ type: z.literal("flag"), flag: Id, is: z.boolean().default(true) }).describe("A flag is set (or, with is false, not set)."),
     z.strictObject({ type: z.literal("item"), item: Id, atLeast: z.number().int().min(0).max(999).default(1) }).describe("The player has at least `atLeast` of an item."),
     z.strictObject({ type: z.literal("ability"), ability: MovementAbility }).describe("The player has a movement ability."),
+    z.strictObject({ type: z.literal("weapon"), weapon: Id }).describe("The player has a weapon (in any loadout slot or carried)."),
     z.strictObject({ type: z.literal("visited"), room: Id }).describe("The player has been in a room this run."),
     z.strictObject({ type: z.literal("all"), of: z.array(GameCondition).min(1).max(10) }).describe("Every one holds."),
     z.strictObject({ type: z.literal("any"), of: z.array(GameCondition).min(1).max(10) }).describe("At least one holds."),
@@ -69,6 +71,10 @@ export const Effect = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("giveItem"), item: Id, count: z.number().int().min(1).max(999).default(1) }).describe("Give the player items."),
   z.strictObject({ type: z.literal("takeItem"), item: Id, count: z.number().int().min(1).max(999).default(1) }).describe("Take items from the player (down to 0)."),
   z.strictObject({ type: z.literal("grantAbility"), ability: MovementAbility }).describe("Give the player a movement ability for the rest of the run."),
+  z
+    .strictObject({ type: z.literal("giveWeapon"), weapon: Id, slot: Id.nullable().default(null).describe("Put it in this loadout slot (null = the first empty slot it fits, else carried for switching).") })
+    .describe("Give the player a weapon for the rest of the run."),
+  z.strictObject({ type: z.literal("takeWeapon"), weapon: Id }).describe("Take a weapon from the player (its slot empties)."),
   // The player.
   z.strictObject({ type: z.literal("heal"), amount: z.number().int().min(1).max(99).nullable().default(null) }).describe("Restore health (null = all of it)."),
   z.strictObject({ type: z.literal("damage"), amount: z.number().int().min(1).max(99) }).describe("Hurt the player (no knockback; ignored while invulnerable)."),

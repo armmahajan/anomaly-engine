@@ -36,6 +36,10 @@ const TODAYS_MAP = {
   dash: ["C", "Shift", "K"],
   interact: ["W", "Up"],
   map: ["M", "Tab"],
+  // Weapons (the loadout's slot actions and switching): new keys nobody had.
+  alt_attack: ["V", "N"],
+  special_attack: ["F", "U"],
+  weapon_cycle: ["Q", "I"],
 };
 
 describe("controls schema", () => {
@@ -147,7 +151,7 @@ describe("player keys", () => {
   it("the protocol message carries the player's keys", () => {
     expect(JSON.parse(encodeStudioMessage({ type: "controls", overrides: { jump: ["L"] } }))).toMatchObject({
       source: "anomaly-studio",
-      protocolVersion: 15,
+      protocolVersion: 16,
       message: { type: "controls", overrides: { jump: ["L"] } },
     });
   });

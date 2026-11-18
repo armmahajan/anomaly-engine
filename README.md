@@ -639,6 +639,28 @@ and `setMap` (`packages/core/src/modals/`).
   `game/test/modals.test.ts` (headless, through `game/tests/modal_probe.gd`) and
   `e2e/modals.spec.ts`.
 
+## Weapons (target 8)
+
+Weapons are generic attack data (`packages/core/src/combat/weapon.ts`), wielded by the player and by
+enemies (behavior action `useWeapon`). A weapon is a list of **attacks** plus its **art**; nothing names
+a kind of weapon. An attack is picked by its `trigger` (aim forward/up/down/any, ground/air/both, a
+`hold` time for charged ones, or as a combo's `next` within its window), hits with one `shape` (`arc`,
+`box`, `thrust` or `projectile`), runs `timing` windup -> active -> recovery then `cooldown`, can move its
+wielder (`lunge`, `recoil`, `pogo`), spend an item as `ammo`, freeze (`hitStop`) and shake on a hit, and
+play a named `clip` of the wielder's animations. Art: a held `sprite` with `grip` and `tip` points, a
+code-drawn `trail` behind the tip during the active window, and a hit `spark` colour.
+
+The **loadout** is the creator's: `weapons.loadout.slots` (up to 3) bind a weapon to a control action
+(`attack`, `alt_attack`, `special_attack`), each with the weapon it `start`s with; `cycle` lets the
+`weapon_cycle` action swap the main slot through the weapons the player has. An empty `attack` slot uses
+the player's built-in attack (their stats), so projects without weapons play as before. Handlers give
+and take weapons (`giveWeapon {weapon, slot?}`, `takeWeapon`) and check them (condition `weapon`).
+Rigs say where weapons are held (`grips`: a point on a bone and a resting angle); clips may keep the
+creator's `direction` (the animation list). Operations: `createWeapon`, `updateWeapon`,
+`setWeaponAttack`, `deleteWeaponAttack`, `deleteWeapon`, `setLoadout`, and the bone editor's
+`moveBonePivot`, `rotateBoneRest`, `scaleBone`, `reassignPart`, `addBone`, `removeBone`, `setGrip`,
+`removeGrip` (the bone editor's are studio-only, not build-assistant tools).
+
 ## Enemy combat primitives
 
 Any enemy fights with the same behavior primitives (`behavior.ts`,

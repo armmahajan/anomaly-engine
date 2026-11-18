@@ -46,9 +46,10 @@ import { combatTools } from "./domains/combat.ts";
 import { logicTools } from "./domains/logic.ts";
 import { designTools } from "./domains/design.ts";
 import { controlTools } from "./domains/controls.ts";
+import { weaponTools } from "./domains/weapons.ts";
 
 /** Game-logic domains, each in its own file (operations, tool text, schemas, summary). */
-export const DOMAIN_TOOLS = [handlerTools, propTools, modalTools, combatTools, logicTools, designTools, controlTools] as const;
+export const DOMAIN_TOOLS = [handlerTools, propTools, modalTools, combatTools, logicTools, designTools, controlTools, weaponTools] as const;
 
 /**
  * The agent's tools. Write tools are exactly the core operations (same names,
@@ -93,8 +94,14 @@ export interface ToolSpec {
 /** Art operations only the art pipeline runs (concepts, whole rigs); the build assistant uses art jobs instead. */
 export const PIPELINE_ONLY_OPERATIONS = ["createAsset", "addConcept", "chooseConcept", "setRig", "setBiomeKit", "addRoom", "setRoomComposition"] as const;
 
-/** The build assistant's write tools: every operation except the wiki's and progression's (the director's), the Architect's plan ones and pipeline-only art ones. */
-type BuildOperation = Exclude<OperationName, WikiOperationName | ProgressionOperationName | ArchitectOperationName | (typeof PIPELINE_ONLY_OPERATIONS)[number]>;
+/** The bone editor's hands-on rig edits: the creator's tool in the studio, not the build assistant's (it rebuilds rigs with art jobs). */
+export const STUDIO_ONLY_OPERATIONS = ["moveBonePivot", "rotateBoneRest", "scaleBone", "reassignPart", "addBone", "removeBone"] as const;
+
+/** The build assistant's write tools: every operation except the wiki's and progression's (the director's), the Architect's plan ones, pipeline-only art ones and studio-only ones. */
+type BuildOperation = Exclude<
+  OperationName,
+  WikiOperationName | ProgressionOperationName | ArchitectOperationName | (typeof PIPELINE_ONLY_OPERATIONS)[number] | (typeof STUDIO_ONLY_OPERATIONS)[number]
+>;
 
 const writeDescriptions: Record<BuildOperation, string> = {
   renameProject: "Rename the game (its title in the studio).",
@@ -150,6 +157,7 @@ const writeDescriptions: Record<BuildOperation, string> = {
   ...logicTools.descriptions,
   ...designTools.descriptions,
   ...controlTools.descriptions,
+  ...weaponTools.descriptions,
 };
 
 const int = z.number().int();
@@ -262,6 +270,7 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   ...logicTools.schemas,
   ...designTools.schemas,
   ...controlTools.schemas,
+  ...weaponTools.schemas,
 };
 
 /** Apply an operation to the draft and stage it for the end-of-turn commit. */
