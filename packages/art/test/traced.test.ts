@@ -211,9 +211,9 @@ describe("animation metrics", () => {
   const rest = stats(square());
 
   it("counts holes, seams and debris against the rest pose, ignoring rigid moves", () => {
-    expect(frameMetrics(rest, rest)).toEqual({ holes: 0, seams: 0, debris: 0, area: 1 });
+    expect(frameMetrics(rest, rest)).toEqual({ holes: 0, seams: 0, debris: 0, slivers: 0, area: 1 });
     const moved = square((x, y) => x >= 14 && x < 34 && y >= 12 && y < 32);
-    expect(frameMetrics(rest, stats(moved))).toEqual({ holes: 0, seams: 0, debris: 0, area: 1 });
+    expect(frameMetrics(rest, stats(moved))).toEqual({ holes: 0, seams: 0, debris: 0, slivers: 0, area: 1 });
     // A 4x4 hole in the middle: 16 px of 400.
     const holed = frameMetrics(rest, stats(square((x, y) => (x >= 18 && x < 22 && y >= 18 && y < 22 ? false : null))));
     expect(holed.holes).toBe(40);
@@ -225,6 +225,10 @@ describe("animation metrics", () => {
     // A piece flying off.
     const debris = frameMetrics(rest, stats(square((x, y) => (x >= 34 && x < 38 && y >= 2 && y < 6 ? true : null))));
     expect(debris.debris).toBe(40);
+    // A thin scrap trailing off the edge: a sliver.
+    const scrap = frameMetrics(rest, stats(square((x, y) => (x === 20 && y >= 30 && y < 38 ? true : null))));
+    expect(scrap.slivers).toBeGreaterThanOrEqual(15);
+    expect(scrap.debris).toBe(0);
   });
 
   it("reads a sheet: rest pose first, then each clip's frames", () => {

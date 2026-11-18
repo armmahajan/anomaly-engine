@@ -221,7 +221,9 @@ export function animSystemPrompt(): string {
 /** Bones and parts in a compact form: enough to animate without the full geometry. */
 export function rigSummary(rig: Rig): string {
   const parts = new Map<string, string[]>();
-  for (const p of rig.parts) parts.set(p.bone, [...(parts.get(p.bone) ?? []), p.id]);
+  // A traced rig's outlines and colour regions (ids ending _ink, _d<n>) go with their piece: list the pieces.
+  const pieces = rig.mode === "traced" ? rig.parts.filter((p) => !/_(d\d+|ink)$/.test(p.id)) : rig.parts;
+  for (const p of pieces) parts.set(p.bone, [...(parts.get(p.bone) ?? []), p.id]);
   const bones = rig.bones.map(
     (b) => `- ${b.id} (parent ${b.parent ?? "none"}, pivot [${b.pivot.join(", ")}]): ${(parts.get(b.id) ?? []).join(", ") || "no parts"}`,
   );

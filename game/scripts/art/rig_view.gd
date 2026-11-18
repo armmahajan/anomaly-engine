@@ -53,6 +53,10 @@ func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
 	var ink_width := float(direction.get("inkWidth", 2.5))
 	var source = rig.get("source")
 	_source = source if typeof(source) == TYPE_DICTIONARY and typeof(source.get("anchor")) == TYPE_ARRAY else {}
+	# A cutout's source is drawn several times smaller than its pixels: sample its mipmaps
+	# (the shared textures have them) so edges don't shimmer as pieces turn.
+	if not _source.is_empty():
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_build_bones(rig.get("bones", []))
 	_build_parts(rig.get("parts", []), ink_color, ink_width)
 	_evaluate()

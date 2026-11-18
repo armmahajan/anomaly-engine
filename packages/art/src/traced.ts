@@ -38,7 +38,7 @@ const MERGE_DISTANCE = 26;
 /** Colour regions smaller than this fraction of the character are dropped (merged into their surroundings). */
 const MIN_DETAIL = 0.0015;
 /** How deep a piece continues under the piece in front of it: this share of their seam's half length... */
-const EXTEND_SHARE = 0.7;
+const EXTEND_SHARE = 1;
 /** ...within these fractions of the character's height. */
 const EXTEND_MIN = 0.02;
 const EXTEND_MAX = 0.14;

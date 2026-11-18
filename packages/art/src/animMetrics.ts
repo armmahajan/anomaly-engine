@@ -10,6 +10,8 @@ import type { Pixels } from "./match.ts";
  *  - seams: thin transparent cracks a small closing would fill (pieces pulled
  *    apart at a joint),
  *  - debris: opaque bits not attached to the character,
+ *  - slivers: thin opaque scraps a small opening removes (torn edges, pieces of a
+ *    neighbour dragged along, scratchy bits),
  *  - area: the frame's opaque area over the rest pose's (pieces separating
  *    grows it, pieces collapsing into each other shrinks it).
  * Each count is the frame's minus the rest pose's (never below 0), in
@@ -20,6 +22,7 @@ export interface FrameMetrics {
   holes: number;
   seams: number;
   debris: number;
+  slivers: number;
   area: number;
 }
 
@@ -28,6 +31,7 @@ export interface MaskStats {
   enclosed: number;
   cracks: number;
   debris: number;
+  slivers: number;
 }
 
 /** Alpha at or above this is part of the character. */
@@ -106,7 +110,10 @@ export function maskStats(mask: Uint8Array, W: number, H: number): MaskStats {
     }
     largest = Math.max(largest, size);
   }
-  return { opaque, enclosed, cracks, debris: opaque - largest };
+  const opened = dilate(erode(mask, W, H, SEAM_RADIUS), W, H, SEAM_RADIUS);
+  let slivers = 0;
+  for (let i = 0; i < W * H; i++) if (mask[i] && !opened[i]) slivers++;
+  return { opaque, enclosed, cracks, debris: opaque - largest, slivers };
 }
 
 /** A posed frame against the rest pose (see the module comment). */
@@ -116,6 +123,7 @@ export function frameMetrics(rest: MaskStats, frame: MaskStats): FrameMetrics {
     holes: per(frame.enclosed - rest.enclosed),
     seams: per(frame.cracks - rest.cracks),
     debris: per(frame.debris - rest.debris),
+    slivers: per(frame.slivers - rest.slivers),
     area: Math.round((frame.opaque / Math.max(1, rest.opaque)) * 1000) / 1000,
   };
 }
@@ -129,9 +137,9 @@ export interface ClipMetrics {
 
 /** Mean and worst over frames. */
 export function summarize(frames: FrameMetrics[]): ClipMetrics {
-  const keys = ["holes", "seams", "debris"] as const;
-  const mean = { holes: 0, seams: 0, debris: 0, area: 0 };
-  const worst = { holes: 0, seams: 0, debris: 0, area: 1 };
+  const keys = ["holes", "seams", "debris", "slivers"] as const;
+  const mean = { holes: 0, seams: 0, debris: 0, slivers: 0, area: 0 };
+  const worst = { holes: 0, seams: 0, debris: 0, slivers: 0, area: 1 };
   for (const f of frames) {
     for (const k of keys) {
       mean[k] += f[k] / frames.length;
@@ -141,7 +149,10 @@ export function summarize(frames: FrameMetrics[]): ClipMetrics {
     if (Math.abs(f.area - 1) > Math.abs(worst.area - 1)) worst.area = f.area;
   }
   const r = (n: number) => Math.round(n * 10) / 10;
-  return { mean: { holes: r(mean.holes), seams: r(mean.seams), debris: r(mean.debris), area: Math.round(mean.area * 1000) / 1000 }, worst };
+  return {
+    mean: { holes: r(mean.holes), seams: r(mean.seams), debris: r(mean.debris), slivers: r(mean.slivers), area: Math.round(mean.area * 1000) / 1000 },
+    worst,
+  };
 }
 
 /**

@@ -19,7 +19,9 @@ mkdirSync(out, { recursive: true });
 
 const METRIC_FRAMES = 12;
 const STRIP_FRAMES = 8;
-const CELL = 256;
+const CELL = 512;
+// Filmstrip cell size (px), STRIP_CELL in the environment.
+const STRIP_CELL = Number(process.env.STRIP_CELL) || 220;
 
 const renderer = new BrowserRenderer(fileURLToPath(new URL("../apps/studio/public/game", import.meta.url)));
 const rows: string[] = [];
@@ -71,23 +73,23 @@ try {
     const strip = await renderer.renderRig({
       ...base,
       frames: ids.flatMap((id) => [{ clip: null, time: 0 }, ...at(STRIP_FRAMES, id)]),
-      cellWidth: 220,
-      cellHeight: 220,
+      cellWidth: STRIP_CELL,
+      cellHeight: STRIP_CELL,
       columns: STRIP_FRAMES + 1,
       background: "#d8d6cf",
     });
     writeFileSync(join(out, `${label}.png`), strip.png);
     writeFileSync(join(out, `${label}.json`), JSON.stringify({ clips: ids, warnings: sheet.warnings, metrics }, null, 1));
-    const avg = (k: "holes" | "seams" | "debris") => (ids.reduce((s, id) => s + metrics[id]!.mean[k], 0) / ids.length).toFixed(1);
-    const max = (k: "holes" | "seams" | "debris") => Math.max(...ids.map((id) => metrics[id]!.worst[k])).toFixed(1);
+    const avg = (k: "holes" | "seams" | "debris" | "slivers") => (ids.reduce((s, id) => s + metrics[id]!.mean[k], 0) / ids.length).toFixed(1);
+    const max = (k: "holes" | "seams" | "debris" | "slivers") => Math.max(...ids.map((id) => metrics[id]!.worst[k])).toFixed(1);
     const area = Math.max(...ids.map((id) => Math.abs(metrics[id]!.worst.area - 1))).toFixed(3);
-    const row = `| ${label} | ${avg("holes")} / ${max("holes")} | ${avg("seams")} / ${max("seams")} | ${avg("debris")} / ${max("debris")} | ${area} |`;
+    const row = `| ${label} | ${avg("holes")} / ${max("holes")} | ${avg("seams")} / ${max("seams")} | ${avg("debris")} / ${max("debris")} | ${avg("slivers")} / ${max("slivers")} | ${area} |`;
     rows.push(row);
     console.log(row, sheet.warnings.length ? sheet.warnings : "");
   }
 } finally {
   await renderer.close();
 }
-const header = "| rig | holes ‰ mean / worst | seams ‰ mean / worst | debris ‰ mean / worst | worst area change |\n|---|---|---|---|---|";
+const header = "| rig | holes ‰ mean / worst | seams ‰ mean / worst | debris ‰ mean / worst | slivers ‰ mean / worst | worst area change |\n|---|---|---|---|---|---|";
 writeFileSync(join(out, "table.md"), `${header}\n${rows.join("\n")}\n`);
 console.log(`\n${header}\n${rows.join("\n")}`);

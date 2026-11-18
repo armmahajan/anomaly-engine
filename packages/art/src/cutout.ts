@@ -125,24 +125,29 @@ export function cutCharacter(concept: Pixels): Cutout | null {
 }
 
 /** Ground lines are at most this share of the character's height thick... */
-const GROUND_THICKNESS = 0.03;
-/** ...and at least this many times their thickness wide. */
-const GROUND_WIDTH = 4;
+const GROUND_THICKNESS = 0.045;
+/** ...and their stretches between the feet cover at least this share of its width. */
+const GROUND_SPAN = 0.2;
 
 /**
- * Drop a drawn ground line or shadow under the feet (concept art often has one): thin, wide,
+ * Drop a drawn ground line or shadow under the feet (concept art often has one): thin
  * horizontal strokes at the very bottom, made of pixels whose solid column run is short (feet and
- * legs above them run tall, so they stay, with the bit of line right under them). Rigs would
- * otherwise carry scraps of it on their feet. True when something was dropped.
+ * legs above them run tall, so they stay, with the bit of line right under them), together
+ * covering a good part of the character's width. Rigs would otherwise carry scraps of it on
+ * their feet. True when something was dropped.
  */
 export function dropGroundLine(solid: Uint8Array, W: number, H: number): boolean {
   let minY = H;
   let maxY = -1;
+  let minX = W;
+  let maxX = -1;
   for (let i = 0; i < W * H; i++) {
     if (!solid[i]) continue;
     const y = Math.floor(i / W);
     minY = Math.min(minY, y);
     maxY = Math.max(maxY, y);
+    minX = Math.min(minX, i % W);
+    maxX = Math.max(maxX, i % W);
   }
   if (maxY < 0) return false;
   const thick = Math.max(3, Math.round(GROUND_THICKNESS * (maxY - minY + 1)));
@@ -161,7 +166,9 @@ export function dropGroundLine(solid: Uint8Array, W: number, H: number): boolean
       y = top - 1;
     }
   }
-  let dropped = false;
+  // Stretches of line: short pieces at least as wide as the line is thick, lying in the bottom band.
+  const stretches: number[][] = [];
+  let span = 0;
   for (const piece of components(short, W, H, 8)) {
     let x0 = W;
     let x1 = -1;
@@ -171,11 +178,13 @@ export function dropGroundLine(solid: Uint8Array, W: number, H: number): boolean
       x1 = Math.max(x1, i % W);
       y0 = Math.min(y0, Math.floor(i / W));
     }
-    if (x1 - x0 + 1 < GROUND_WIDTH * thick || y0 < maxY - 2 * thick) continue;
-    for (const i of piece) solid[i] = 0;
-    dropped = true;
+    if (x1 - x0 + 1 < thick || y0 < maxY - 2 * thick) continue;
+    stretches.push(piece);
+    span += x1 - x0 + 1;
   }
-  return dropped;
+  if (span < GROUND_SPAN * (maxX - minX + 1)) return false;
+  for (const piece of stretches) for (const i of piece) solid[i] = 0;
+  return true;
 }
 
 /** The cutout placed back in a canvas of the concept's size (transparent around it). */
