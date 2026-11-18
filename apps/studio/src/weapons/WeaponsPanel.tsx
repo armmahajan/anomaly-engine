@@ -146,7 +146,7 @@ function WeaponEditor({ weapon, project, session, locked, run }: { weapon: Weapo
           <Text label="weapon name" value={weapon.name} required maxLength={60} disabled={locked} onCommit={(name) => update({ name })} />
         </Cell>
         <Cell label="Description" wide>
-          <Text label="weapon description" value={weapon.description} maxLength={400} disabled={locked} onCommit={(description) => update({ description })} />
+          <Text label="weapon description" value={weapon.description} maxLength={400} placeholder="What it is, in the game (optional)" disabled={locked} onCommit={(description) => update({ description })} />
         </Cell>
       </div>
 

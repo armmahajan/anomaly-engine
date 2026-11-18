@@ -43,3 +43,7 @@
 .loadout-slot select { min-width: 0; }
 .loadout-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .loadout-foot .field-check { font-size: 12px; }
+
+/* Selects match the studio's fields (styles.css .field select). */
+.wpn-cell select,
+.loadout-slot select { font: inherit; font-size: 12px; color: var(--text); background: #11141a; border: 1px solid var(--border); border-radius: 4px; padding: 3px 4px; }
