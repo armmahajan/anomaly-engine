@@ -50,7 +50,20 @@ const MAX_PARTS = 64;
 export interface TracedOptions {
   /** Canvas px per game px (1 / the frame's scale): ink widths are game px. */
   canvasPerGamePx: number;
+  /**
+   * The cleaner tracer: edge-preserving smoothing before the colours are reduced, small
+   * high-contrast details (eyes, ears, hands) and the plan's feature points kept, stray specks
+   * dropped, and outlines fitted as smooth curves (corners kept sharp) instead of capped polygons.
+   */
+  clean?: boolean;
 }
+
+/** Clean tracer: colour regions this small (share of the character) survive when they are darker than their surroundings (eyes, lines)... */
+const MIN_FEATURE = 0.0002;
+/** ...by at least this much luminance (0-255). Small light spots are highlights and brush noise: they merge away. */
+const FEATURE_CONTRAST = 60;
+/** Clean tracer: detached bits of a piece smaller than this share of the character are dropped. */
+const MIN_LOOSE = 0.01;
 
 export function tracedRig(
   cut: Cutout,
@@ -58,7 +71,11 @@ export function tracedRig(
   direction: Pick<ArtDirection, "palette" | "ink" | "inkWidth">,
   options: TracedOptions,
 ): { rig: Rig; warnings: string[]; labels: Int32Array; bones: Bone[] } {
-  const { width: W, height: H, data } = cut.image;
+  const { width: W, height: H } = cut.image;
+  const clean = options.clean === true;
+  const solid0 = solidMask(cut.image);
+  // The clean tracer reads colours from an edge-preserving smoothed copy: brush texture and soft shading flatten, edges stay.
+  const data = clean ? bilateral(cut.image.data, solid0, W, H) : cut.image.data;
   const [ox, oy] = cut.offset;
   const N = W * H;
   const warnings: string[] = [];
@@ -69,11 +86,21 @@ export function tracedRig(
   for (let i = 0; i < N; i++) area += solid[i]!;
   const charHeight = cut.bounds.maxY - cut.bounds.minY;
   const minDetail = Math.max(12, area * MIN_DETAIL);
+  const minFeature = Math.max(6, area * MIN_FEATURE);
+  // The plan's feature points (canvas px) as pixel indices of the cutout.
+  const featureAt = new Set<number>();
+  if (clean) {
+    for (const [fx, fy] of plan.features ?? []) {
+      const x = Math.round(fx - ox);
+      const y = Math.round(fy - oy);
+      if (x >= 0 && y >= 0 && x < W && y < H) featureAt.add(y * W + x);
+    }
+  }
   // Distance to the background: the character's own silhouette, where the outline goes.
   const fromOutside = distanceTo(invert(solid), W, H);
 
   // Colours.
-  const palette = characterPalette(cut.image.data, solid, direction.palette);
+  const palette = characterPalette(data, solid, direction.palette);
   const cluster = new Int16Array(N).fill(-1);
   for (let i = 0; i < N; i++) if (solid[i]) cluster[i] = nearest(palette, [data[i * 4]!, data[i * 4 + 1]!, data[i * 4 + 2]!]);
 
@@ -164,13 +191,24 @@ export function tracedRig(
       if (data[i * 4 + 3]! < 160 || (fromOutside[i]! <= band && luminance(palette[colors[i]!]!) < mainLum * 0.75)) outline[i] = 1;
     }
     fillFromNeighbours(colors, outline, W, H);
-    modeFilter(colors, own, W, H);
-    mergeSpecks(colors, own, W, H, minDetail);
+    modeFilter(colors, own, W, H, clean ? 1 : 2);
+    // Clean: a small region that stands out from what surrounds it (an eye, an ear's line, a hand), or holds a feature point, stays.
+    const kept = new Uint8Array(N);
+    const keepRegion = clean
+      ? (region: number[], c: number, to: number) => {
+          const keep =
+            region.length >= 3 &&
+            (region.some((i) => featureNear(i, featureAt, W, H)) || (region.length >= minFeature && luminance(palette[to]!) - luminance(palette[c]!) >= FEATURE_CONTRAST));
+          if (keep) for (const i of region) kept[i] = 1;
+          return keep;
+        }
+      : undefined;
+    mergeSpecks(colors, own, W, H, minDetail, keepRegion);
 
     // Thinner ink on thin pieces; the shape shrinks from the silhouette by most of it so the outline lands on the drawing's edge.
     const pieces = components(base, W, H, 8).sort((a, b) => b.length - a.length);
     pieces.forEach((piece, n) => {
-      if (n > 0 && piece.length < minDetail) return;
+      if (n > 0 && piece.length < (clean ? Math.max(minDetail, MIN_LOOSE * area) : minDetail)) return;
       const mask = new Uint8Array(N);
       for (const i of piece) mask[i] = 1;
       const perimeter = countBorder(mask, W, H);
@@ -197,6 +235,8 @@ export function tracedRig(
           for (let i = 0; i < N; i++) if (mask[i] && near[i]) shrunk[i] = 1;
         }
       }
+      // Clean: only the shape's main piece is drawn, so only it may hold colour regions (no floating specks).
+      if (clean) shrunk = largestPiece(shrunk, W, H);
       const id = n === 0 ? spec.id : `${spec.id}_${n + 1}`;
       bases.push({ piece: k, id, mask: shrunk, fill: palette[main]!, ink: 0, kind: "base", size: piece.length });
       if (direction.inkWidth > 0) inks.push({ piece: k, id: `${id}_ink`, mask: shrunk, fill: hexRgb(direction.ink), ink: round2(ink), kind: "ink", size: piece.length });
@@ -209,7 +249,7 @@ export function tracedRig(
       const of = new Uint8Array(N);
       for (let i = 0; i < N; i++) if (colors[i] === c && inside[i]) of[i] = 1;
       for (const region of components(of, W, H, 4)) {
-        if (region.length < minDetail) continue;
+        if (region.length < minDetail && !(clean && region.length >= 3 && region.some((i) => kept[i]))) continue;
         const mask = new Uint8Array(N);
         for (const i of region) mask[i] = 1;
         if (c === main && touchesOutside(region, inside, W, H)) continue;
@@ -234,7 +274,7 @@ export function tracedRig(
   const parts: Part[] = [];
   const counter = new Map<number, number>();
   for (const s of shapes) {
-    const points = blobOutline(s.mask, W, H);
+    const points = clean ? curveOutline(s.mask, W, H) : blobOutline(s.mask, W, H);
     if (!points) continue;
     let id = s.id;
     if (s.kind === "detail") {
@@ -385,9 +425,9 @@ function fillFromNeighbours(colors: Int16Array, flagged: Uint8Array, W: number, 
   }
 }
 
-/** Two passes of a 3x3 majority filter inside the mask. */
-function modeFilter(colors: Int16Array, mask: Uint8Array, W: number, H: number): void {
-  for (let pass = 0; pass < 2; pass++) {
+/** Passes of a 3x3 majority filter inside the mask. */
+function modeFilter(colors: Int16Array, mask: Uint8Array, W: number, H: number, passes = 2): void {
+  for (let pass = 0; pass < passes; pass++) {
     const next = colors.slice();
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -413,8 +453,15 @@ function modeFilter(colors: Int16Array, mask: Uint8Array, W: number, H: number):
   }
 }
 
-/** Colour regions smaller than `min` px take the colour they border most. */
-function mergeSpecks(colors: Int16Array, mask: Uint8Array, W: number, H: number, min: number): void {
+/** Colour regions smaller than `min` px take the colour they border most (unless `keep` says the region stays). */
+function mergeSpecks(
+  colors: Int16Array,
+  mask: Uint8Array,
+  W: number,
+  H: number,
+  min: number,
+  keep?: (region: number[], color: number, into: number) => boolean,
+): void {
   for (let pass = 0; pass < 3; pass++) {
     let changed = false;
     const seen = new Uint8Array(colors.length);
@@ -434,6 +481,7 @@ function mergeSpecks(colors: Int16Array, mask: Uint8Array, W: number, H: number,
       }
       if (region.length >= min || around.size === 0) continue;
       const to = [...around].sort((a, b) => b[1] - a[1])[0]![0];
+      if (keep?.(region, c, to)) continue;
       for (const i of region) colors[i] = to;
       changed = true;
     }
@@ -591,4 +639,227 @@ function crossesItself(points: [number, number][]): boolean {
     }
   }
   return false;
+}
+
+// --- the clean tracer ------------------------------------------------------------------
+
+/** The mask's largest 8-connected piece. */
+function largestPiece(mask: Uint8Array, W: number, H: number): Uint8Array<ArrayBuffer> {
+  const pieces = components(mask, W, H, 8);
+  if (pieces.length <= 1) return mask.slice();
+  const out = new Uint8Array(W * H);
+  for (const i of pieces.sort((a, b) => b.length - a.length)[0]!) out[i] = 1;
+  return out;
+}
+
+/** A feature point on or right next to pixel i. */
+function featureNear(i: number, features: Set<number>, W: number, H: number): boolean {
+  if (features.size === 0) return false;
+  if (features.has(i)) return true;
+  let near = false;
+  each4(i, W, H, (j) => {
+    if (features.has(j)) near = true;
+  });
+  return near;
+}
+
+/**
+ * Edge-preserving smoothing (a bilateral filter, two passes) of the character's colours: brush
+ * texture and soft shading even out inside a colour area, while edges between areas stay sharp.
+ * Only the character's pixels are read and written. Returns new RGBA data.
+ */
+export function bilateral(data: Uint8Array, solid: Uint8Array, W: number, H: number, passes = 2, radius = 2, sigmaColor = 22): Uint8Array {
+  let src = data;
+  const spatial: number[] = [];
+  for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) spatial.push(Math.exp(-(dx * dx + dy * dy) / (2 * radius * radius)));
+  const range = new Float64Array(3 * 256 * 256);
+  for (let d = 0; d < range.length; d++) range[d] = Math.exp(-d / (2 * sigmaColor * sigmaColor));
+  for (let pass = 0; pass < passes; pass++) {
+    const out = src.slice();
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (!solid[i] || src[i * 4 + 3]! < 160) continue;
+        const r0 = src[i * 4]!;
+        const g0 = src[i * 4 + 1]!;
+        const b0 = src[i * 4 + 2]!;
+        let sr = 0;
+        let sg = 0;
+        let sb = 0;
+        let sw = 0;
+        let k = 0;
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++, k++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const j = ny * W + nx;
+            if (!solid[j] || src[j * 4 + 3]! < 160) continue;
+            const r = src[j * 4]!;
+            const g = src[j * 4 + 1]!;
+            const b = src[j * 4 + 2]!;
+            const d = (r - r0) * (r - r0) + (g - g0) * (g - g0) + (b - b0) * (b - b0);
+            const w = spatial[k]! * (d < range.length ? range[d]! : 0);
+            sr += w * r;
+            sg += w * g;
+            sb += w * b;
+            sw += w;
+          }
+        }
+        if (sw > 0) {
+          out[i * 4] = Math.round(sr / sw);
+          out[i * 4 + 1] = Math.round(sg / sw);
+          out[i * 4 + 2] = Math.round(sb / sw);
+        }
+      }
+    }
+    src = out;
+  }
+  return src;
+}
+
+/** Points of a closed outline every `step` px along it. */
+function resampleClosed(points: [number, number][], step: number): [number, number][] {
+  const out: [number, number][] = [];
+  const n = points.length;
+  let carry = 0;
+  for (let i = 0; i < n; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % n]!;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    let t = carry;
+    while (t < len) {
+      out.push([a[0] + ((b[0] - a[0]) * t) / len, a[1] + ((b[1] - a[1]) * t) / len]);
+      t += step;
+    }
+    carry = t - len;
+  }
+  return out;
+}
+
+/** Turns sharper than this (degrees, measured over a few px either side) are corners: tips, claws, hems. */
+const CORNER_TURN = 62;
+
+/**
+ * The mask's largest piece as a smooth blob (local px): the pixel outline resampled, smoothed
+ * along its length (corners excepted) and fitted with as few points as the runtime's curve
+ * needs to follow it (at most MAX_POINTS), corners marked sharp; never crossing itself.
+ */
+export function curveOutline(mask: Uint8Array, W: number, H: number): { points: [number, number][]; sharp: number[] } | null {
+  const pieces = components(mask, W, H, 8);
+  if (pieces.length === 0) return null;
+  const biggest = pieces.sort((a, b) => b.length - a.length)[0]!;
+  if (biggest.length < 30) return blobOutline(mask, W, H);
+  const only = new Uint8Array(W * H);
+  for (const i of biggest) only[i] = 1;
+  const raw = traceOutline(only, W, H);
+  if (raw.length < 3) return null;
+  // Pixel corners -> pixel-edge midpoints: the staircase's own wobble is half a pixel.
+  const mids = raw.map((p, i) => {
+    const q = raw[(i + 1) % raw.length]!;
+    return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2] as [number, number];
+  });
+  const dense = resampleClosed(mids, 1);
+  const n = dense.length;
+  if (n < 12) return blobOutline(mask, W, H);
+  // Corners: a hard turn between the chords k px back and k px ahead, the sharpest in its neighbourhood.
+  const k = 4;
+  const turn = dense.map((p, i) => {
+    const a = dense[(i - k + n) % n]!;
+    const b = dense[(i + k) % n]!;
+    const u = [p[0] - a[0], p[1] - a[1]];
+    const v = [b[0] - p[0], b[1] - p[1]];
+    const cos = (u[0]! * v[0]! + u[1]! * v[1]!) / (Math.hypot(u[0]!, u[1]!) * Math.hypot(v[0]!, v[1]!) || 1);
+    return (Math.acos(clamp(cos, -1, 1)) * 180) / Math.PI;
+  });
+  let corners: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (turn[i]! < CORNER_TURN) continue;
+    let peak = true;
+    for (let d = -k; d <= k && peak; d++) if (d !== 0 && (turn[(i + d + n) % n]! > turn[i]! || (turn[(i + d + n) % n] === turn[i] && d < 0))) peak = false;
+    if (peak) corners.push(i);
+  }
+  // A small round shape reads as all corners: then it has none.
+  if (corners.length > n / (3 * k)) corners = [];
+  // Smooth along the outline (Gaussian), less near corners so tips stay pointed.
+  const area = biggest.length;
+  const sigma = clamp(Math.sqrt(area) / 18, 1, 2.5);
+  const reach = Math.ceil(2.5 * sigma);
+  const cornerDistance = new Float64Array(n).fill(Infinity);
+  for (const c of corners) for (let d = -reach * 2; d <= reach * 2; d++) cornerDistance[(c + d + n) % n] = Math.min(cornerDistance[(c + d + n) % n]!, Math.abs(d));
+  const smooth = dense.map((p, i) => {
+    const s = Math.min(sigma, (sigma * cornerDistance[i]!) / (2 * reach));
+    if (s < 0.3) return p;
+    let sx = 0;
+    let sy = 0;
+    let sw = 0;
+    for (let d = -reach; d <= reach; d++) {
+      const w = Math.exp(-(d * d) / (2 * s * s));
+      const q = dense[(i + d + n) % n]!;
+      sx += w * q[0];
+      sy += w * q[1];
+      sw += w;
+    }
+    return [sx / sw, sy / sw] as [number, number];
+  });
+  // Fit: split at corners (else at two far-apart points), Douglas-Peucker each stretch; looser until it fits the point budget.
+  const anchors = corners.length >= 2 ? corners : [0, farthestFrom(smooth, 0)].sort((a, b) => a - b);
+  for (let tolerance = 1; tolerance < 40; tolerance *= 1.3) {
+    const kept: number[] = [];
+    for (let s = 0; s < anchors.length; s++) {
+      const from = anchors[s]!;
+      const to = s + 1 < anchors.length ? anchors[s + 1]! : anchors[0]! + n;
+      const stretch: number[] = [];
+      for (let i = from; i <= to; i++) stretch.push(i % n);
+      const picked = dpIndices(stretch.map((i) => smooth[i]!), tolerance);
+      for (const j of picked.slice(0, -1)) kept.push(stretch[j]!);
+    }
+    if (kept.length > MAX_POINTS) continue;
+    if (kept.length < 3) return blobOutline(mask, W, H);
+    const points = kept.map((i) => [round1(smooth[i]![0]), round1(smooth[i]![1])] as [number, number]);
+    if (crossesItself(points)) continue;
+    const cornerSet = new Set(corners);
+    const sharp = kept.flatMap((i, j) => (cornerSet.has(i) ? [j] : []));
+    return { points, sharp };
+  }
+  return blobOutline(mask, W, H);
+}
+
+function farthestFrom(points: [number, number][], from: number): number {
+  let best = from;
+  let bestD = -1;
+  points.forEach((p, i) => {
+    const d = Math.hypot(p[0] - points[from]![0], p[1] - points[from]![1]);
+    if (d > bestD) (bestD = d), (best = i);
+  });
+  return best;
+}
+
+/** Douglas-Peucker on an open polyline: the indices kept (first and last always). */
+function dpIndices(points: [number, number][], tolerance: number): number[] {
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack: [number, number][] = [[0, points.length - 1]];
+  while (stack.length > 0) {
+    const [a, b] = stack.pop()!;
+    if (b - a < 2) continue;
+    const [ax, ay] = points[a]!;
+    const [bx, by] = points[b]!;
+    const length = Math.hypot(bx - ax, by - ay);
+    let worst = -1;
+    let index = a;
+    for (let i = a + 1; i < b; i++) {
+      const [px, py] = points[i]!;
+      const d = length < 1e-6 ? Math.hypot(px - ax, py - ay) : Math.abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / length;
+      if (d > worst) (worst = d), (index = i);
+    }
+    if (worst > tolerance) {
+      keep[index] = 1;
+      stack.push([a, index], [index, b]);
+    }
+  }
+  const out: number[] = [];
+  keep.forEach((k, i) => k && out.push(i));
+  return out;
 }

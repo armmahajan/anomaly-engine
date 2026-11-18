@@ -124,6 +124,79 @@ export function cutCharacter(concept: Pixels): Cutout | null {
   return { image: { width: w, height: h, data: out }, offset: [ox, oy], bounds: { minX, minY, maxX, maxY }, background: bg };
 }
 
+/** A figure closer than this share of the image's size to its edge is cut off or runs into a neighbouring cell (a figure merely drawn tight sits a few px further in). */
+const EDGE_MARGIN = 0.005;
+/** Separate bits this close to the figure (share of its height) belong to it (a hand, a held item)... */
+const NEAR_FIGURE = 0.03;
+/** ...unless they are specks smaller than this share of it. */
+const MIN_BIT = 0.002;
+
+export interface FigureCheck {
+  /** The concept with everything but the main figure painted over in the background colour. */
+  image: Pixels;
+  /** The main figure reaches the image's edge: cut off, or running into a neighbouring cell. */
+  touchesEdge: boolean;
+  /** The smallest gap between the figure and the image's edge, as a share of the image's size. */
+  margin: number;
+  /** Separate bits dropped: neighbouring figures, sparks, specks. */
+  dropped: number;
+}
+
+/**
+ * Keep only the main figure of a concept cell: its largest shape and the separate bits close to
+ * it (a detached hand, a held item); neighbouring figures leaking in, sparks, glows and stray
+ * specks are painted over with the background. Also says whether the figure is cut off by the
+ * cell's edge. Null when no figure is found.
+ */
+export function isolateFigure(concept: Pixels): FigureCheck | null {
+  const cut = cutCharacter(concept);
+  if (!cut) return null;
+  const { width: w, height: h } = cut.image;
+  const [ox, oy] = cut.offset;
+  const { width: W, height: H } = concept;
+  const solid = solidMask(cut.image);
+  const pieces = components(solid, w, h, 8).sort((a, b) => b.length - a.length);
+  const main = pieces[0]!;
+  const box = (piece: number[]) => {
+    let [x0, y0, x1, y1] = [w, h, -1, -1];
+    for (const i of piece) {
+      const x = i % w;
+      const y = (i - x) / w;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+    return { x0: x0 + ox, y0: y0 + oy, x1: x1 + ox, y1: y1 + oy };
+  };
+  const edgeGap = (b: ReturnType<typeof box>) => Math.min(b.x0, b.y0, W - 1 - b.x1, H - 1 - b.y1);
+  const mainBox = box(main);
+  const mask = new Uint8Array(w * h);
+  for (const i of main) mask[i] = 1;
+  const near = dilate(mask, w, h, Math.max(3, NEAR_FIGURE * (mainBox.y1 - mainBox.y0 + 1)));
+  const image: Pixels = { width: W, height: H, data: concept.data.slice() };
+  const drop = new Uint8Array(w * h);
+  let dropped = 0;
+  for (const piece of pieces.slice(1)) {
+    const keep = piece.length >= MIN_BIT * main.length && piece.some((i) => near[i]) && edgeGap(box(piece)) > 1;
+    if (keep) continue;
+    dropped++;
+    for (const i of piece) drop[i] = 1;
+  }
+  if (dropped > 0) {
+    // Their soft edges too.
+    const wide = dilate(drop, w, h, 2);
+    for (let i = 0; i < w * h; i++) {
+      if (!wide[i] || mask[i]) continue;
+      const x = (i % w) + ox;
+      const y = Math.floor(i / w) + oy;
+      image.data.set([...cut.background, 255], (y * W + x) * 4);
+    }
+  }
+  const gap = edgeGap(mainBox);
+  return { image, touchesEdge: gap < EDGE_MARGIN * Math.min(W, H), margin: Math.max(0, gap) / Math.min(W, H), dropped };
+}
+
 /** Ground lines are at most this share of the character's height thick... */
 const GROUND_THICKNESS = 0.045;
 /** ...and their stretches between the feet cover at least this share of its width. */
@@ -217,6 +290,8 @@ export const CutoutPlan = z
   .object({
     bones: z.array(Bone).min(1).max(MAX_BONES),
     parts: z.array(CutoutPart).min(1).max(40),
+    /** Points (concept px) on small details a traced rig must keep: eyes, ears, hands. */
+    features: z.array(Point).max(24).optional(),
     notes: z.string().optional(),
   })
   .superRefine((plan, ctx) => {

@@ -45,15 +45,27 @@ export function conceptPrompt(input: {
   feedback?: string;
   /** True when a reference image (the current design) is attached. */
   refining: boolean;
+  /** Ask for designs ready to rig: a neutral pose, limbs apart, distinct colours, the whole figure inside its cell. */
+  rigReady?: boolean;
 }): string {
   const { character, brief, direction, feedback, refining } = input;
   const lines = [
     refining
       ? `Concept art sheet: four variations on the attached character design for a 2D side-view action platformer ${roleOf(character)}: ${brief}.`
       : `Concept art sheet for a 2D side-view action platformer ${roleOf(character)}: ${brief}.`,
-    "2x2 grid of four distinct design variations. Each is one full-body side view facing RIGHT (head toward the right edge), whole body visible and centered in its quadrant, separated by clear gaps, on a plain flat light-grey background.",
+    ...(input.rigReady
+      ? [
+          "2x2 grid of four distinct design variations, exactly one figure per quadrant. Each is one full-body side view facing RIGHT (head toward the right edge) in a neutral standing pose, ready to be cut apart into an animation puppet: upright, every limb fully visible and held a little apart from the body and from the other limbs (arms hanging slightly away from the torso, legs or paws a little apart), nothing crossing in front of the body.",
+          "Draw the figures SMALL: each whole figure, from the top of the head to the soles of the feet (and tail tip to nose), spans only about two thirds of its quadrant, centered, with a wide empty band of background above the head, below the feet and on both sides. No part may touch or cross a quadrant's edge. Plain flat light-grey background. Nothing else in a quadrant: no effects, sparks, glows, shadows, ground, props or bits of the neighbouring designs.",
+          "Adjacent parts in clearly different colours or values so each can be told apart at a glance (sleeves vs torso, shirt vs trousers, hands vs cuffs, head vs neck, legs vs body), even within a dark or single-colour outfit.",
+        ]
+      : [
+          "2x2 grid of four distinct design variations. Each is one full-body side view facing RIGHT (head toward the right edge), whole body visible and centered in its quadrant, separated by clear gaps, on a plain flat light-grey background.",
+        ]),
     `Body proportions: ${proportions(character)}.`,
-    "Designed to be rebuilt from simple flat shapes: a bold readable silhouette, a few large parts, clearly separated limbs, no tiny details, no texture.",
+    input.rigReady
+      ? "Designed to be rebuilt from simple flat shapes: a bold readable silhouette, a few large parts, no tiny details, no texture."
+      : "Designed to be rebuilt from simple flat shapes: a bold readable silhouette, a few large parts, clearly separated limbs, no tiny details, no texture.",
     `Style: ${directionText(direction)}`,
     "No text, no labels, no frames, no ground scenery.",
   ];
@@ -64,16 +76,41 @@ export function conceptPrompt(input: {
 export const FACING_PROMPT =
   'Which way is this character facing: toward the left or the right edge of the image (where its head/face is)? Reply with JSON only: {"facing": "left" | "right"}';
 
+/** Image edit: the chosen design redrawn as clean flat art, so tracing it gives clean shapes. */
+export function flatRedrawPrompt(brief: string): string {
+  return [
+    `Redraw the attached character as clean flat 2D game art for a cut-out animation puppet: ${brief}.`,
+    "Keep exactly the same character: design, costume, proportions, pose and the side view facing RIGHT. Keep every colour exactly as in the attached image (the same hair colour, skin tone and clothing colours, picked from the image), only flattened.",
+    "Flat colour only: every area one solid colour, no shading, gradients, highlights, texture or brush strokes. Adjacent parts in clearly different colours or values (sleeves vs torso, shirt vs trousers, hands vs cuffs).",
+    "One clean, even, dark outline around the figure and around each limb; simple clean shapes; small features (eyes, ears, hands, feet) kept clear and readable.",
+    "The whole figure centered with wide empty space on every side, on a plain flat light-grey background. Nothing else: no shadow, ground, effects, text or frame.",
+  ].join("\n");
+}
+
+/** Image edit: the character taken apart into separate puppet pieces, each drawn whole. */
+export function partsSheetPrompt(brief: string, pieces: string[]): string {
+  return [
+    `Cut-out puppet parts sheet for the attached character (${brief}): the same character taken apart into separate pieces, laid out in rows on a plain flat light-grey background, with wide empty gaps between the pieces (no piece touching another).`,
+    `Draw exactly these ${pieces.length} pieces, each once and each as its own separate shape: ${pieces.map((p, i) => `(${i + 1}) ${p}`).join("; ")}.`,
+    "Follow the list exactly: a limb is cut where the list cuts it (an upper leg and a lower leg are two separate pieces with a gap between them), a hand or foot named with a piece stays attached to that piece, and only one of each listed limb piece is drawn (one leg, not a pair of legs; one arm, not two).",
+    "Draw every piece complete and whole, including what is normally hidden behind other pieces (the whole torso under the arm, the whole top of the leg), with rounded ends at the joints so the pieces can overlap there. Same side view facing RIGHT, same scale, proportions and colours as the character, flat colour, one clean dark outline around each piece.",
+    "No shading, no text, no labels, no numbers, no pins or joint marks, no assembled character.",
+  ].join("\n");
+}
+
 export const PICK_SYSTEM =
   "You are an art director for a 2D platformer. You judge concept sheets for readability at small size, " +
   "fit to the brief and style, and how easily the design can be rebuilt from simple flat shapes and animated.";
 
-export function pickPrompt(brief: string, direction: ArtDirection, feedback?: string): string {
+export function pickPrompt(brief: string, direction: ArtDirection, feedback?: string, rigReady?: { cutOff: number[] }): string {
   return [
     "The image is a 2x2 concept sheet: cells 0 (top-left), 1 (top-right), 2 (bottom-left), 3 (bottom-right).",
     `Brief: ${brief}`,
     feedback ? `Creator's direction: ${feedback}` : "",
     `Style: ${directionText(direction)}`,
+    rigReady
+      ? `The design will be cut apart and animated, so prefer one in a neutral pose whose limbs are clearly apart from the body and whose adjacent parts have clearly different colours.${rigReady.cutOff.length > 0 ? ` Cells ${rigReady.cutOff.join(", ")} run off their quadrant's edge (cut off or crowded): do not pick them.` : ""}`
+      : "",
     'Pick the single best design. Reply with JSON only: {"cell": 0-3, "reason": "<one short sentence>"}',
   ]
     .filter(Boolean)
@@ -120,13 +157,20 @@ export function rigSystemPrompt(direction: ArtDirection, canvas: { width: number
   ].join("\n\n");
 }
 
-export function rigAuthorPrompt(character: Character, brief: string, canvas: { width: number; height: number }): string {
+/** Limbs split at the elbow / knee, for rigs that should bend naturally. */
+export const LIMB_JOINTS =
+  "Split every arm and leg at its elbow / knee (hock, for animals): an upper piece and a lower piece (with the hand / foot / paw) on two bones, the lower bone's parent the upper bone and its pivot at the elbow / knee. Necks and tails may get two bones too.";
+
+export function rigAuthorPrompt(character: Character, brief: string, canvas: { width: number; height: number }, options: { limbJoints?: boolean } = {}): string {
   return [
     `Build the rig for the character in the image (${canvas.width}x${canvas.height}px): ${brief}.`,
     `It is a ${roleOf(character)}; in the game its body is about ${character.size.width}x${character.size.height}px, so keep the overall proportions.`,
     "Trace it in image pixel coordinates. Ignore the background and the grid. Face right.",
+    options.limbJoints ? `${LIMB_JOINTS} Draw each limb piece as a whole shape from its pivot to the next joint, rounded at both ends so the pieces overlap at the joint when it bends.` : "",
     'Reply with JSON only: {"rig": {"bones": [...], "parts": [...]}, "notes": "<one sentence>"}',
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function rigCritiquePrompt(input: {
@@ -173,17 +217,39 @@ export function cutoutSystemPrompt(canvas: { width: number; height: number }): s
   ].join("\n\n");
 }
 
-export function cutoutAuthorPrompt(character: Character, brief: string, canvas: { width: number; height: number }): string {
+/** What to ask for in a traced rig's plan: the small details the redraw must keep. */
+const FEATURES =
+  'Also list "features": a point [x, y] on each small detail that must stay visible when the drawing is redrawn as flat shapes (eyes, ears, nose, mouth, hands, buttons, small marks), at most 16.';
+
+export function cutoutAuthorPrompt(
+  character: Character,
+  brief: string,
+  canvas: { width: number; height: number },
+  options: { limbJoints?: boolean; features?: boolean } = {},
+): string {
   return [
     `Plan the cutout rig for the character in the image (${canvas.width}x${canvas.height}px): ${brief}.`,
     `It is a ${roleOf(character)}, about ${character.size.width}x${character.size.height}px in the game.`,
-    'Reply with JSON only: {"bones": [...], "parts": [...], "notes": "<one sentence>"}',
-  ].join("\n");
+    options.limbJoints ? `${LIMB_JOINTS} Draw each region around just that piece; 8-20 parts is typical.` : "",
+    options.features ? FEATURES : "",
+    `Reply with JSON only: {"bones": [...], "parts": [...]${options.features ? ', "features": [[x, y], ...]' : ""}, "notes": "<one sentence>"}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
-export function cutoutCritiquePrompt(input: { plan: unknown; warnings: string[]; canvas: { width: number; height: number } }): string {
+export function cutoutCritiquePrompt(input: {
+  plan: unknown;
+  warnings: string[];
+  canvas: { width: number; height: number };
+  /** Image 4 is the rig as drawn (a traced rig's flat redraw), checked against the character. */
+  review?: boolean;
+}): string {
   return [
     "Review the cutout rig. Image 1 is the character (with a pixel grid). Image 2 shows how the pixels were split: each part tinted its own color, bone pivots as white squares (same grid). Image 3 shows the rig with every bone bent one way, then the other: pieces should swing at their joints like a puppet's, nothing should tear, float off or reveal holes.",
+    input.review
+      ? 'Image 4 is the rig as the game draws it (flat shapes redrawn from the character), in the same framing as image 1. Compare it with image 1: list in issues any small feature that was lost (an eye, an ear, a hand), blotches or specks that are not in the character, and a figure cut off by the image edge. For each lost feature, add a point on it to the plan\'s "features" list (the redraw keeps the detail under each feature point), and return the plan even if nothing else changes.'
+      : "",
     `Coordinates are pixels of the ${input.canvas.width}x${input.canvas.height} image.`,
     input.warnings.length > 0 ? `Pipeline warnings: ${input.warnings.join("; ")}` : "",
     `Current plan:\n${JSON.stringify(input.plan)}`,
@@ -192,6 +258,43 @@ export function cutoutCritiquePrompt(input: { plan: unknown; warnings: string[];
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+// --- puppet rig (parts sheet) ----------------------------------------------------
+
+export const PUPPET_SYSTEM =
+  "You are a 2D game character rigger. You assemble a cut-out animation puppet from separately drawn pieces of a character and check that it matches the character's design.";
+
+/** The cutout plan, plus how each piece is drawn alone on a parts sheet. */
+export function puppetPlanPrompt(character: Character, brief: string, canvas: { width: number; height: number }): string {
+  return [
+    cutoutAuthorPrompt(character, brief, canvas, { limbJoints: true }),
+    'The pieces will be drawn again one by one on a puppet parts sheet. For each part also give "piece": what that piece is when drawn alone, in a few words (e.g. "the head with its hair", "the upper arm, shoulder to elbow", "the lower leg with the foot"). A far-side limb drawn like its near-side twin gets "twin": that part\'s id (drawn once, reused); its region still covers the far limb.',
+    'Each part: {"id", "bone", "z", "region", "piece", "twin"?}. Keep a part per piece that moves on its own; 6-16 parts is typical.',
+  ].join("\n");
+}
+
+export function puppetMatchPrompt(input: {
+  parts: { id: string; piece: string; a: string; b: string }[];
+  pieces: { n: number; box: { x0: number; y0: number; x1: number; y1: number } }[];
+  sheet: { width: number; height: number };
+}): string {
+  return [
+    "Image 1 is the character (with a pixel grid) and image 2 how it is split into parts (each part tinted). Image 3 is a parts sheet: the same character drawn again as separate pieces, each piece in a numbered coloured box (pixel grid on it too).",
+    `Boxes on the ${input.sheet.width}x${input.sheet.height} sheet (x0, y0, x1, y1): ${input.pieces.map((p) => `${p.n}: ${p.box.x0},${p.box.y0},${p.box.x1},${p.box.y1}`).join("; ")}.`,
+    `Parts to find, with the two points to mark on each: ${input.parts.map((p) => `"${p.id}" (${p.piece}): a = ${p.a}; b = ${p.b}`).join(" | ")}.`,
+    'For each part give the number of the piece that draws it (null if the sheet has no such piece, or it is merged with another piece), the points a and b on that piece in sheet pixels, and "flip": true if the piece is drawn mirrored left-right compared with the character (facing the other way). Use each piece for one part at most.',
+    'Reply with JSON only: {"parts": [{"id", "piece": n | null, "a": [x, y], "b": [x, y], "flip": bool}, ...]}',
+  ].join("\n");
+}
+
+export function puppetCritiquePrompt(input: { parts: string[]; fallback: string[]; canvas: { width: number; height: number } }): string {
+  return [
+    "Review the assembled puppet. Image 1 is the character (with a pixel grid). Image 2 is the puppet put together from separately drawn pieces, laid semi-transparently over it (same grid): wherever they don't line up, a piece is misplaced, turned or the wrong size. Image 3 shows the puppet with every bone bent one way, then the other.",
+    `Coordinates are pixels of the ${input.canvas.width}x${input.canvas.height} image. Parts: ${input.parts.join(", ")}.${input.fallback.length > 0 ? ` Parts drawn from the character itself (no piece): ${input.fallback.join(", ")}.` : ""}`,
+    "Score how well it matches the character and holds together (0-10). Then fix misplaced pieces: for each, a nudge {id, dx, dy (px, moves the piece), rotate (degrees, clockwise, about its joint), scale (1 = as is)}. Nudges replace the previous ones; list every piece that needs one.",
+    'Reply with JSON only: {"score": 0-10, "issues": ["<short>", ...], "nudges": [{"id", "dx", "dy", "rotate", "scale"}, ...]}',
+  ].join("\n");
 }
 
 // --- animation ----------------------------------------------------------------
@@ -238,7 +341,19 @@ function piecesText(limits: string): string {
   return `This rig is cut from a drawing: its pieces overlap only a little where they meet, so a joint turned or pulled too far opens a gap. Animate it like a cut-out puppet: body bob, breathing (pulse), squash and stretch, small limb swings, head tilts; carry big moves (leaps, recoils, falls, toppling over in death) on the root bone or a bone whose parent has no parts, which move freely. Joint limits (bigger moves are scaled down to these): ${limits}.`;
 }
 
-export function animPrompt(input: { character: Character; brief: string; rig: Rig; slots: ClipSlot[]; feedback?: string; limits?: string }): string {
+/** Rigs with elbows and knees: use them. */
+const BEND_LIMBS =
+  "Limbs with two bones (upper and lower, e.g. thigh and shin, upper arm and forearm): use both. In a walk or run the knee bends as the leg swings forward and passes under the body and straightens as the foot meets the ground; elbows stay a little bent and swing with the arm.";
+
+export function animPrompt(input: {
+  character: Character;
+  brief: string;
+  rig: Rig;
+  slots: ClipSlot[];
+  feedback?: string;
+  limits?: string;
+  limbJoints?: boolean;
+}): string {
   const { character, rig, slots } = input;
   const behavior =
     character.kind === "enemy"
@@ -258,6 +373,7 @@ export function animPrompt(input: { character: Character; brief: string; rig: Ri
       ? 'death plays once when it is killed (loop false) and its last frame is held until it fades: recoil from the blow, then collapse, topple or come apart into a still final pose (no return to rest, nothing still moving at t=1; keep it at ground level, the feet are at y 0).'
       : "",
     "Keep motion believable for this body: legs alternate, heavy parts move less, wind-ups lean back before striking. Only animate bones listed above.",
+    input.limbJoints ? BEND_LIMBS : "",
     input.limits ? piecesText(input.limits) : "",
     input.feedback ? `Creator's direction: ${input.feedback}` : "",
     'Reply with JSON only: {"clips": {"<slot>": <clip>, ...}, "notes": "<one sentence>"}',
