@@ -471,6 +471,7 @@ export function App({ session }: { session: Session }) {
         connected={state.serverConnected}
         open={chatOpen}
         onToggle={() => setChatOpen(!chatOpen)}
+        onSwitchAgent={(a) => openTab(a === "narrative" ? "wiki" : a === "architect" ? "architect" : "playtest")}
       />
     </div>
   );
