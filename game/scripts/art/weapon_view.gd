@@ -2,7 +2,8 @@ extends Node2D
 ## What a wielder's weapon looks like (CONTRACT, weapons target phase 0): the mechanics (player.gd,
 ## enemy.gd) create one per wielder and call set_weapon / set_phase / hit_at / tip_global; this
 ## draws them: the held sprite at the rig's `hand` grip on the current pose (turning with the grip's
-## bone), the trail behind the tip during the active window, hit sparks. Contract:
+## bone; the sprite is drawn pointing right, so its +x follows the grip's direction), the trail
+## behind the tip during the active window, hit sparks. Contract:
 ## packages/core/src/combat/weapon.ts (WeaponArt) and art/rig.ts (Grip).
 ##
 ## Add it to the wielder after the RigView (it draws over the body). Everything is drawn in code
@@ -94,7 +95,15 @@ func hit_at(global_point: Vector2) -> void:
 func tip_global() -> Variant:
 	if _weapon.is_empty() or _sprite_file == "":
 		return null
-	return _hold * Vector2(_length, 0.0)
+	return _hold * _tip_local()
+
+
+## The tip in the grip's frame: the sprite (drawn pointing right, along the grip's direction) puts
+## it where its art says; without a sprite, `_length` ahead of the hand.
+func _tip_local() -> Vector2:
+	if _sprite_file != "" and (_tip_px - _grip_px).length() > 0.5:
+		return (_tip_px - _grip_px) * _scale
+	return Vector2(_length, 0.0)
 
 
 ## The hand holding it, global (also without a sprite).
@@ -158,7 +167,7 @@ func _follow() -> void:
 		var base := parent.get_global_transform() if parent != null else Transform2D.IDENTITY
 		_hold = base * Transform2D(0.0, Vector2(_facing, 1.0), 0.0, Vector2(_facing * size.x * 0.35, -size.y * 0.55))
 	if _phase == "active":
-		_trail.append([_hold * Vector2(_length, 0.0), _clock])
+		_trail.append([_hold * _tip_local(), _clock])
 	queue_redraw()
 
 
@@ -171,8 +180,7 @@ func _draw() -> void:
 	if _sprite_file != "" and _texture == null:
 		_texture = ProjectileView.find_texture(self, _sprite_file, textures)
 	if _texture != null and (_tip_px - _grip_px).length() > 0.5:
-		var turn := -(_tip_px - _grip_px).angle()
-		draw_set_transform_matrix(hold * Transform2D(turn, Vector2(_scale, _scale), 0.0, Vector2.ZERO) * Transform2D(0.0, -_grip_px))
+		draw_set_transform_matrix(hold * Transform2D(0.0, Vector2(_scale, _scale), 0.0, Vector2.ZERO) * Transform2D(0.0, -_grip_px))
 		draw_texture(_texture, Vector2.ZERO)
 	else:
 		draw_set_transform_matrix(hold)
