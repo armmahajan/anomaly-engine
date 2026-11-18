@@ -383,7 +383,7 @@ export function App({ session }: { session: Session }) {
         </aside>
       ) : checks ? (
         <aside className="sidebar">
-          <ProgressionSidebar project={project} report={checks} nav={progressionNav} setNav={setProgressionNav} locked={locked} />
+          <ProgressionSidebar project={project} session={session} report={checks} nav={progressionNav} setNav={setProgressionNav} locked={locked} />
           {problem}
         </aside>
       ) : (

@@ -353,3 +353,170 @@ button.primary {
 a.wiki-link {
   text-decoration: none;
 }
+
+/* --- progression: a graph that fills the pane, the selected item beside it --- */
+
+.wiki-pane:has(> .progression-main) {
+  overflow: hidden;
+}
+
+.progression-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 14px 16px 16px;
+}
+
+.progression-main > .wiki-empty {
+  overflow-y: auto;
+}
+
+.progression-status {
+  flex: none;
+  margin-bottom: 10px;
+}
+
+.progression-legend {
+  margin: 0 0 0 auto;
+  font-size: 12px;
+}
+
+.progression-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.progression-graph {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 240px;
+  overflow: hidden;
+}
+
+.pan-zoom {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.pan-zoom.panning {
+  cursor: grabbing;
+}
+
+.pan-zoom > svg {
+  display: block;
+}
+
+.pan-zoom-controls {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgb(24 27 34 / 0.92);
+  cursor: default;
+}
+
+.pan-zoom-controls button {
+  min-width: 28px;
+  padding: 2px 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.pan-zoom-controls button:hover:not(:disabled) {
+  background: #2a2f3a;
+}
+
+.pan-zoom-level {
+  min-width: 42px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progression-graph .column-heading {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.progression-graph .node-name {
+  font-size: 14px;
+}
+
+.progression-graph .node-meta,
+.progression-graph .node-line {
+  font-size: 12px;
+}
+
+.progression-graph .region-node:hover rect {
+  stroke: #5a6378;
+}
+
+.progression-drawer {
+  position: relative;
+  flex: 0 0 min(380px, 46%);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.progression-main > .progression-drawer {
+  flex: 1 1 auto;
+  max-width: 560px;
+}
+
+.progression-drawer .progression-panel {
+  max-width: none;
+  margin: 0;
+  min-height: 100%;
+}
+
+.drawer-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 0 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.drawer-close:hover {
+  color: var(--text);
+  background: #2a2f3a;
+}
+
+.progression-drawer .wiki-meta {
+  padding-right: 32px;
+}
+
+.progression-panel .wiki-review {
+  margin: 10px 0 0;
+}
+
+.progression-next {
+  margin: 8px 0 0;
+}
+
+.progression-delete {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.progression-delete button {
+  color: var(--error);
+}

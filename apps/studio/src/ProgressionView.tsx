@@ -17,6 +17,8 @@ import {
   type StoryBeat,
 } from "@anomaly/core";
 import type { Session } from "./session.ts";
+import { ProgressionGraph } from "./content/ProgressionGraph.tsx";
+import { ConfirmButton, ListFilter, ListSection, matches } from "./content/ListSection.tsx";
 
 export type ProgressionKind = "region" | "ability" | "connection" | "beat";
 /** What the progression tab shows: a selected item, or a form for a new one. */
@@ -27,35 +29,50 @@ const SOURCES = RewardSource.options;
 
 interface SidebarProps {
   project: ProjectSpec;
+  session: Session;
   report: ProgressionReport;
   nav: ProgressionNav;
   setNav: (nav: ProgressionNav) => void;
   locked: boolean;
 }
 
-export function ProgressionSidebar({ project, report, nav, setNav, locked }: SidebarProps) {
+export function ProgressionSidebar({ project, session, report, nav, setNav, locked }: SidebarProps) {
+  const [query, setQuery] = useState("");
   const p = project.progression;
   const name = (id: string) => p.regions.find((r) => r.id === id)?.name ?? id;
   const pageTitle = (id: string) => project.wiki.pages.find((pg) => pg.id === id)?.title ?? id;
-  const item = (id: string, label: ReactNode, status: string) => (
-    <li key={id}>
-      <button type="button" data-testid={`progression-item-${id}`} className={nav.selected === id ? "selected" : ""} onClick={() => setNav({ selected: id, creating: null })}>
-        {label}
-        {status === "draft" && <span className="kind draft-tag">draft</span>}
-      </button>
-    </li>
-  );
-  const group = (title: string, items: ReactNode[]) =>
-    items.length > 0 && (
-      <div className="wiki-group">
-        <h3>{title}</h3>
-        <ul className="character-list">{items}</ul>
-      </div>
+  const drafts = [...p.regions, ...p.abilities, ...p.connections, ...p.beats].filter((i) => i.status === "draft");
+  const acceptAll = async () => {
+    const result = await session.applyBatch(drafts.map((i) => ({ name: "acceptProgressionItem", input: { id: i.id } })));
+    if (!result.ok) session.reportProblem(result.error.message);
+  };
+  const item = (id: string, label: string, status: string) =>
+    matches(query, label, id) && (
+      <li key={id}>
+        <button type="button" data-testid={`progression-item-${id}`} className={nav.selected === id ? "selected" : ""} onClick={() => setNav({ selected: id, creating: null })}>
+          {label}
+          {status === "draft" && <span className="kind draft-tag">draft</span>}
+        </button>
+      </li>
     );
+  const group = (title: string, all: number, items: ReactNode[]) => {
+    const shown = items.filter(Boolean);
+    return (
+      all > 0 &&
+      (shown.length > 0 || !query) && (
+        <ListSection title={title} count={query ? shown.length : all} forceOpen={query !== "" || (items as { key?: string }[]).some((i) => i && i.key === nav.selected)}>
+          <ul className="character-list">{shown}</ul>
+        </ListSection>
+      )
+    );
+  };
+  const errors = report.issues.filter((i) => i.severity === "error").length;
 
   return (
     <section className="wiki-sidebar">
-      <h2>Progression</h2>
+      <div className="side-head">
+        <h2>Progression</h2>
+      </div>
       <div className="list-actions wiki-actions progression-actions">
         {(["region", "ability", "connection", "beat"] as const).map((kind) => (
           <button
@@ -68,26 +85,54 @@ export function ProgressionSidebar({ project, report, nav, setNav, locked }: Sid
           </button>
         ))}
       </div>
-      {p.regions.length === 0 && <p className="hint">No regions yet. Ask the director to design the structure, or add a region.</p>}
-      {group("Regions", p.regions.map((r) => item(r.id, r.name, r.status)))}
-      {group("Abilities", p.abilities.map((a) => item(a.id, `◆ ${a.name}`, a.status)))}
-      {group("Connections", p.connections.map((c) => item(c.id, `${name(c.from)} ${c.oneWay ? "→" : "↔"} ${name(c.to)}`, c.status)))}
-      {group("Story beats", p.beats.map((b) => item(b.id, `${pageTitle(b.wikiPageId)} · ${name(b.regionId)}`, b.status)))}
+      {drafts.length > 0 && (
+        <div className="review-bar" data-testid="progression-review-bar">
+          <p>
+            <strong>{drafts.length}</strong> draft{drafts.length === 1 ? "" : "s"} by the director to review
+          </p>
+          <div className="review-actions">
+            <button type="button" onClick={() => setNav({ selected: drafts[0]!.id, creating: null })}>
+              Review next →
+            </button>
+            <ConfirmButton
+              label="Accept all…"
+              question={`Make all ${drafts.length} drafts canon? (Undo reverts it.)`}
+              confirmLabel={`Accept ${drafts.length}`}
+              disabled={locked}
+              onConfirm={() => void acceptAll()}
+            />
+          </div>
+        </div>
+      )}
+      {p.regions.length === 0 ? (
+        <p className="hint">No regions yet. Ask the director to design the structure, or add a region.</p>
+      ) : (
+        <ListFilter value={query} onChange={setQuery} placeholder="Filter regions, abilities, links…" label="Filter progression" />
+      )}
+      {group("Regions", p.regions.length, p.regions.map((r) => item(r.id, r.name, r.status)))}
+      {group("Abilities", p.abilities.length, p.abilities.map((a) => item(a.id, `◆ ${a.name}`, a.status)))}
+      {group("Connections", p.connections.length, p.connections.map((c) => item(c.id, `${name(c.from)} ${c.oneWay ? "→" : "↔"} ${name(c.to)}`, c.status)))}
+      {group("Story beats", p.beats.length, p.beats.map((b) => item(b.id, `${pageTitle(b.wikiPageId)} · ${name(b.regionId)}`, b.status)))}
       {report.issues.length > 0 && (
         <div className="wiki-gaps progression-issues" data-testid="progression-issues">
-          <h3>Checks ({report.issues.length})</h3>
-          <ul>
-            {report.issues.map((issue, i) => (
-              <li key={i} className={`issue-${issue.severity}`}>
-                {issue.message}
-                {issue.ids[0] && (
-                  <button type="button" onClick={() => setNav({ selected: issue.ids[0]!, creating: null })}>
-                    Show
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <ListSection
+            title="Checks"
+            count={report.issues.length}
+            extra={errors > 0 && <span className="list-section-drafts issue-error">{errors} error{errors === 1 ? "" : "s"}</span>}
+          >
+            <ul>
+              {report.issues.map((issue, i) => (
+                <li key={i} className={`issue-${issue.severity}`}>
+                  {issue.message}
+                  {issue.ids[0] && (
+                    <button type="button" onClick={() => setNav({ selected: issue.ids[0]!, creating: null })}>
+                      Show
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </ListSection>
         </div>
       )}
     </section>
@@ -109,16 +154,39 @@ export function ProgressionMain({ project, report, session, nav, setNav, locked,
   const found = nav.selected ? findProgressionItem(p, nav.selected) : undefined;
   const abilityName = (id: string) => p.abilities.find((a) => a.id === id)?.name ?? id;
 
+  const panel = (nav.creating || found) && (
+    <div className="progression-drawer">
+      <button type="button" className="drawer-close" aria-label="Close" title="Close" onClick={() => setNav({ selected: null, creating: null })}>
+        ×
+      </button>
+      <ItemPanel
+        key={nav.creating ? `new-${nav.creating}` : nav.selected!}
+        project={project}
+        session={session}
+        kind={nav.creating ?? found!.kind}
+        item={nav.creating ? undefined : found!.item}
+        locked={locked}
+        setNav={setNav}
+        onOpenWiki={onOpenWiki}
+      />
+    </div>
+  );
+
   return (
     <div className="progression-main">
-      {p.regions.length === 0 && !nav.creating ? (
-        <div className="wiki-empty">
-          <h1>Your game's progression</h1>
-          <p className="hint">
-            The structure of the game: regions, the abilities and keys that gate them, and where each one is found. The studio checks that the game can be
-            finished, that nothing soft-locks the player, and shows the order things open up in. Design it with the director, or add a region.
-          </p>
-        </div>
+      {p.regions.length === 0 ? (
+        <>
+          {!nav.creating && (
+            <div className="wiki-empty">
+              <h1>Your game's progression</h1>
+              <p className="hint">
+                The structure of the game: regions, the abilities and keys that gate them, and where each one is found. The studio checks that the game can be
+                finished, that nothing soft-locks the player, and shows the order things open up in. Design it with the director, or add a region.
+              </p>
+            </div>
+          )}
+          {panel}
+        </>
       ) : (
         <>
           <div className="progression-status" data-testid="progression-status">
@@ -136,190 +204,14 @@ export function ProgressionMain({ project, report, session, nav, setNav, locked,
                 ))}
               </span>
             )}
+            <span className="progression-legend hint">dashed: draft · drag to pan · ctrl/⌘ + scroll to zoom</span>
           </div>
-          <ProgressionGraph project={project} report={report} selected={nav.selected} onSelect={(id) => setNav({ selected: id, creating: null })} />
+          <div className="progression-body">
+            <ProgressionGraph project={project} report={report} selected={nav.selected} onSelect={(id) => setNav({ selected: id, creating: null })} />
+            {panel}
+          </div>
         </>
       )}
-      {(nav.creating || found) && (
-        <ItemPanel
-          key={nav.creating ? `new-${nav.creating}` : nav.selected!}
-          project={project}
-          session={session}
-          kind={nav.creating ?? found!.kind}
-          item={nav.creating ? undefined : found!.item}
-          locked={locked}
-          setNav={setNav}
-          onOpenWiki={onOpenWiki}
-        />
-      )}
-    </div>
-  );
-}
-
-// --- the graph: one column per sphere, regions as nodes, connections as edges ---
-
-const COL_W = 280;
-const NODE_W = 168;
-const PAD = 24;
-const HEAD = 30;
-const GAP_Y = 26;
-const LINE = 16;
-
-interface Node {
-  region: Region;
-  col: number;
-  x: number;
-  y: number;
-  h: number;
-  lines: { id?: string; text: string; critical?: boolean }[];
-}
-
-function layout(project: ProjectSpec, report: ProgressionReport) {
-  const p = project.progression;
-  const unreachable = report.spheres.length;
-  const sphereOf = (r: Region) => report.regionSphere[r.id] ?? unreachable;
-  const used = [...new Set(p.regions.map(sphereOf))].sort((a, b) => a - b);
-  const heading = (sphere: number) => (sphere === unreachable ? (p.start === undefined ? "No start yet" : "Unreachable") : `Sphere ${sphere}`);
-  const columns = used.map((sphere) => ({ sphere, heading: heading(sphere), x: PAD + used.indexOf(sphere) * COL_W }));
-  const characterName = (id: string) => project.characters.find((c) => c.id === id)?.name ?? id;
-  const critical = new Set(report.criticalPath);
-
-  const nodes = new Map<string, Node>();
-  const bottoms = columns.map(() => PAD + HEAD);
-  for (const region of p.regions) {
-    const col = used.indexOf(sphereOf(region));
-    const lines: Node["lines"] = [
-      ...p.abilities.filter((a) => a.obtainedIn?.regionId === region.id).map((a) => ({ id: a.id, text: `◆ ${a.name}`, critical: critical.has(a.id) })),
-      ...(region.boss ? [{ text: `☠ ${characterName(region.boss)}` }] : []),
-    ];
-    const h = 46 + lines.length * LINE;
-    nodes.set(region.id, { region, col, x: columns[col]!.x, y: bottoms[col]!, h, lines });
-    bottoms[col]! += h + GAP_Y;
-  }
-  return { columns, nodes, width: PAD * 2 + Math.max(1, columns.length) * COL_W - (COL_W - NODE_W), height: Math.max(...bottoms, 120) + PAD - GAP_Y };
-}
-
-const LANE = 24;
-
-/** Neighbouring columns: a curve between facing sides. Further apart: a lane under all the nodes, so lines never cross them. */
-function edgePath(a: Node, b: Node, offset: number, laneY: number | null) {
-  if (laneY !== null) {
-    // Out the facing side, down the gap between columns, along the lane, up the gap, in the other side.
-    const dir = b.col > a.col ? 1 : -1;
-    const half = (COL_W - NODE_W) / 2;
-    const out = dir > 0 ? a.x + NODE_W : a.x;
-    const into = dir > 0 ? b.x : b.x + NODE_W;
-    const g1 = out + dir * (half - 8 + offset);
-    const g2 = into - dir * (half - 8 + offset);
-    const ya = a.y + a.h / 2;
-    const yb = b.y + b.h / 2;
-    return { d: `M${out},${ya} L${g1},${ya} L${g1},${laneY} L${g2},${laneY} L${g2},${yb} L${into},${yb}`, mid: { x: (g1 + g2) / 2, y: laneY } };
-  }
-  const same = a.col === b.col;
-  const x1 = a.col <= b.col ? a.x + NODE_W : a.x;
-  const x2 = a.col < b.col ? b.x : b.x + NODE_W;
-  const y1 = a.y + a.h / 2 + offset;
-  const y2 = b.y + b.h / 2 + offset;
-  const dir = x2 >= x1 ? 1 : -1;
-  const dx = same ? 56 : Math.max(36, Math.abs(x2 - x1) / 2);
-  const c1 = same ? x1 + dx : x1 + dir * dx;
-  const c2 = same ? x2 + dx : x2 - dir * dx;
-  return { d: `M${x1},${y1} C${c1},${y1} ${c2},${y2} ${x2},${y2}`, mid: { x: (x1 + 3 * c1 + 3 * c2 + x2) / 8, y: (y1 + y2) / 2 } };
-}
-
-function ProgressionGraph({ project, report, selected, onSelect }: { project: ProjectSpec; report: ProgressionReport; selected: string | null; onSelect: (id: string) => void }) {
-  const p = project.progression;
-  const { columns, nodes, width, height } = layout(project, report);
-  const abilityName = (id: string) => p.abilities.find((a) => a.id === id)?.name ?? id;
-  const flagged = new Set(report.issues.filter((i) => i.severity === "error").flatMap((i) => i.ids));
-  const activate = (id: string) => ({
-    role: "button",
-    tabIndex: 0,
-    onClick: (e: { stopPropagation: () => void }) => {
-      e.stopPropagation();
-      onSelect(id);
-    },
-    onKeyDown: (e: { key: string }) => e.key === "Enter" && onSelect(id),
-  });
-
-  const pairCount = new Map<string, number>();
-  let lanes = 0;
-  const edges = p.connections.flatMap((c) => {
-    const a = nodes.get(c.from);
-    const b = nodes.get(c.to);
-    if (!a || !b) return [];
-    const pair = [c.from, c.to].sort().join("|");
-    const k = pairCount.get(pair) ?? 0;
-    pairCount.set(pair, k + 1);
-    const laneY = Math.abs(a.col - b.col) > 1 ? height - PAD + GAP_Y / 2 + lanes++ * LANE : null;
-    const label = c.requires.map(abilityName).join(" + ");
-    const classes = ["edge", c.status, selected === c.id && "selected", flagged.has(c.id) && "flagged"].filter(Boolean).join(" ");
-    return [{ c, label, classes, ...edgePath(a, b, k * 10, laneY) }];
-  });
-
-  return (
-    <div className="progression-graph">
-      <svg width={width} height={height + lanes * LANE} role="group" aria-label="Progression graph" data-testid="progression-graph">
-        <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" className="edge-arrow" />
-          </marker>
-        </defs>
-        {columns.map((c) => (
-          <text key={c.heading} x={c.x} y={PAD + 10} className="column-heading">
-            {c.heading}
-          </text>
-        ))}
-        {/* Lines, then nodes, then labels: a label is never hidden. */}
-        {edges.map(({ c, d, classes }) => (
-          <g key={c.id} className={classes} data-testid={`connection-${c.id}`} aria-label={`${c.from} to ${c.to}`} {...activate(c.id)}>
-            <path d={d} className="edge-hit" />
-            <path d={d} className="edge-line" markerEnd={c.oneWay ? "url(#arrow)" : undefined} />
-          </g>
-        ))}
-        {[...nodes.values()].map(({ region, x, y, h, lines }) => {
-          const classes = ["region-node", region.status, selected === region.id && "selected", flagged.has(region.id) && "flagged"].filter(Boolean).join(" ");
-          const badges = [p.start === region.id && "START", p.ending === region.id && "END"].filter(Boolean).join(" · ");
-          return (
-            <g key={region.id} className={classes} data-testid={`region-node-${region.id}`} aria-label={region.name} {...activate(region.id)}>
-              <rect x={x} y={y} width={NODE_W} height={h} rx={6} />
-              <text x={x + 10} y={y + 20} className="node-name">
-                {region.name}
-              </text>
-              {badges && (
-                <text x={x + NODE_W - 8} y={y + 20} textAnchor="end" className="node-badge">
-                  {badges}
-                </text>
-              )}
-              <text x={x + 10} y={y + 34} className="node-meta">
-                {region.rooms} rooms{region.enemies.length ? ` · ${region.enemies.length} enemy type${region.enemies.length > 1 ? "s" : ""}` : ""}
-              </text>
-              {lines.map((line, i) => (
-                <text
-                  key={i}
-                  x={x + 10}
-                  y={y + 52 + i * LINE}
-                  className={`node-line${line.critical ? " critical" : ""}${line.id && selected === line.id ? " selected" : ""}`}
-                  {...(line.id ? activate(line.id) : {})}
-                >
-                  {line.text}
-                </text>
-              ))}
-            </g>
-          );
-        })}
-        {edges.map(
-          ({ c, label, mid, classes }) =>
-            label && (
-              <g key={c.id} className={classes} transform={`translate(${mid.x},${mid.y})`} data-testid={`connection-label-${c.id}`} {...activate(c.id)}>
-                <rect x={-(label.length * 3.4 + 8)} y={-9} width={label.length * 6.8 + 16} height={18} rx={9} className="edge-label-bg" />
-                <text textAnchor="middle" y={4} className="edge-label">
-                  {label}
-                </text>
-              </g>
-            ),
-        )}
-      </svg>
     </div>
   );
 }
@@ -363,37 +255,51 @@ function ItemPanel({ project, session, kind, item, locked, setNav, onOpenWiki }:
   const wikiPage = item && "wikiPageId" in item && item.wikiPageId ? project.wiki.pages.find((pg) => pg.id === item.wikiPageId) : undefined;
   const title = !item ? `New ${KIND_LABEL[kind].toLowerCase()}` : "name" in item ? item.name : KIND_LABEL[kind];
   const props = { project, locked, onSave: save };
+  const drafts = [...p.regions, ...p.abilities, ...p.connections, ...p.beats].filter((i) => i.status === "draft");
+  const nextDraft = drafts.find((i) => i.id !== item?.id);
+  const remove = async (id: string) => {
+    if (report(await session.applyOperation("deleteProgressionItem", { id }))) setNav({ selected: null, creating: null });
+  };
 
   return (
     <section className="progression-panel" data-testid="progression-panel">
       <div className="wiki-meta">
         <span className="tag">{KIND_LABEL[kind]}</span>
-        {item?.status === "draft" && (
-          <>
-            <span className="tag draft">Draft by the director</span>
-            <button type="button" disabled={locked} onClick={() => void session.applyOperation("acceptProgressionItem", { id: item.id }).then(report)}>
-              Accept
-            </button>
-          </>
-        )}
         {item?.status === "canon" && <span className="tag canon">Canon</span>}
-        {item && (
-          <button
-            type="button"
-            disabled={locked}
-            onClick={async () => {
-              if (report(await session.applyOperation("deleteProgressionItem", { id: item.id }))) setNav({ selected: null, creating: null });
-            }}
-          >
-            {item.status === "draft" ? "Discard" : "Delete"}
-          </button>
-        )}
         {wikiPage && (
-          <button type="button" className="wiki-link wiki-edit" onClick={() => onOpenWiki(wikiPage.id)}>
+          <button type="button" className="wiki-link" onClick={() => onOpenWiki(wikiPage.id)}>
             Wiki page →
           </button>
         )}
       </div>
+      {item?.status === "draft" && (
+        <div className="wiki-review" data-testid="progression-review">
+          <div className="wiki-review-text">
+            <span className="tag draft">Draft by the director</span>
+            <span className="hint">Accept it, change it below (saving makes it canon), or discard it.</span>
+          </div>
+          <div className="wiki-review-actions">
+            <button type="button" className="primary" disabled={locked} onClick={() => void session.applyOperation("acceptProgressionItem", { id: item.id }).then(report)}>
+              Accept
+            </button>
+            <button type="button" disabled={locked} title="Delete this draft (Undo restores it)" onClick={() => void remove(item.id)}>
+              Discard
+            </button>
+            {nextDraft && (
+              <button type="button" onClick={() => setNav({ selected: nextDraft.id, creating: null })}>
+                Skip →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {item?.status === "canon" && nextDraft && (
+        <p className="hint progression-next">
+          <button type="button" className="wiki-link" onClick={() => setNav({ selected: nextDraft.id, creating: null })}>
+            Next draft to review →
+          </button>
+        </p>
+      )}
       <h2 className="panel-title">{title}</h2>
       {kind === "region" && <RegionForm {...props} region={item as Region | undefined} />}
       {kind === "ability" && <AbilityForm {...props} ability={item as Ability | undefined} />}
@@ -403,6 +309,13 @@ function ItemPanel({ project, session, kind, item, locked, setNav, onOpenWiki }:
         <button type="button" className="cancel" onClick={() => setNav({ selected: null, creating: null })}>
           Cancel
         </button>
+      )}
+      {item?.status === "canon" && (
+        <div className="progression-delete">
+          <button type="button" disabled={locked} title="Undo restores it" onClick={() => void remove(item.id)}>
+            Delete {KIND_LABEL[kind].toLowerCase()}
+          </button>
+        </div>
       )}
     </section>
   );
