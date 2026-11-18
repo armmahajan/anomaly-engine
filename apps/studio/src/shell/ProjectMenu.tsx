@@ -54,7 +54,18 @@ export function ProjectMenu({
     if (ok) onReset();
   };
 
-  if (renaming) return <NameField name={name} onDone={() => setRenaming(false)} onRename={onRename} />;
+  if (renaming)
+    return (
+      <NameField
+        name={name}
+        onRename={onRename}
+        onDone={(refocus) => {
+          setRenaming(false);
+          // Back on the name, as after closing the menu.
+          if (refocus) requestAnimationFrame(() => ref.current?.querySelector<HTMLElement>(".project-name")?.focus());
+        }}
+      />
+    );
 
   return (
     <div className="project-menu" ref={ref}>
@@ -97,18 +108,18 @@ export function ProjectMenu({
 }
 
 /** The name, editable in place: Enter or leaving the field saves, Escape cancels. */
-function NameField({ name, onRename, onDone }: { name: string; onRename: (name: string) => Promise<boolean>; onDone: () => void }) {
+function NameField({ name, onRename, onDone }: { name: string; onRename: (name: string) => Promise<boolean>; onDone: (refocus: boolean) => void }) {
   const [value, setValue] = useState(name);
   const inputRef = useRef<HTMLInputElement>(null);
   const done = useRef(false);
   useEffect(() => inputRef.current?.select(), []);
 
-  const commit = async () => {
+  const commit = async (refocus: boolean) => {
     if (done.current) return;
     done.current = true;
     const next = value.trim();
     if (next && next !== name) await onRename(next);
-    onDone();
+    onDone(refocus);
   };
 
   return (
@@ -120,15 +131,15 @@ function NameField({ name, onRename, onDone }: { name: string; onRename: (name: 
       maxLength={120}
       autoFocus
       onChange={(e) => setValue(e.target.value)}
-      onBlur={() => void commit()}
+      onBlur={() => void commit(false)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          void commit();
+          void commit(true);
         } else if (e.key === "Escape") {
           e.preventDefault();
           done.current = true;
-          onDone();
+          onDone(true);
         }
       }}
       style={{ width: `${Math.max(10, value.length + 2)}ch` }}

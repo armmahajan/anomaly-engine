@@ -653,15 +653,11 @@ body.resizing .side-resize {
   box-shadow: 0 1px 0 var(--border);
 }
 
-.list-section.level-2 > .list-section-head {
-  top: var(--list-head-h);
-  z-index: 3;
-  min-height: 26px;
-}
-
-/* A group outside any level-1 section sticks to the top itself. */
+/* A group sticks to the top, or just under its section's header. */
 .list-section.level-2 > .list-section-head {
   top: 0;
+  z-index: 3;
+  min-height: 26px;
 }
 
 .list-section.level-1 .list-section.level-2 > .list-section-head {
