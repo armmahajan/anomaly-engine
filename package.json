@@ -12,9 +12,12 @@
     "dev:remote": "STUDIO_HTTPS=1 npm run dev",
     "build": "npm run build:game && npm run build -w @anomaly/studio",
     "build:game": "bash scripts/build-game.sh",
-    "test": "vitest run",
+    "test": "scripts/heavy.sh vitest run",
+    "test:quick": "ARCHITECT_PROPERTY_PLANS=20 scripts/heavy.sh vitest run",
+    "test:changed": "ARCHITECT_PROPERTY_PLANS=20 scripts/heavy.sh vitest run --changed main",
     "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/server && tsc --noEmit -p packages/agent && tsc --noEmit -p packages/art && tsc --noEmit -p apps/studio && tsc -p game/test --noEmit",
-    "e2e": "playwright test"
+    "e2e": "scripts/heavy.sh playwright test",
+    "e2e:fast": "E2E_WORKERS=${E2E_WORKERS:-2} scripts/heavy.sh playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
