@@ -24,8 +24,23 @@ const MAX_ROTATE = 40;
 /** Raster resolution: the rig's height in cells. */
 const GRID = 160;
 
+/** Joint mode: overlap counts within this share of the moved pieces' reach from the pivot... */
+const JOINT_REACH = 0.35;
+/** ...and at least this many cells. */
+const JOINT_MIN = 6;
+
+export interface MotionLimitOptions {
+  /**
+   * Count only the overlap around each joint (within JOINT_REACH of the moved pieces' reach from
+   * the pivot): where a gap can open when the joint turns. Without it, any overlap counts, so a
+   * limb lying along another (two legs seen from the side) is limited as if its whole length were
+   * a seam, which leaves elbow-and-knee rigs at the minimum swing.
+   */
+  joint?: boolean;
+}
+
 /** Limits per bone (bones absent from the map are free). */
-export function motionLimits(rig: Rig): Map<string, BoneLimit> {
+export function motionLimits(rig: Rig, options: MotionLimitOptions = {}): Map<string, BoneLimit> {
   const limits = new Map<string, BoneLimit>();
   const bounds = partBounds(rig);
   if (!bounds) return limits;
@@ -57,10 +72,17 @@ export function motionLimits(rig: Rig): Map<string, BoneLimit> {
       for (let i = 0; i < W * H; i++) if (m[i]) into[i] = 1;
     }
     const [px, py] = toGrid(bone.pivot);
+    const from = (i: number) => Math.hypot((i % W) + 0.5 - px, Math.floor(i / W) + 0.5 - py);
+    let radius = Infinity;
+    if (options.joint) {
+      let reach = 0;
+      for (let i = 0; i < W * H; i++) if (mine[i]) reach = Math.max(reach, from(i));
+      radius = Math.max(JOINT_MIN, JOINT_REACH * reach);
+    }
     let overlap = 0;
     let far = 0;
     for (let i = 0; i < W * H; i++) {
-      if (!mine[i] || !rest[i]) continue;
+      if (!mine[i] || !rest[i] || from(i) > radius) continue;
       overlap++;
       const x = (i % W) + 0.5;
       const y = Math.floor(i / W) + 0.5;

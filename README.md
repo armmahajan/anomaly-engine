@@ -724,7 +724,27 @@ outline, fill or boil). The runtime gets the source like other images (the
 studio's `images` message; `renderRig` carries it in `images`). The art
 direction (style words, palette, outline) is project-wide.
 
-Tests: `packages/art/test/cutout.test.ts` (background removal, pixel assignment,
+**Rig strategies on trial** (opt-in stage options, off by default; compared blind by
+`node scripts/rig-ab3.ts <out>` then `node scripts/rig-ab3-page.ts <out>`):
+- *Rig-ready concepts* (`concepts {rigReady}`, `choose {rigReady}`): the sheet asks for a neutral
+  side pose with limbs apart, distinct colours for adjacent parts and the whole figure inside its
+  cell; a transparent sheet gets a flat background; cells whose figure runs off the edge are never
+  picked (one redraw when none fits); the chosen design keeps only its main figure
+  (`isolateFigure`: neighbours leaking in, sparks and specks painted out).
+- *Elbows and knees* (`rig {limbJoints}`, `animate {limbJoints, jointLimits}`): two bones per limb;
+  joint limits count only the overlap around each joint (`motionLimits(rig, {joint})`), so a leg lying
+  along the other leg isn't held to the minimum swing.
+- *Flat redraw* (`redrawFlat`, one image edit): the chosen design redrawn as clean flat art before rigging.
+- *Clean tracer* (`rig {cleanTrace, review}`, traced.ts `clean`): edge-preserving smoothing before the
+  colours are reduced, small dark details and the plan's feature points kept, stray specks dropped,
+  outlines fitted as smooth curves with sharp corners; the critic also compares the drawn rig with the
+  design and adds feature points for lost details.
+- *Puppet* (`rig {puppet}`, `puppet.ts`): one image edit draws the character's pieces apart on a parts
+  sheet; each piece is traced and placed on the design's joints by two anchor points; parts without
+  a usable piece are traced from the design.
+
+Tests: `packages/art/test/rigStrategies.test.ts` (figure isolation, the clean tracer, puppet
+assembly), `packages/art/test/cutout.test.ts` (background removal, pixel assignment,
 both modes from one concept, the critique loops keep the best match),
 `packages/server/test/cutoutRender.test.ts` (in the runtime: the rest pose
 matches a drawn test creature, no gaps at joints turned ±30°),

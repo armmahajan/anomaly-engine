@@ -14,7 +14,8 @@ import {
   type RenderRigRequest,
   type RigMode,
 } from "@anomaly/core";
-import { CutoutPlan, cutCharacter, cutoutRig, partsView, placeCutout, planFromRig, type Cutout } from "./cutout.ts";
+import { CutoutPlan, cutCharacter, cutoutRig, isolateFigure, jointPivots, labelParts, partsView, placeCutout, planFromRig, type Cutout } from "./cutout.ts";
+import { assemblePuppet, drawnParts, partAnchors, piecesView, PieceMatch, PieceNudge, PuppetPlan, sheetPieces } from "./puppet.ts";
 import { fitClips, limitsText, motionLimits } from "./motionLimits.ts";
 import { tracedRig } from "./traced.ts";
 import { fitBounds, fitFrame, frameForCanvas, pngSize, toCanvasSpace, toRigSpace, type Frame } from "./frame.ts";
@@ -30,8 +31,14 @@ import {
   cutoutCritiquePrompt,
   cutoutSystemPrompt,
   FACING_PROMPT,
+  flatRedrawPrompt,
+  partsSheetPrompt,
   PICK_SYSTEM,
   pickPrompt,
+  PUPPET_SYSTEM,
+  puppetCritiquePrompt,
+  puppetMatchPrompt,
+  puppetPlanPrompt,
   rigAuthorPrompt,
   rigCritiquePrompt,
   rigSystemPrompt,
@@ -206,7 +213,12 @@ export interface ConceptsInput {
   feedback?: string;
   /** Use the chosen design as a reference image (variations on it). */
   refine?: boolean;
+  /** Designs ready to rig (neutral pose, limbs apart, distinct colours, whole figure in its cell); cut-off cells are never recommended. */
+  rigReady?: boolean;
 }
+
+/** Rig-ready concept sheets with no whole design are drawn again this many times. */
+const RIG_READY_RETRIES = 1;
 
 const WIKI_BRIEF_LIMIT = 600;
 const LOOKS = /appear|look|visual|colou?r|cloth|outfit|wear|armou?r|build|silhouette|shape|size/i;
@@ -254,22 +266,48 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
     direction: project.art.direction,
     feedback: input.feedback,
     refining: reference !== null,
+    rigReady: input.rigReady,
   });
-  checkAbort(ctx);
-  const generated = await ctx.image.generate({ prompt, references: reference ? [reference] : undefined, signal: ctx.signal });
-  ctx.spend(generated.usage);
-  const file = await ctx.files.put(generated.image, generated.ext);
-  ctx.log({ text: `concept sheet (${generated.model})`, cost: generated.usage.cost, file });
+  // Rig-ready: cells whose figure runs off the cell's edge are never recommended; a sheet with none whole is drawn again (once).
+  let generated: Awaited<ReturnType<ImageModel["generate"]>>;
+  let file: FileRef;
+  let cells: { cell: number; touchesEdge: boolean; margin: number }[] | null = null;
+  for (let attempt = 0; ; attempt++) {
+    checkAbort(ctx);
+    const asked = attempt === 0 ? prompt : `${prompt}\nThe last sheet drew the figures too big (they ran off their quadrants): draw them clearly smaller this time.`;
+    generated = await ctx.image.generate({ prompt: asked, references: reference ? [reference] : undefined, signal: ctx.signal });
+    ctx.spend(generated.usage);
+    // Rig-ready: a sheet that came back with a transparent background gets a flat one (the cutout needs it).
+    if (input.rigReady) generated = { ...generated, image: await opaque(ctx, generated.image), ext: "png" };
+    file = await ctx.files.put(generated.image, generated.ext);
+    ctx.log({ text: `concept sheet (${generated.model})`, cost: generated.usage.cost, file });
+    if (!input.rigReady) break;
+    cells = [];
+    for (let cell = 0; cell < 4; cell++) {
+      const figure = isolateFigure(decodePng(await ctx.renderer.crop(generated.image, sheetCell(cell), 512)));
+      cells.push({ cell, touchesEdge: figure?.touchesEdge ?? true, margin: figure?.margin ?? 0 });
+    }
+    const cutOff = cells.filter((c) => c.touchesEdge).map((c) => c.cell);
+    if (cutOff.length > 0) ctx.log({ text: `design${cutOff.length > 1 ? "s" : ""} ${cutOff.map((c) => c + 1).join(", ")} run${cutOff.length > 1 ? "" : "s"} off the edge` });
+    if (cutOff.length < 4 || attempt >= RIG_READY_RETRIES) break;
+    ctx.log({ text: "no design fits its cell: drawing the sheet again" });
+  }
 
   // A cheap second opinion on which design to take forward.
   let recommended: { cell: number; reason: string } | undefined;
   try {
+    const cutOff = cells?.filter((c) => c.touchesEdge).map((c) => c.cell);
     recommended = await askJson(
       ctx,
       z.object({ cell: z.number().int().min(0).max(3), reason: z.string().max(500) }),
-      { system: PICK_SYSTEM, content: [image(generated.image), text(pickPrompt(brief, project.art.direction, input.feedback))], maxTokens: 3000 },
+      { system: PICK_SYSTEM, content: [image(generated.image), text(pickPrompt(brief, project.art.direction, input.feedback, cutOff ? { cutOff } : undefined))], maxTokens: 3000 },
       "picking a design",
     );
+    const fits = cells?.filter((c) => !c.touchesEdge) ?? [];
+    if (cells?.[recommended.cell]?.touchesEdge && fits.length > 0) {
+      const roomiest = fits.sort((a, b) => b.margin - a.margin)[0]!.cell;
+      recommended = { cell: roomiest, reason: `design ${recommended.cell + 1} runs off its edge; the roomiest whole design instead` };
+    }
     ctx.log({ text: `recommends design ${recommended.cell + 1}: ${recommended.reason}` });
   } catch (error) {
     if (error instanceof BudgetExceeded) throw error;
@@ -302,6 +340,8 @@ export interface ChooseInput {
   sheet?: number;
   /** Cell 0-3; default the AI's recommendation (else 0). */
   cell?: number;
+  /** Keep only the main figure (neighbouring designs, sparks and stray bits painted out) and warn when it is cut off. */
+  rigReady?: boolean;
 }
 
 /** 2x2 sheet cell as a fraction of the image, with a small inset to drop gutters. */
@@ -337,12 +377,101 @@ export async function chooseConcept(ctx: ArtContext, input: ChooseInput): Promis
     if (error instanceof BudgetExceeded) throw error;
     ctx.log({ text: `could not check facing (${error instanceof Error ? error.message : String(error)})` });
   }
+  if (input.rigReady) cropped = mainFigureOnly(ctx, cropped);
 
   const file = await ctx.files.put(cropped, "png");
   ctx.log({ text: `chose design ${cell + 1} of sheet ${sheetIndex + 1}`, file });
   return {
     operations: [{ name: "chooseConcept", input: { assetId: asset.id, sheet: sheetIndex, cell, file } }],
     summary: `chose a design for ${character.name}`,
+  };
+}
+
+/** The design with only its main figure (neighbours, sparks and specks painted out); logs a figure cut off by the edge. */
+/** Below this alpha a generated pixel is background; above it, it is the figure's own colour, fully opaque. */
+const OPAQUE_ALPHA = 40;
+const FLAT_BACKGROUND: [number, number, number] = [226, 224, 219];
+
+/**
+ * An image the image model returned with a transparent background (it sometimes does when told
+ * "nothing else in the picture"), made opaque on a flat light grey: pixels over OPAQUE_ALPHA keep
+ * their colour at full opacity (no speckle where the model left partial alpha inside the figure),
+ * the rest become background. PNG; the image as given when it has no transparency.
+ */
+async function opaque(ctx: ArtContext, image: Buffer): Promise<Buffer> {
+  const png = image[0] === 0x89 && image[1] === 0x50 ? image : await ctx.renderer.crop(image, { x: 0, y: 0, width: 1, height: 1 }, 4096);
+  const pixels = decodePng(png);
+  const { data } = pixels;
+  let transparent = false;
+  for (let i = 3; i < data.length; i += 4) if (data[i]! < 255) transparent = true;
+  if (!transparent) return png;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3]! < OPAQUE_ALPHA) data.set(FLAT_BACKGROUND, i);
+    data[i + 3] = 255;
+  }
+  return encodePng(pixels);
+}
+
+function mainFigureOnly(ctx: ArtContext, png: Buffer): Buffer {
+  const figure = isolateFigure(decodePng(png));
+  if (!figure) return png;
+  if (figure.touchesEdge) ctx.log({ text: "the design runs off its edge (part of it may be cut off)" });
+  if (figure.dropped === 0) return png;
+  ctx.log({ text: `kept only the main figure (${figure.dropped} stray bit${figure.dropped > 1 ? "s" : ""} removed)` });
+  return encodePng(figure.image);
+}
+
+// --- stage: flat redraw -------------------------------------------------------------
+
+export interface RedrawInput {
+  characterId: string;
+  /** Image quality for the edit (models with a quality knob; default the model's): a higher one keeps closer to the design. */
+  quality?: string;
+}
+
+/**
+ * The chosen design redrawn as clean flat art by the image model (an edit of the chosen design:
+ * same character and pose, solid colours, one clean outline, plain background), so a traced rig
+ * gets clean shapes. Becomes the chosen design (same sheet and cell).
+ */
+export async function redrawFlat(ctx: ArtContext, input: RedrawInput): Promise<StageResult> {
+  const project = ctx.project();
+  const character = findCharacter(project, input.characterId);
+  const asset = requireAsset(project, character);
+  if (!asset.chosen) throw new StageError(`choose a concept design for "${character.name}" first`);
+  const chosen = await ctx.files.get(asset.chosen.file);
+  checkAbort(ctx);
+  const generated = await ctx.image.generate({
+    prompt: flatRedrawPrompt(asset.brief),
+    references: [chosen],
+    signal: ctx.signal,
+    ...(input.quality ? { quality: input.quality } : {}),
+  });
+  ctx.spend(generated.usage);
+  ctx.log({ text: `flat redraw (${generated.model})`, cost: generated.usage.cost });
+  const size = pngSize(chosen);
+  let png = await ctx.renderer.crop(await opaque(ctx, generated.image), { x: 0, y: 0, width: 1, height: 1 }, Math.max(size.width, size.height));
+  try {
+    const { facing } = await askJson(
+      ctx,
+      z.object({ facing: z.enum(["left", "right"]) }),
+      { system: PICK_SYSTEM, content: [image(png), text(FACING_PROMPT)], maxTokens: 2000 },
+      "checking which way it faces",
+    );
+    if (facing === "left") {
+      png = await ctx.renderer.compose({ ...pngSize(png), layers: [{ image: png, flipX: true }] });
+      ctx.log({ text: "mirrored the redraw to face right" });
+    }
+  } catch (error) {
+    if (error instanceof BudgetExceeded) throw error;
+    ctx.log({ text: `could not check facing (${error instanceof Error ? error.message : String(error)})` });
+  }
+  png = mainFigureOnly(ctx, png);
+  const file = await ctx.files.put(png, "png");
+  ctx.log({ text: "the flat redraw is the design now", file });
+  return {
+    operations: [{ name: "chooseConcept", input: { assetId: asset.id, sheet: asset.chosen.sheet, cell: asset.chosen.cell, file } }],
+    summary: `redrew ${character.name}'s design as flat art`,
   };
 }
 
@@ -354,6 +483,21 @@ export interface RigInput {
   feedback?: string;
   /** Vector shapes, cutout pieces of the design, or those pieces traced as vector shapes (default: the art direction's rigMode, else the backend's default). */
   rigMode?: RigMode;
+  /** Split arms and legs at elbows and knees (two bones per limb). */
+  limbJoints?: boolean;
+  /** Traced rigs: the clean tracer (traced.ts `clean`), with the plan's feature points kept. */
+  cleanTrace?: boolean;
+  /** Traced rigs: the critic also compares the drawn rig with the design and points out lost features. */
+  review?: boolean;
+  /** Critique rounds for this build (default: the context's). */
+  rounds?: number;
+  /**
+   * Build a puppet (puppet.ts): an image edit draws the character's pieces apart on a parts
+   * sheet, each traced as flat shapes and put back on the skeleton planned on the design. A traced rig.
+   */
+  puppet?: boolean;
+  /** Puppet: image quality of the parts sheet (default the model's). */
+  sheetQuality?: string;
 }
 
 const RigReply = z.object({ rig: Rig, notes: z.string().optional() });
@@ -444,10 +588,12 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
   const cut = cutCharacter(decodePng(concept));
   const reference = cut ? flatten(placeCutout(cut, size), BACKGROUND) : null;
   const mode = input.rigMode ?? project.art.direction.rigMode ?? ctx.defaultRigMode ?? "vector";
-  const best =
-    mode === "cutout" || mode === "traced"
-      ? await cutoutAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), mode })
-      : await vectorAttempts(ctx, { character, asset, concept, size, reference, feedback: input.feedback?.trim() });
+  const options = { limbJoints: input.limbJoints, cleanTrace: input.cleanTrace, review: input.review, rounds: input.rounds, sheetQuality: input.sheetQuality };
+  const best = input.puppet
+    ? await puppetAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), ...options })
+    : mode === "cutout" || mode === "traced"
+      ? await cutoutAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), mode, ...options })
+      : await vectorAttempts(ctx, { character, asset, concept, size, reference, feedback: input.feedback?.trim(), ...options });
 
   const preview = await ctx.files.put((await renderRest(ctx, best.rig)).png, "png");
   return {
@@ -462,7 +608,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
       },
     ],
     ...(best.plan ? { plan: best.plan } : {}),
-    summary: `built ${character.name}'s ${mode} rig (score ${best.score}/10${best.match ? `, ${matchText(best.match)}` : ""})`,
+    summary: `built ${character.name}'s ${input.puppet ? "puppet" : mode} rig (score ${best.score}/10${best.match ? `, ${matchText(best.match)}` : ""})`,
   };
 }
 
@@ -473,10 +619,15 @@ interface AttemptInput {
   size: { width: number; height: number };
   reference: Pixels | null;
   feedback?: string;
+  limbJoints?: boolean;
+  cleanTrace?: boolean;
+  review?: boolean;
+  rounds?: number;
+  sheetQuality?: string;
 }
 
 /** Vector rig: the model traces flat shapes; render over the concept, score, revise. Keeps the best attempt. */
-async function vectorAttempts(ctx: ArtContext, { character, asset, concept, size, reference, feedback: direction }: AttemptInput): Promise<Attempt> {
+async function vectorAttempts(ctx: ArtContext, { character, asset, concept, size, reference, feedback: direction, limbJoints, rounds: roundsWanted }: AttemptInput): Promise<Attempt> {
   const system = rigSystemPrompt(ctx.project().art.direction, size);
   const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: concept }], grid: GRID });
 
@@ -489,13 +640,13 @@ async function vectorAttempts(ctx: ArtContext, { character, asset, concept, size
     const authored = await askJson(
       ctx,
       RigReply,
-      { system, content: [image(gridded), text(rigAuthorPrompt(character, asset.brief, size))], maxTokens: 12000 },
+      { system, content: [image(gridded), text(rigAuthorPrompt(character, asset.brief, size, { limbJoints }))], maxTokens: 12000 },
       "building the rig",
     );
     canvasRig = authored.rig;
   }
 
-  const rounds = ctx.rigRounds ?? 3;
+  const rounds = roundsWanted ?? ctx.rigRounds ?? 3;
   let best: Attempt | null = null;
   let feedback = direction;
   for (let round = 0; round < rounds; round++) {
@@ -570,7 +721,8 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
   }
   const direction = ctx.project().art.direction;
   const build = (plan: CutoutPlan) =>
-    mode === "cutout" ? cutoutRig(cut, plan, file) : tracedRig(cut, plan, direction, { canvasPerGamePx: 1 / frame.scale });
+    mode === "cutout" ? cutoutRig(cut, plan, file) : tracedRig(cut, plan, direction, { canvasPerGamePx: 1 / frame.scale, clean: input.cleanTrace });
+  const review = input.review === true && mode === "traced";
   const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(reference) }], grid: GRID });
   const system = cutoutSystemPrompt(size);
 
@@ -583,12 +735,16 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
     plan = await askJson(
       ctx,
       CutoutPlan,
-      { system, content: [image(gridded), text(cutoutAuthorPrompt(character, asset.brief, size))], maxTokens: 8000 },
+      {
+        system,
+        content: [image(gridded), text(cutoutAuthorPrompt(character, asset.brief, size, { limbJoints: input.limbJoints, features: input.cleanTrace && mode === "traced" }))],
+        maxTokens: 8000,
+      },
       "planning the cutout rig",
     );
   }
 
-  const rounds = ctx.rigRounds ?? 3;
+  const rounds = input.rounds ?? ctx.rigRounds ?? 3;
   let best: Attempt | null = null;
   let feedback = input.feedback;
   for (let round = 0; round < rounds; round++) {
@@ -615,11 +771,21 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
       ...(images ? { images } : {}),
     });
     ctx.log({ text: `bones bent ${round + 1}`, file: await ctx.files.put(posed.png, "png") });
-    const prompt = cutoutCritiquePrompt({ plan: { ...plan, bones: built.bones }, warnings: [...built.warnings, ...views.warnings], canvas: size });
+    const prompt = cutoutCritiquePrompt({ plan: { ...plan, bones: built.bones }, warnings: [...built.warnings, ...views.warnings], canvas: size, review });
     const critique = await askJson(
       ctx,
       CutoutCritique,
-      { system, content: [image(gridded), image(parts), image(posed.png), text(feedback ? `${prompt}\nCreator's direction: ${feedback}` : prompt)], maxTokens: 8000 },
+      {
+        system,
+        content: [
+          image(gridded),
+          image(parts),
+          image(posed.png),
+          ...(review ? [image(views.render)] : []),
+          text(feedback ? `${prompt}\nCreator's direction: ${feedback}` : prompt),
+        ],
+        maxTokens: 8000,
+      },
       `reviewing cutout ${round + 1}`,
     );
     feedback = undefined;
@@ -638,6 +804,112 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
   return best;
 }
 
+const PuppetMatches = z.object({ parts: z.array(PieceMatch) });
+const PuppetCritique = z.object({ score: z.number().min(0).max(10), issues: z.array(z.string()).default([]), nudges: z.array(PieceNudge).default([]) });
+
+/**
+ * Puppet rigs: plan the skeleton and parts on the design (with each piece's description), have
+ * the image model draw those pieces apart on a parts sheet (one edit of the design), find each
+ * part's piece and two anchor points on it (vision), then put the traced pieces back on the
+ * design's joints (puppet.ts); the critic nudges misplaced pieces. Parts without a usable piece
+ * are traced from the design itself. The attempt that looks most like the design wins.
+ */
+async function puppetAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cutout | null }): Promise<Attempt> {
+  const { character, asset, concept, size, cut, reference } = input;
+  if (!cut || !reference) throw new StageError("could not find the character on the design's background (it needs a plain, flat background)");
+  const frame = fitBounds(cut.bounds, character.size);
+  const direction = ctx.project().art.direction;
+  const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(reference) }], grid: GRID });
+  const plan = await askJson(
+    ctx,
+    PuppetPlan,
+    { system: cutoutSystemPrompt(size), content: [image(gridded), text(puppetPlanPrompt(character, asset.brief, size))], maxTokens: 8000 },
+    "planning the puppet",
+  );
+  const cutPlan: CutoutPlan = { bones: plan.bones, parts: plan.parts.map(({ id, bone, z, region }) => ({ id, bone, z, region })) };
+  const labels = labelParts(cut, cutPlan);
+  const bones = jointPivots(cut, cutPlan, labels);
+  const canvasPerGamePx = 1 / frame.scale;
+  // The design traced as it is: parts without a usable piece keep these shapes.
+  const conceptRig = tracedRig(cut, { ...cutPlan, bones }, direction, { canvasPerGamePx, clean: true }).rig;
+  const anchors = partAnchors(plan, bones, labels, cut);
+  const drawn = drawnParts(plan);
+
+  checkAbort(ctx);
+  const generated = await ctx.image.generate({
+    prompt: partsSheetPrompt(asset.brief, drawn.map((p) => p.piece)),
+    references: [concept],
+    signal: ctx.signal,
+    ...(input.sheetQuality ? { quality: input.sheetQuality } : {}),
+  });
+  ctx.spend(generated.usage);
+  const sheetPng = await ctx.renderer.crop(await opaque(ctx, generated.image), { x: 0, y: 0, width: 1, height: 1 }, 1024);
+  ctx.log({ text: `parts sheet (${generated.model})`, cost: generated.usage.cost, file: await ctx.files.put(sheetPng, "png") });
+  const sheetPixels = decodePng(sheetPng);
+  const sheet = sheetPieces(sheetPixels);
+  if (!sheet || sheet.pieces.length === 0) throw new StageError("the parts sheet has no pieces on a plain background");
+  const sheetSize = { width: sheetPixels.width, height: sheetPixels.height };
+  const boxed = await ctx.renderer.compose({ ...sheetSize, layers: [{ image: encodePng(piecesView(sheetPixels, sheet.pieces)) }], grid: GRID });
+  const split = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(partsView(cut, labels, { ...cutPlan, bones }, size)) }], grid: GRID });
+  const describe = (a: { label: string }) => a.label;
+  const wanted = drawn.flatMap((p) => {
+    const anchor = anchors.get(p.id);
+    return anchor ? [{ id: p.id, piece: p.piece, a: describe(anchor[0]), b: describe(anchor[1]) }] : [];
+  });
+  const { parts: matches } = await askJson(
+    ctx,
+    PuppetMatches,
+    { system: PUPPET_SYSTEM, content: [image(gridded), image(split), image(boxed), text(puppetMatchPrompt({ parts: wanted, pieces: sheet.pieces, sheet: sheetSize }))], maxTokens: 6000 },
+    "finding the pieces",
+  );
+  ctx.log({ text: `${sheet.pieces.length} pieces on the sheet; ${matches.filter((m) => m.piece !== null).length} of ${wanted.length} parts found` });
+
+  const rounds = input.rounds ?? ctx.rigRounds ?? 3;
+  let best: Attempt | null = null;
+  let nudges: PieceNudge[] = [];
+  for (let round = 0; round < rounds; round++) {
+    const built = assemblePuppet({ plan, bones, anchors, sheet, matches, nudges, conceptRig, direction, canvasPerGamePx });
+    for (const w of built.warnings) ctx.log({ text: w });
+    const rig = toRigSpace(built.rig, frame);
+    const views = await canvasViews(ctx, built.rig, frame, concept, size, reference);
+    ctx.log({
+      text: `puppet ${round + 1}: ${rig.parts.length} shapes${built.fallback.length > 0 ? `, ${built.fallback.join(", ")} from the design` : ""} (${matchText(views.match)})`,
+      file: await ctx.files.put(views.overlay, "png"),
+    });
+    if (ctx.remaining() < CRITIQUE_RESERVE) {
+      best = better(best, { rig, frame, score: 0, notes: "not reviewed (budget)", match: views.match });
+      break;
+    }
+    const posed = await ctx.renderer.renderRig({
+      rig,
+      direction,
+      clips: { flex: flexClip(rig) },
+      frames: [{ clip: "flex", time: 0 }, { clip: null, time: 0 }, { clip: "flex", time: 1 }],
+      cellWidth: 192,
+      cellHeight: 192,
+      columns: 3,
+      background: BACKGROUND,
+    });
+    const critique = await askJson(
+      ctx,
+      PuppetCritique,
+      {
+        system: PUPPET_SYSTEM,
+        content: [image(gridded), image(views.overlay), image(posed.png), text(puppetCritiquePrompt({ parts: plan.parts.map((p) => p.id), fallback: built.fallback, canvas: size }))],
+        maxTokens: 4000,
+      },
+      `reviewing puppet ${round + 1}`,
+    );
+    const notes = critique.issues.join("; ");
+    ctx.log({ text: `score ${critique.score}/10${notes ? `: ${notes}` : ""}` });
+    best = better(best, { rig, frame, score: critique.score, notes, match: views.match });
+    if ((critique.score >= 8 && round > 0) || critique.nudges.length === 0) break;
+    nudges = critique.nudges;
+  }
+  if (!best) throw new StageError("no rig was produced");
+  return best;
+}
+
 // --- stage: animate -----------------------------------------------------------------
 
 export interface AnimateInput {
@@ -645,6 +917,10 @@ export interface AnimateInput {
   feedback?: string;
   /** Only these clips (default: every slot the character's characters use). */
   slots?: ClipSlot[];
+  /** The rig has elbows and knees: ask for them to bend. */
+  limbJoints?: boolean;
+  /** Rigs cut from the drawing: limit each joint by the overlap around the joint only (motionLimits `joint`). */
+  jointLimits?: boolean;
 }
 
 /** The clip slots an asset needs (core wantedClipSlots). */
@@ -686,7 +962,7 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
   const rest = asset.preview ? await ctx.files.get(asset.preview.file) : (await renderRest(ctx, rig)).png;
   const system = animSystemPrompt();
   // Rigs cut from the drawing come apart past their joints' overlap: their clips are fitted to per-bone limits.
-  const limits = rig.mode === "cutout" || rig.mode === "traced" ? motionLimits(rig) : null;
+  const limits = rig.mode === "cutout" || rig.mode === "traced" ? motionLimits(rig, { joint: input.jointLimits }) : null;
   const fit = (clips: Record<string, Clip>) => (limits ? fitClips(clips, limits) : clips);
   const limitsLine = limits && limits.size > 0 ? limitsText(limits) : undefined;
   const write = async (wanted: ClipSlot[], label: string) =>
@@ -698,7 +974,10 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
             ClipsReply,
             {
               system,
-              content: [image(rest), text(animPrompt({ character, brief: asset.brief, rig, slots: wanted, feedback: input.feedback, limits: limitsLine }))],
+              content: [
+                image(rest),
+                text(animPrompt({ character, brief: asset.brief, rig, slots: wanted, feedback: input.feedback, limits: limitsLine, limbJoints: input.limbJoints })),
+              ],
               maxTokens: 10000,
             },
             label,
