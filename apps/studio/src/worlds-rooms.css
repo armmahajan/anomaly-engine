@@ -1,0 +1,696 @@
+/* Scenery (looks and dressings) and Rooms (the game's rooms): WorldBench, WorldPanel, RoomsView. */
+
+/* --- collapsible side-panel sections (worlds/Section.tsx) ------------------ */
+
+.side-section {
+  border-top: 1px solid var(--border);
+  padding: 2px 0 6px;
+}
+
+.side-section:first-child,
+.side-section.top {
+  border-top: none;
+}
+
+.side-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+}
+
+.side-section-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.side-section.top > .side-section-head .side-section-toggle {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.side-section-toggle:hover {
+  color: var(--text);
+}
+
+.side-section-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-section-note {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  background: #232733;
+  border-radius: 8px;
+  padding: 0 6px;
+  min-height: 16px;
+}
+
+.chevron {
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  transition: transform 0.12s;
+}
+
+.side-section.open > .side-section-head .chevron,
+[aria-expanded="true"] > .chevron {
+  transform: rotate(90deg);
+}
+
+.side-section-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.small-button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.side-section-body {
+  padding: 2px 0 6px;
+}
+
+.side-section-body > .character-list:last-child,
+.side-section-body > .list-actions:last-child {
+  margin-bottom: 4px;
+}
+
+.world-panel h4,
+.rooms-panel h4 {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 12px 0 6px;
+}
+
+button.danger {
+  border-color: #6b2c36;
+  color: var(--error);
+}
+
+.confirm-row {
+  flex-wrap: wrap;
+}
+
+.confirm-row .hint {
+  margin: 0;
+  flex-basis: 100%;
+}
+
+.hint.inline {
+  margin: 0;
+}
+
+.hint.warn {
+  color: #e0af68;
+}
+
+/* --- scenery state: dots and chips ----------------------------------------- */
+
+.art-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+
+span.art-dot.plain {
+  border: 1.5px solid #5a6072;
+}
+
+span.art-dot.dressed {
+  background: var(--ok);
+}
+
+span.art-dot.stale {
+  background: #e0af68;
+}
+
+circle.art-dot.dressed {
+  fill: var(--ok);
+}
+
+circle.art-dot.stale {
+  fill: #e0af68;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.chip .region-swatch {
+  margin: 0;
+}
+
+.chip.art-stale {
+  border-color: #6b5530;
+  color: #e0af68;
+}
+
+.art-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 2px 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.art-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* --- Rooms: grouped list ---------------------------------------------------- */
+
+.list-filter {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.list-filter .art-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.list-filter select,
+.game-room-select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.list-filter select {
+  flex: 0 1 auto;
+}
+
+.game-room-select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 3px 4px;
+}
+
+.room-group-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.room-group-head:hover:not(:disabled) {
+  background: #1d212b;
+}
+
+.room-group-head:disabled {
+  opacity: 1;
+}
+
+.room-group-head .region-swatch {
+  margin: 0;
+}
+
+.room-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-group-head .kind {
+  font-weight: 400;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.room-groups .room-group-list {
+  margin: 0 0 4px 12px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+}
+
+.room-group-list button,
+.dressing-list button {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.room-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Rooms: world map ------------------------------------------------------- */
+
+.world-map-wrap {
+  margin-bottom: 10px;
+}
+
+.world-map-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.world-map-caption {
+  flex: 1;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.world-map-tools .icon-button {
+  font-size: 11px;
+  padding: 1px 7px;
+}
+
+.world-map-tools .icon-button[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+
+.world-map-scroll {
+  overflow: auto;
+  background: #0d0f14;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: grab;
+  overscroll-behavior: contain;
+}
+
+.world-map-scroll:active {
+  cursor: grabbing;
+}
+
+.world-map-scroll .world-map {
+  display: block;
+  width: auto;
+  max-height: none;
+  margin: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+.world-map-scroll .world-map rect {
+  fill: #232733;
+  stroke: #0d0f14;
+}
+
+.world-map-scroll .world-map g:hover rect {
+  filter: brightness(1.35);
+}
+
+.world-map-scroll .world-map .selected rect {
+  stroke: #ffffff;
+  filter: brightness(1.6);
+}
+
+.world-map-scroll .world-map text {
+  fill: #e6e8ee;
+  opacity: 0.85;
+  pointer-events: none;
+  user-select: none;
+}
+
+.world-map-scroll .world-map .selected text {
+  opacity: 1;
+  font-weight: 600;
+}
+
+.world-map-scroll .world-map line {
+  stroke: var(--ok);
+  opacity: 0.8;
+}
+
+.world-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  background: none;
+  border-radius: 9px;
+}
+
+.legend-chip .region-swatch {
+  margin: 0;
+}
+
+.legend-chip:hover {
+  color: var(--text);
+}
+
+/* --- Rooms: the selected room's scenery ------------------------------------- */
+
+.room-scenery .hint .art-dot {
+  margin: -2px 4px 0 0;
+}
+
+.room-scenery-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+/* --- labelled tool groups (Rooms and Scenery bench bars) -------------------- */
+
+.tool-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+
+.tool-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 2px 8px 2px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tool-group + .tool-group {
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+
+.tool-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6c7286;
+  margin-right: 2px;
+}
+
+.tool-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tool-group > button:not(.tool-button) {
+  padding: 2px 9px;
+  font-size: 12px;
+}
+
+.tool-sep.tall {
+  align-self: stretch;
+  height: auto;
+  margin: 0 4px;
+}
+
+.rooms-top .world-title,
+.scenery-top .world-title {
+  flex-basis: 100%;
+  gap: 8px;
+}
+
+.rooms-top,
+.scenery-top {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  row-gap: 6px;
+}
+
+/* --- Scenery bench ------------------------------------------------------------ */
+
+.scenery-over {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.scenery-over.unused {
+  color: #e0af68;
+  font-size: 12px;
+}
+
+.world-title .link-button,
+.look-usage .link-button,
+.hint .link-button {
+  align-self: auto;
+  padding: 0;
+  font-size: inherit;
+}
+
+.layer-legend {
+  position: relative;
+}
+
+.layer-legend summary {
+  list-style: none;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.layer-legend summary::-webkit-details-marker {
+  display: none;
+}
+
+.layer-legend[open] summary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.layer-legend-body {
+  position: absolute;
+  right: 0;
+  top: 24px;
+  z-index: 20;
+  width: 300px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  color: var(--text);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.layer-legend-body dl {
+  margin: 6px 0;
+}
+
+.layer-legend-body dl > div {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.layer-legend-body dt {
+  font-weight: 600;
+}
+
+.layer-legend-body dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.layer-legend-body p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.kit-shelf-label {
+  flex: none;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 110px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.kit-shelf-label strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* --- Scenery sidebar ------------------------------------------------------- */
+
+.look-list button {
+  align-items: center;
+}
+
+.look-thumb {
+  flex: none;
+  width: 40px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: #232733;
+}
+
+.look-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.look-name small {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.look-usage {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.look-brief {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.look-brief.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: relative;
+  padding-right: 34px;
+}
+
+.look-brief.clamped .link-button {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  background: var(--panel);
+}
+
+.dressing-list li > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dressing-list .kind {
+  white-space: nowrap;
+}
+
+.dressing-list .tag {
+  margin-left: 0;
+}
+
+.compose-box {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+.compose-box .art-label,
+.world-new .art-label,
+.world-panel .field .art-label {
+  margin-bottom: 6px;
+}
+
+.stale-box {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid #6b5530;
+  border-radius: 6px;
+  background: #2a2418;
+  font-size: 12px;
+}
+
+.stale-box p {
+  margin: 0 0 6px;
+  color: #e0af68;
+}
+
+.world-panel .art-meta {
+  margin: 0;
+}
+
+.hint.sent {
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.room-scenery-look {
+  flex-basis: 100%;
+  font-size: 12px;
+  padding-left: 14px;
+}
+
+.stale-count {
+  color: #e0af68;
+}

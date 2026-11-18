@@ -6,7 +6,24 @@ import { ArtJobButton } from "./ArtJobButton.tsx";
 import { fileUrl } from "./api.ts";
 
 /** Rooms sidebar: the selected room's props: list, look, solid / visible conditions, health, bounce, prompt, handlers. */
-export function PropsSection({ project, session, room, ui, setUi, locked }: { project: ProjectSpec; session: Session; room: WorldRoom; ui: RoomsUi; setUi: (ui: RoomsUi) => void; locked: boolean }) {
+export function PropsSection({
+  project,
+  session,
+  room,
+  ui,
+  setUi,
+  locked,
+  heading = true,
+}: {
+  project: ProjectSpec;
+  session: Session;
+  room: WorldRoom;
+  ui: RoomsUi;
+  setUi: (ui: RoomsUi) => void;
+  locked: boolean;
+  /** Its own "Props" heading (off when it sits in a titled section). */
+  heading?: boolean;
+}) {
   const prop = room.props.find((p) => p.id === ui.propId) ?? null;
   const edit = async (op: string, input: unknown) => {
     const result: ChangeResult = await session.applyOperation(op, input);
@@ -15,7 +32,7 @@ export function PropsSection({ project, session, room, ui, setUi, locked }: { pr
   };
   return (
     <>
-      <h3>Props</h3>
+      {heading && <h3>Props</h3>}
       <p className="hint">Rectangles that can be seen, stood on, touched, used (Up) and struck. Draw one with ▭ Prop on the room.</p>
       {room.props.length > 0 && (
         <div className="art-actions">

@@ -1,11 +1,8 @@
 import type { ProjectSpec, WorldRoom } from "@anomaly/core";
 import type { Session } from "./session.ts";
+import { regionColor } from "./worlds/scenery.ts";
 
-/** A stable, distinct color per progression region (by its place in the list), for the world map. */
-export function regionColor(project: ProjectSpec, regionId: string | undefined): string | undefined {
-  const i = project.progression.regions.findIndex((r) => r.id === regionId);
-  return i < 0 ? undefined : `hsl(${(i * 137.5 + 200) % 360} 45% 32%)`;
-}
+export { regionColor };
 
 /** Rooms sidebar: which progression region the selected room belongs to. */
 export function RegionPicker({ project, session, room, locked }: { project: ProjectSpec; session: Session; room: WorldRoom; locked: boolean }) {
@@ -19,7 +16,7 @@ export function RegionPicker({ project, session, room, locked }: { project: Proj
   return (
     <div className="field region-picker" data-testid="region-picker">
       <label htmlFor="room-region">
-        Region <span className="region-swatch" style={{ background: regionColor(project, room.regionId) ?? "transparent" }} />
+        Region {region && <span className="region-swatch" style={{ background: regionColor(project, room.regionId) }} />}
       </label>
       {regions.length === 0 ? (
         <span className="hint">No regions yet: plan them in Progression.</span>
