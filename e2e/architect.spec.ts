@@ -25,9 +25,13 @@ test("Build game plans the world from the progression and runs every stage on th
 
   await page.getByRole("tab", { name: "Architect" }).click();
   await expect(page.getByTestId("architect-main")).toBeVisible();
+  // Stop for review after pacing: the art stage (renders every room) has its own specs; a wide target avoids pacing repairs.
+  for (const [name, input] of [["setArchitectPause", { pauseAfter: ["pacing"] }], ["setArchitectGuidance", { targetMinutes: [1, 60] }]] as const) {
+    expect((await page.evaluate(([n, i]) => window.studio!.applyOperation(n, i), [name, input] as const)).ok).toBe(true);
+  }
   await page.getByTestId("architect-sidebar").getByRole("button", { name: /Build game/ }).click();
-  // Every stage runs for real: the world is built, populated and proven (a short game goes back to the plan a few times).
-  await expect(page.getByTestId("architect-last")).toContainText("finished", { timeout: 300_000 });
+  // Every stage up to pacing runs for real: the world is built, populated and proven.
+  await expect(page.getByTestId("architect-last")).toContainText(/paused at Pacing/i, { timeout: 300_000 });
   const built = await project(page);
   for (const stage of ["plan", "layout", "geometry", "cast", "population", "screens", "verify"]) expect(built.architect.stages[stage as "plan"]!.status).toBe("done");
   expect(built.world.rooms.filter((r) => r.regionId).length).toBe(built.architect.rooms.length);
@@ -43,9 +47,13 @@ test("the Architect chat plans on request and queues a build run after its turn"
   await chat(page, "Design the structure: four regions, two abilities.");
   await page.getByRole("tab", { name: "Architect" }).click();
   await expect(page.getByTestId("chat-reply")).toHaveCount(0); // the Architect's own conversation
+  // Stop for review after pacing: the art stage (renders every room) has its own specs; a wide target avoids pacing repairs.
+  for (const [name, input] of [["setArchitectPause", { pauseAfter: ["pacing"] }], ["setArchitectGuidance", { targetMinutes: [1, 60] }]] as const) {
+    expect((await page.evaluate(([n, i]) => window.studio!.applyOperation(n, i), [name, input] as const)).ok).toBe(true);
+  }
   await chat(page, "Plan the world and build it.");
   expect((await project(page)).architect.rooms.length).toBeGreaterThan(4);
   await expect(page.getByTestId("chat-reply").last()).toContainText("Planned the world");
-  await expect(page.getByTestId("architect-last")).toContainText("finished", { timeout: 300_000 });
+  await expect(page.getByTestId("architect-last")).toContainText(/paused at Pacing/i, { timeout: 300_000 });
   expect((await project(page)).architect.stages.verify!.status).toBe("done");
 });

@@ -228,6 +228,9 @@ test("pause after plan: the run stops for review, an edit, then Continue carries
   await expect.poll(() => page.evaluate(() => window.studio!.getProject().architect.pauseAfter)).toEqual(["plan"]);
   await expect(sidebar.getByLabel("Pause after plan")).toBeChecked();
   await expect(sidebar.getByTestId("architect-stage-plan")).toContainText("pauses here for review");
+  // Also stop after pacing: the art stage (renders every room) has its own specs.
+  await sidebar.getByLabel("Pause after pacing").click();
+  await expect.poll(() => page.evaluate(() => window.studio!.getProject().architect.pauseAfter)).toEqual(["plan", "pacing"]);
 
   await sidebar.getByRole("button", { name: "Build game" }).click();
   await expect(chip("plan")).toHaveText("paused", { timeout: 30_000 });
@@ -243,7 +246,7 @@ test("pause after plan: the run stops for review, an edit, then Continue carries
   await sidebar.getByRole("button", { name: "Continue" }).click();
   // The real stages carry on: the world is built, populated and proven.
   // (A game shorter than its play-time target goes back to the plan a few times first: wait for the end.)
-  await expect(sidebar.getByTestId("architect-last")).toContainText("finished", { timeout: 240_000 });
+  await expect(sidebar.getByTestId("architect-last")).toContainText(/paused at Pacing/i, { timeout: 240_000 });
   for (const stage of ["plan", "layout", "geometry", "cast", "population", "screens", "verify"]) await expect(chip(stage)).toHaveText("done");
   expect(await page.evaluate(() => window.studio!.getProject().world.rooms.filter((r) => r.regionId).length)).toBe(9);
   expect(consoleErrors).toEqual([]);
