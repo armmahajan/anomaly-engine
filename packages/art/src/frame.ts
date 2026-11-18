@@ -37,7 +37,9 @@ export function frameForCanvas(rig: Rig, canvas: { width: number; height: number
   return { scale, anchor: [canvas.width / 2 - centerX / scale, canvas.height * 0.85] };
 }
 
-/** Map every coordinate in a rig by p * k + t (lengths by k). A cutout rig's source moves with it. */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Map every coordinate in a rig by p * k + t (lengths by k). A cutout rig's source and part textures move with it. */
 function mapRig(rig: Rig, k: number, t: readonly [number, number]): Rig {
   const point = ([x, y]: readonly [number, number]): [number, number] => [round(x * k + t[0]), round(y * k + t[1])];
   const length = k;
@@ -61,7 +63,10 @@ function mapRig(rig: Rig, k: number, t: readonly [number, number]): Rig {
                 ...(s.widthEnd !== undefined ? { widthEnd: round(s.widthEnd * length) } : {}),
               }
             : { ...s, points: s.points.map(point) };
-      return { ...part, shape };
+      // A texture's rectangle maps like the shape (finer rounding: it places every texel).
+      const r = part.texture?.rect;
+      const rect = r && ([r2(r[0] * k + t[0]), r2(r[1] * k + t[1]), Math.max(0.01, r2(r[2] * k)), Math.max(0.01, r2(r[3] * k))] as [number, number, number, number]);
+      return { ...part, shape, ...(part.texture && rect ? { texture: { ...part.texture, rect } } : {}) };
     }),
   };
 }

@@ -160,8 +160,8 @@ export class Session {
     if (runtimeStatus !== "ready" || mode !== "edit" || this.requestedRevision === project.revision) return;
     // The runtime never needs the design documents.
     if (this.bridge.send({ type: "load", project: toRuntimeProject(project) })) this.requestedRevision = project.revision;
-    // The images it draws: kits of biomes that dress rooms or draw props, modal images, item icons and cutout
-    // rigs' images (sent once each; the runtime redraws when they arrive). A game export bundles the same set.
+    // The images it draws: kits of biomes that dress rooms or draw props, modal images, item icons, cutout
+    // rigs' images and rig part textures (sent once each; the runtime redraws when they arrive). A game export bundles the same set.
     const images = runtimeImageRefs(project);
     if (images.length > 0) void this.sendImages(images);
   }

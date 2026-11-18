@@ -9,6 +9,7 @@ import {
   lintProject,
   ProjectSpec,
   Rig,
+  rigFiles,
   type OperationResult,
   type ProjectSpec as Project,
 } from "../src/index.ts";
@@ -61,6 +62,26 @@ describe("art schema", () => {
       parts: [{ ...rig.parts[0]!, bone: "a" }],
     };
     expect(Rig.safeParse(loop).success).toBe(false);
+  });
+
+  it("takes optional part textures and clipped detail parts, and checks them", () => {
+    const rig = exampleRig();
+    const texture = { file: FILE, rect: [-20, -30, 40, 30], uv: [0, 0, 64, 48] };
+    const band = { id: "band", bone: "body", z: 1, shape: { type: "ellipse", center: [0, -10], rx: 30, ry: 4 }, fill: "#ffffff", ink: 0, clipTo: "shell" };
+    const textured = Rig.parse({ ...rig, parts: [...rig.parts.map((p) => (p.id === "shell" ? { ...p, texture } : p)), band] });
+    expect(textured.parts.find((p) => p.id === "shell")?.texture).toEqual({ ...texture, opacity: 1 });
+    expect(textured.parts.at(-1)?.clipTo).toBe("shell");
+    expect(rigFiles(textured)).toEqual([FILE]);
+    // Existing rigs are unchanged: no texture, no clip.
+    expect(Rig.parse(rig).parts.every((p) => p.texture === undefined && p.clipTo === undefined)).toBe(true);
+
+    const issue = (parts: unknown[]) => Rig.safeParse({ ...rig, parts }).error?.issues[0]?.message;
+    expect(issue([...rig.parts, { ...band, clipTo: "nothing" }])).toMatch(/unknown part "nothing"/);
+    expect(issue([...rig.parts, { ...band, clipTo: "head" }])).toMatch(/same bone/);
+    expect(issue([...rig.parts, { ...band, clipTo: "band" }])).toMatch(/clip to itself/);
+    expect(issue([...rig.parts, band, { ...band, id: "band2", clipTo: "band" }])).toMatch(/clipped itself/);
+    expect(issue(rig.parts.map((p) => (p.id === "shell" ? { ...p, texture: { ...texture, rect: [0, 0, 0, 10] } } : p)))).toBeDefined();
+    expect(issue(rig.parts.map((p) => (p.id === "shell" ? { ...p, texture: { ...texture, file: "nope.gif" } } : p)))).toBeDefined();
   });
 
   it("rejects an appearance that points at no asset", () => {
