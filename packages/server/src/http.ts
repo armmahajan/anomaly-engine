@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { AgentId, fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
 import type { ArtService } from "./art/service.ts";
 import type { ArchitectService } from "./architect/service.ts";
+import type { LiveService } from "./live/service.ts";
 import { FILE_MEDIA_TYPES, type FileStore } from "./art/files.ts";
 import type { ChatService } from "./chat.ts";
 import type { ProjectStore } from "./projectStore.ts";
@@ -34,11 +35,11 @@ export interface ArtApi {
   files: FileStore;
 }
 
-export function createApiHandler(store: ProjectStore, chats: Chats = {}, art?: ArtApi, architect?: ArchitectService): Middleware {
+export function createApiHandler(store: ProjectStore, chats: Chats = {}, art?: ArtApi, architect?: ArchitectService, live?: LiveService): Middleware {
   return (req, res, next) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return next();
-    route(store, chats, art, architect, req, res, url).catch((error: unknown) => {
+    route(store, chats, art, architect, live, req, res, url).catch((error: unknown) => {
       console.error("[project-server]", error);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: { code: "internal", message: String(error), issues: [] } });
       else res.end();
@@ -51,6 +52,7 @@ async function route(
   chats: Chats,
   art: ArtApi | undefined,
   architect: ArchitectService | undefined,
+  live: LiveService | undefined,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -62,7 +64,7 @@ async function route(
     case "GET /api/history":
       return sendJson(res, 200, { entries: store.getHistory() });
     case "GET /api/events":
-      return openEventStream(store, chats, art, architect, req, res, url.searchParams.get("clientId"));
+      return openEventStream(store, chats, art, architect, live, req, res, url.searchParams.get("clientId"));
     case "POST /api/ops":
       return respond(res, await withBody(req, (body) => store.applyOperation(body)));
     case "POST /api/batch":
@@ -77,8 +79,17 @@ async function route(
         await Promise.all(Object.values(chats).map((c) => c.reset()));
         await art?.service.reset();
         architect?.reset();
+        await live?.reset();
       }
       return respond(res, result);
+    }
+  }
+  if (live) {
+    switch (key) {
+      case "GET /api/live":
+        return sendJson(res, 200, live.getState());
+      case "POST /api/live":
+        return respond(res, await withBody(req, (body) => live.configure(body)));
     }
   }
   const agent = AgentId.safeParse(url.searchParams.get("agent") ?? "build");
@@ -174,6 +185,7 @@ function openEventStream(
   chats: Chats,
   art: ArtApi | undefined,
   architect: ArchitectService | undefined,
+  live: LiveService | undefined,
   req: IncomingMessage,
   res: ServerResponse,
   clientId: string | null,
@@ -185,6 +197,7 @@ function openEventStream(
   for (const chat of Object.values(chats)) send({ type: "chat", agent: chat.agent.id, chat: chat.getState() });
   if (art) send({ type: "art", art: art.service.getState() });
   if (architect) send({ type: "architect", architect: architect.getState() });
+  if (live) send({ type: "live", live: live.getState() });
 
   const unsubscribeProject = store.subscribe(send);
   const unsubscribeChats = Object.values(chats).map((chat) =>
@@ -192,6 +205,7 @@ function openEventStream(
   );
   const unsubscribeArt = art?.service.subscribe((state) => send({ type: "art", art: state }));
   const unsubscribeArchitect = architect?.subscribe((state) => send({ type: "architect", architect: state }));
+  const unsubscribeLive = live?.subscribe((state) => send({ type: "live", live: state }));
   const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), HEARTBEAT_MS);
   req.on("close", () => {
     clearInterval(heartbeat);
@@ -199,6 +213,7 @@ function openEventStream(
     for (const unsubscribe of unsubscribeChats) unsubscribe();
     unsubscribeArt?.();
     unsubscribeArchitect?.();
+    unsubscribeLive?.();
     if (clientId) store.releasePlaytest(clientId);
   });
 }

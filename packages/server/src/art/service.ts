@@ -54,7 +54,13 @@ export interface ArtServiceOptions {
   roomRounds?: number;
 }
 
-type Result = { ok: true; jobId: string } | { ok: false; error: OperationError };
+type Result = { ok: true; jobId: string; queued?: boolean } | { ok: false; error: OperationError };
+
+/** A job waiting its turn. `onlyIfUndrawn`: skip it if the character is drawn (rigged) by the time it would start. */
+interface Queued {
+  request: unknown;
+  onlyIfUndrawn?: boolean;
+}
 
 interface Running {
   id: string;
@@ -69,17 +75,27 @@ interface Running {
   done: Promise<void>;
   /** USD this job may spend (gameArt gets its plan's estimate, with headroom). */
   budget?: number;
-  /** False when the job runs inside a lock someone else holds (an Architect run): it mustn't release it. */
-  ownsLock: boolean;
+  /** True when the job runs inside the lock of an Architect run (its stages save as the run's AI edits). Otherwise it is background work. */
+  underLock: boolean;
+  /** Why its finished stage waits to be saved, if it does. */
+  waiting: string | null;
+  /** The store's epoch when it started (a reset since means it saves nothing). */
+  epoch: number;
 }
 
 type Step = { stage: Exclude<ArtStage, "auto">; run: () => Promise<StageResult> };
 
 /**
- * Runs art jobs (one at a time) and keeps their log (<dir>/art-jobs.jsonl).
- * A job holds the AI lock like a chat turn; each completed stage is saved as
- * one AI change (one undo step), so an auto run that fails late keeps the
- * stages that worked.
+ * Runs art jobs (one at a time, the rest queued) and keeps their log
+ * (<dir>/art-jobs.jsonl). Jobs are background work: they hold no lock, so the
+ * creator keeps editing (and chatting) while one runs. Each completed stage is
+ * saved as one AI change (one undo step) onto the project as it is then
+ * (ProjectStore.commitBackground: its operations applied again), waiting while a
+ * playtest or an AI turn runs; a stage whose changes no longer apply (its
+ * character was deleted meanwhile) fails the job cleanly. An auto run that fails
+ * late keeps the stages that worked. The Architect's game-art job is the
+ * exception: it runs inside the run's lock and saves as the run's edits; it
+ * stops a background job that is running (it draws whatever is missing anyway).
  */
 export class ArtService {
   private readonly store: ProjectStore;
@@ -88,8 +104,8 @@ export class ArtService {
   private jobs: ArtJobSummary[];
   private totalCost: number;
   private running: Running | null = null;
-  /** Jobs waiting to start (queued from chat turns). */
-  private queue: unknown[] = [];
+  /** Jobs waiting to start. */
+  private queue: Queued[] = [];
   private listeners = new Set<(state: ArtState) => void>();
 
   private constructor(store: ProjectStore, options: ArtServiceOptions, jobs: ArtJobSummary[], totalCost: number) {
@@ -136,9 +152,15 @@ export class ArtService {
         startedAt: r.startedAt,
         cost: r.cost,
         activity: r.activity,
+        underLock: r.underLock,
+        waiting: r.waiting,
       },
       jobs: this.jobs,
       queued: this.queue.length,
+      pending: this.queue.flatMap(({ request }) => {
+        const parsed = ArtJobRequest.safeParse(request);
+        return parsed.success ? [{ stage: parsed.data.stage, characterId: parsed.data.characterId, biomeId: parsed.data.biomeId }] : [];
+      }),
       totalCost: this.totalCost,
     };
   }
@@ -148,8 +170,11 @@ export class ArtService {
     return () => this.listeners.delete(listener);
   }
 
-  /** Start a job; it runs in the background and reports through events. */
-  /** Start a job. `underLock`: the caller already holds the AI lock (an Architect run) and keeps it. */
+  /**
+   * Start a job; it runs in the background and reports through events. While another
+   * job runs it is queued instead. `underLock`: the caller holds the AI lock (an
+   * Architect run) and keeps it; a background job in the way is stopped first.
+   */
   async start(request: unknown, options: { underLock?: boolean } = {}): Promise<Result> {
     const parsed = ArtJobRequest.safeParse(request);
     if (!parsed.success) return fail("invalid_request", "malformed art job request", toIssues(parsed.error));
@@ -164,14 +189,25 @@ export class ArtService {
     if (biomeId !== undefined && !project.art.assets.some((a) => a.id === biomeId && a.kind === "biome")) {
       return fail("not_found", `no biome "${biomeId}"`);
     }
-    if (this.running) return fail("locked", "an art job is already running");
-    if (!options.underLock) {
-      const lock = await this.store.beginAiTurn();
-      if (!lock.ok) return lock;
+    if (this.running && !options.underLock) {
+      this.enqueue([request]);
+      return { ok: true, jobId: "queued", queued: true };
+    }
+    if (this.running) {
+      if (this.running.underLock) return fail("locked", "an art job is already running");
+      // The Architect's game-art job draws everything still missing: background art makes way.
+      const stopping = this.running;
+      stopping.activity.push({ at: new Date().toISOString(), text: "stopped: the Architect's game-art job draws everything still missing" });
+      this.queue = [];
+      stopping.controller.abort();
+      await stopping.done;
+      if (this.running) return fail("locked", "an art job is already running");
     }
 
     const running: Running = {
-      ownsLock: !options.underLock,
+      underLock: options.underLock ?? false,
+      waiting: null,
+      epoch: this.store.epoch(),
       id: `art_${Date.now().toString(36)}`,
       request: parsed.data,
       biomeId: parsed.data.biomeId,
@@ -189,18 +225,57 @@ export class ArtService {
   }
 
   /**
-   * Start jobs one after another (from a chat turn, after it released the lock).
-   * A job that can't start is logged as failed, so the creator sees why.
+   * Start jobs one after another (from a chat turn, the creator, the live cast).
+   * A job that can't start is logged as failed, so the creator sees why. The same
+   * job already queued or running isn't queued twice (an auto job per character).
    */
-  enqueue(requests: unknown[]): void {
-    this.queue.push(...requests);
+  enqueue(requests: unknown[], options: { onlyIfUndrawn?: boolean } = {}): void {
+    for (const request of requests) {
+      if (this.isQueued(request)) continue;
+      this.queue.push({ request, ...(options.onlyIfUndrawn && { onlyIfUndrawn: true }) });
+    }
     this.emit();
     void this.startNext();
   }
 
+  private isQueued(request: unknown): boolean {
+    const key = (r: unknown) => {
+      const parsed = ArtJobRequest.safeParse(r);
+      if (!parsed.success) return JSON.stringify(r);
+      return parsed.data.stage === "auto" ? `auto:${parsed.data.characterId}` : JSON.stringify(parsed.data);
+    };
+    const k = key(request);
+    return this.queue.some((q) => key(q.request) === k) || (this.running !== null && key(this.running.request) === k);
+  }
+
+  private drawn(request: unknown): boolean {
+    const parsed = ArtJobRequest.safeParse(request);
+    if (!parsed.success || !parsed.data.characterId) return false;
+    const project = this.store.getState().project;
+    const character = project.characters.find((c) => c.id === parsed.data.characterId);
+    const asset = project.art.assets.find((a) => a.id === character?.appearance);
+    return asset?.kind === "character" && asset.rig !== undefined;
+  }
+
+  private starting = false;
+
   private async startNext(): Promise<void> {
+    if (this.starting) return;
+    this.starting = true;
+    try {
+      await this.startQueued();
+    } finally {
+      this.starting = false;
+    }
+  }
+
+  private async startQueued(): Promise<void> {
     while (!this.running && this.queue.length > 0) {
-      const request = this.queue.shift();
+      const { request, onlyIfUndrawn } = this.queue.shift()!;
+      if (onlyIfUndrawn && this.drawn(request)) {
+        this.emit();
+        continue;
+      }
       const started = await this.start(request);
       if (!started.ok) {
         const parsed = ArtJobRequest.safeParse(request);
@@ -312,8 +387,18 @@ export class ArtService {
     return { ok: true };
   }
 
+  /** Resolves when the running job (if any) ends. */
   async idle(): Promise<void> {
     await this.running?.done;
+  }
+
+  /** Resolves when no job runs and none is queued (tests, scripts). */
+  async drained(): Promise<void> {
+    for (;;) {
+      if (this.running) await this.running.done;
+      else if (this.queue.length > 0 || this.starting) await new Promise((resolve) => setTimeout(resolve, 5));
+      else return;
+    }
   }
 
   private async run(running: Running, models: ArtModels): Promise<void> {
@@ -428,12 +513,20 @@ export class ArtService {
           if (result.summary) summaries.push(result.summary);
           continue;
         }
-        const saved = await this.store.applyBatch({
-          operations: result.operations,
-          baseRevision: this.store.getState().project.revision,
-          author: "ai",
-        });
+        const saved = running.underLock
+          ? await this.store.applyBatch({ operations: result.operations, baseRevision: this.store.getState().project.revision, author: "ai" })
+          : await this.store.commitBackground(() => ({ operations: result.operations }), {
+              signal: running.controller.signal,
+              epoch: running.epoch,
+              onWait: (reason) => {
+                running.waiting = reason;
+                if (reason) ctx.log({ text: `waiting to save (${reason})` });
+                else this.emit();
+              },
+            });
+        if (running.controller.signal.aborted) throw new StageError("cancelled");
         if (!saved.ok) throw new StageError(`saving the ${step.stage} result failed: ${saved.error.message}`);
+        if ("revision" in saved && saved.revision === null) continue;
         running.revisions.push(saved.project.revision);
         summaries.push(result.summary);
         ctx.log({ text: `saved: ${result.summary}` });
@@ -461,7 +554,6 @@ export class ArtService {
       revisions: running.revisions,
       activity: running.activity,
     };
-    if (running.ownsLock) this.store.endAiTurn();
     this.running = null;
     this.totalCost += running.cost;
     this.jobs = [...this.jobs, summary].slice(-RECENT_JOBS);
@@ -471,8 +563,10 @@ export class ArtService {
     this.emit();
   }
 
-  /** Clear the job log (after a project reset, which already backed it up). */
+  /** Stop the jobs and clear the log (after a project reset, which already backed it up). */
   async reset(): Promise<void> {
+    this.cancel();
+    await this.idle();
     this.jobs = [];
     this.totalCost = 0;
     await writeFile(this.path, "");

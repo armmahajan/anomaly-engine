@@ -96,6 +96,7 @@ describe("project HTTP API", () => {
     expect(await nextEvent()).toEqual({ type: "chat", agent: "narrative", chat: idle });
     expect(await nextEvent()).toEqual({ type: "chat", agent: "architect", chat: idle });
     expect(await nextEvent()).toEqual({ type: "architect", architect: { running: null, last: null, log: [] } });
+    expect(await nextEvent()).toMatchObject({ type: "live", live: { settings: { cast: false, rooms: false }, waiting: null } });
     await post("/api/ops", op(150, 0));
     expect(await nextEvent()).toMatchObject({ project: { revision: 1 }, cause: { author: "user" } });
     await reader.cancel();
