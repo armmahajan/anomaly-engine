@@ -196,19 +196,20 @@ export const ChooseConceptInput = z.strictObject({
   sheet: z.number().int().min(0).describe("Index into the asset's concept sheets."),
   cell: z.number().int().min(0).max(3).describe("Design in the 2x2 sheet, reading order (0 top-left, 3 bottom-right)."),
   file: FileRef.describe("The cropped cell image."),
+  original: FileRef.optional().describe("The design as drawn, when `file` is a redraw of it."),
 });
 
 /** Pick the design the rig will be built from. */
 export function chooseConcept(project: ProjectSpec, input: unknown): OperationResult {
   const p = parse(ChooseConceptInput, input, "chooseConcept");
   if (!p.ok) return p;
-  const { assetId, sheet, cell, file } = p.data;
+  const { assetId, sheet, cell, file, original } = p.data;
   const found = findAsset(project, assetId);
   if (!found.ok) return found;
   if (!found.asset.concepts[sheet]) {
     return fail("not_found", `asset "${assetId}" has ${found.asset.concepts.length} concept sheet(s); no sheet ${sheet}`);
   }
-  return replaceAsset(project, found.index, { ...found.asset, chosen: { sheet, cell, file } }, `asset "${assetId}"`);
+  return replaceAsset(project, found.index, { ...found.asset, chosen: { sheet, cell, file, ...(original ? { original } : {}) } }, `asset "${assetId}"`);
 }
 
 // --- rig stage ---------------------------------------------------------------

@@ -184,7 +184,7 @@ async function harness(options: { renderer?: FakeRenderer; vision?: FakeVisionMo
 describe("rig stage modes", () => {
   it("builds a vector and a cutout rig from the same concept", async () => {
     const h = await harness();
-    h.commit((await buildRig(h.ctx, { characterId: "charger" })).operations);
+    h.commit((await buildRig(h.ctx, { characterId: "charger", redraw: false, detail: false })).operations);
     expect(h.asset().rig?.mode).toBeUndefined();
     expect(h.asset().rig?.parts.every((p) => p.shape.type !== "image")).toBe(true);
 
@@ -273,7 +273,7 @@ describe("vector critique loop", () => {
       JSON.stringify({ score: 7, issues: [], rig: rigs[2] }),
     );
     const h = await harness({ renderer, vision, rigRounds: 3 });
-    h.commit((await buildRig(h.ctx, { characterId: "charger" })).operations);
+    h.commit((await buildRig(h.ctx, { characterId: "charger", redraw: false, detail: false })).operations);
     const preview = h.asset().preview!;
     expect(h.asset().rig?.parts.length).toBe(rigs[0]!.parts.length);
     expect(preview.score).toBe(3);

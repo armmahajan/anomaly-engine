@@ -1,3 +1,4 @@
+import { detailLook } from "./dress.ts";
 import { z } from "zod";
 import {
   wantedClipSlots,
@@ -43,6 +44,7 @@ import {
   rigAuthorPrompt,
   rigCritiquePrompt,
   rigSystemPrompt,
+  isRigReadySheet,
 } from "./prompts.ts";
 
 /**
@@ -214,8 +216,20 @@ export interface ConceptsInput {
   feedback?: string;
   /** Use the chosen design as a reference image (variations on it). */
   refine?: boolean;
-  /** Designs ready to rig (neutral pose, limbs apart, distinct colours, whole figure in its cell); cut-off cells are never recommended. */
+  /** Designs ready to rig (neutral pose, limbs apart, distinct colours, whole figure in its cell); cut-off cells are never recommended. Default: on for vector rigs. */
   rigReady?: boolean;
+  /** The rig the design is for (rigModeFor). */
+  rigMode?: RigMode;
+}
+
+/**
+ * The rig mode a character's stages work towards: the request's, else the art direction's, else
+ * the backend's default. Vector is the studio's full pipeline (rig-ready designs, a flat redraw,
+ * a vector rig with elbows and knees checked over render-and-compare rounds, detail shapes, then
+ * clips that bend at the joints); cutout and traced build from the design's own pieces.
+ */
+export function rigModeFor(ctx: ArtContext, project: ProjectSpec, requested?: RigMode): RigMode {
+  return requested ?? project.art.direction.rigMode ?? ctx.defaultRigMode ?? "vector";
 }
 
 /** Rig-ready concept sheets with no whole design are drawn again this many times. */
@@ -246,6 +260,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
   // An explicit brief wins, then the asset's own (unless it's only the name), then the character's wiki page.
   const own = asset?.brief && asset.brief !== character.name ? asset.brief : undefined;
   const brief = input.brief?.trim() || own || wikiBrief(project, character.id) || character.name;
+  const rigReady = input.rigReady ?? rigModeFor(ctx, project, input.rigMode) === "vector";
 
   if (!asset) {
     assetId = uniqueId(`${character.id}_look`, project.art.assets.map((a) => a.id));
@@ -267,7 +282,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
     direction: project.art.direction,
     feedback: input.feedback,
     refining: reference !== null,
-    rigReady: input.rigReady,
+    rigReady,
   });
   // Rig-ready: cells whose figure runs off the cell's edge are never recommended; a sheet with none whole is drawn again (once).
   let generated: Awaited<ReturnType<ImageModel["generate"]>>;
@@ -279,10 +294,10 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
     generated = await ctx.image.generate({ prompt: asked, references: reference ? [reference] : undefined, signal: ctx.signal });
     ctx.spend(generated.usage);
     // Rig-ready: a sheet that came back with a transparent background gets a flat one (the cutout needs it).
-    if (input.rigReady) generated = { ...generated, image: await opaque(ctx, generated.image), ext: "png" };
+    if (rigReady) generated = { ...generated, image: await opaque(ctx, generated.image), ext: "png" };
     file = await ctx.files.put(generated.image, generated.ext);
     ctx.log({ text: `concept sheet (${generated.model})`, cost: generated.usage.cost, file });
-    if (!input.rigReady) break;
+    if (!rigReady) break;
     cells = [];
     for (let cell = 0; cell < 4; cell++) {
       const figure = isolateFigure(decodePng(await ctx.renderer.crop(generated.image, sheetCell(cell), 512)));
@@ -341,8 +356,10 @@ export interface ChooseInput {
   sheet?: number;
   /** Cell 0-3; default the AI's recommendation (else 0). */
   cell?: number;
-  /** Keep only the main figure (neighbouring designs, sparks and stray bits painted out) and warn when it is cut off. */
+  /** Keep only the main figure (neighbouring designs, sparks and stray bits painted out) and warn when it is cut off. Default: when the sheet was drawn rig-ready. */
   rigReady?: boolean;
+  /** The rig the design is for (accepted for symmetry with the other stages; the sheet decides rigReady). */
+  rigMode?: RigMode;
 }
 
 /** 2x2 sheet cell as a fraction of the image, with a small inset to drop gutters. */
@@ -378,7 +395,8 @@ export async function chooseConcept(ctx: ArtContext, input: ChooseInput): Promis
     if (error instanceof BudgetExceeded) throw error;
     ctx.log({ text: `could not check facing (${error instanceof Error ? error.message : String(error)})` });
   }
-  if (input.rigReady) cropped = mainFigureOnly(ctx, cropped);
+  // A design from a rig-ready sheet keeps only its main figure (the sheet says how it was drawn, whatever the picker knows).
+  if (input.rigReady ?? isRigReadySheet(sheet.prompt)) cropped = mainFigureOnly(ctx, cropped);
 
   const file = await ctx.files.put(cropped, "png");
   ctx.log({ text: `chose design ${cell + 1} of sheet ${sheetIndex + 1}`, file });
@@ -471,7 +489,7 @@ export async function redrawFlat(ctx: ArtContext, input: RedrawInput): Promise<S
   const file = await ctx.files.put(png, "png");
   ctx.log({ text: "the flat redraw is the design now", file });
   return {
-    operations: [{ name: "chooseConcept", input: { assetId: asset.id, sheet: asset.chosen.sheet, cell: asset.chosen.cell, file } }],
+    operations: [{ name: "chooseConcept", input: { assetId: asset.id, sheet: asset.chosen.sheet, cell: asset.chosen.cell, file, original: asset.chosen.original ?? asset.chosen.file } }],
     summary: `redrew ${character.name}'s design as flat art`,
   };
 }
@@ -484,8 +502,12 @@ export interface RigInput {
   feedback?: string;
   /** Vector shapes, cutout pieces of the design, or those pieces traced as vector shapes (default: the art direction's rigMode, else the backend's default). */
   rigMode?: RigMode;
-  /** Split arms and legs at elbows and knees (two bones per limb). */
+  /** Split arms and legs at elbows and knees (two bones per limb). Default: on for vector rigs. */
   limbJoints?: boolean;
+  /** Vector rigs: redraw the design as flat art first when it isn't one yet (default on). */
+  redraw?: boolean;
+  /** Vector rigs: the detail pass after the build, with the design as drawn as its reference (default on). */
+  detail?: boolean;
   /** Traced rigs: the clean tracer (traced.ts `clean`), with the plan's feature points kept. */
   cleanTrace?: boolean;
   /** Traced rigs: the critic also compares the drawn rig with the design and points out lost features. */
@@ -579,38 +601,74 @@ async function canvasViews(
 
 const matchText = (m: MatchScore | undefined) => (m ? `match ${Math.round(m.silhouette * 100)}% shape, ${Math.round(m.color * 100)}% color` : "");
 
+/** The flat redraw's image quality: medium keeps it close to the design (what the creator voted on). */
+const FLAT_REDRAW_QUALITY = "medium";
+/** Critique rounds of a vector rig on the full pipeline (the voted "vector-loop"). */
+const VECTOR_RIG_ROUNDS = 4;
+
 export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageResult & { plan?: CutoutPlan }> {
   const project = ctx.project();
   const character = findCharacter(project, input.characterId);
   const asset = requireAsset(project, character);
   if (!asset.chosen) throw new StageError(`choose a concept design for "${character.name}" first`);
-  const concept = await ctx.files.get(asset.chosen.file);
+  const mode = rigModeFor(ctx, project, input.rigMode);
+  // Vector rigs on the full pipeline: built from a flat redraw of the design, with elbows and knees, then detailed.
+  const full = mode === "vector" && !input.puppet;
+  const revising = Boolean(input.feedback?.trim() && asset.rig);
+  const operations: OperationCall[] = [];
+  let chosen = asset.chosen;
+  if (full && (input.redraw ?? true) && !chosen.original && !revising) {
+    const redrawn = await redrawFlat(ctx, { characterId: character.id, quality: FLAT_REDRAW_QUALITY });
+    const choice = redrawn.operations[0]!.input as { file: FileRef };
+    operations.push(...redrawn.operations);
+    chosen = { ...chosen, file: choice.file, original: chosen.file };
+  }
+  const concept = await ctx.files.get(chosen.file);
   const size = pngSize(concept);
   // The design cut out of its background: the cutout rig's image, and what every attempt is measured against.
   const cut = cutCharacter(decodePng(concept));
   const reference = cut ? flatten(placeCutout(cut, size), BACKGROUND) : null;
-  const mode = input.rigMode ?? project.art.direction.rigMode ?? ctx.defaultRigMode ?? "vector";
-  const options = { limbJoints: input.limbJoints, cleanTrace: input.cleanTrace, review: input.review, rounds: input.rounds, sheetQuality: input.sheetQuality };
+  const options = {
+    limbJoints: input.limbJoints ?? (full ? true : undefined),
+    cleanTrace: input.cleanTrace,
+    review: input.review,
+    rounds: input.rounds ?? (full && ctx.rigRounds === undefined ? VECTOR_RIG_ROUNDS : undefined),
+    sheetQuality: input.sheetQuality,
+  };
   const best = input.puppet
     ? await puppetAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), ...options })
     : mode === "cutout" || mode === "traced"
       ? await cutoutAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), mode, ...options })
       : await vectorAttempts(ctx, { character, asset, concept, size, reference, feedback: input.feedback?.trim(), ...options });
 
-  const preview = await ctx.files.put((await renderRest(ctx, best.rig)).png, "png");
+  // The finish: detail shapes (shading, highlights, folds, seams) from the design as drawn, on each part's bone.
+  let rig = best.rig;
+  let finish = "";
+  if (full && (input.detail ?? true) && !revising) {
+    try {
+      const design = chosen.original ? await ctx.files.get(chosen.original) : concept;
+      const dressed = await detailLook(ctx, { rig: best.rig, frame: best.frame, canvas: size, design, brief: asset.brief });
+      rig = dressed.rig;
+      finish = `, ${dressed.details?.length ?? 0} detail shapes`;
+    } catch (error) {
+      if (error instanceof BudgetExceeded || ctx.signal?.aborted) throw error;
+      ctx.log({ text: `details skipped (${error instanceof Error ? error.message : String(error)})` });
+    }
+  }
+
+  const preview = await ctx.files.put((await renderRest(ctx, rig)).png, "png");
+  operations.push({
+    name: "setRig",
+    input: {
+      assetId: asset.id,
+      rig,
+      preview: { file: preview, score: best.score, notes: best.notes.slice(0, 2000), frame: best.frame, ...(best.match ? { match: best.match } : {}) },
+    },
+  });
   return {
-    operations: [
-      {
-        name: "setRig",
-        input: {
-          assetId: asset.id,
-          rig: best.rig,
-          preview: { file: preview, score: best.score, notes: best.notes.slice(0, 2000), frame: best.frame, ...(best.match ? { match: best.match } : {}) },
-        },
-      },
-    ],
+    operations,
     ...(best.plan ? { plan: best.plan } : {}),
-    summary: `built ${character.name}'s ${input.puppet ? "puppet" : mode} rig (score ${best.score}/10${best.match ? `, ${matchText(best.match)}` : ""})`,
+    summary: `built ${character.name}'s ${input.puppet ? "puppet" : mode} rig (score ${best.score}/10${best.match ? `, ${matchText(best.match)}` : ""}${finish})`,
   };
 }
 
@@ -919,7 +977,7 @@ export interface AnimateInput {
   feedback?: string;
   /** Only these clips (default: every slot the character's characters use). */
   slots?: ClipSlot[];
-  /** The rig has elbows and knees: ask for them to bend. */
+  /** The rig has elbows and knees: ask for them to bend. Default: on for vector rigs (built with them). */
   limbJoints?: boolean;
   /** Rigs cut from the drawing: limit each joint by the overlap around the joint only (motionLimits `joint`). */
   jointLimits?: boolean;
@@ -978,7 +1036,7 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
               system,
               content: [
                 image(rest),
-                text(animPrompt({ character, brief: asset.brief, rig, slots: wanted, feedback: input.feedback, limits: limitsLine, limbJoints: input.limbJoints })),
+                text(animPrompt({ character, brief: asset.brief, rig, slots: wanted, feedback: input.feedback, limits: limitsLine, limbJoints: input.limbJoints ?? (rig.mode ?? "vector") === "vector" })),
               ],
               maxTokens: 10000,
             },

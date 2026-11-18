@@ -102,6 +102,11 @@ export const PICK_SYSTEM =
   "You are an art director for a 2D platformer. You judge concept sheets for readability at small size, " +
   "fit to the brief and style, and how easily the design can be rebuilt from simple flat shapes and animated.";
 
+/** Words only a rig-ready concept prompt has: a sheet drawn with them was meant to be rigged as drawn. */
+export const RIG_READY_MARK = "ready to be cut apart into an animation puppet";
+/** Whether a concept sheet was drawn rig-ready (its stored prompt). */
+export const isRigReadySheet = (prompt: string) => prompt.includes(RIG_READY_MARK);
+
 export function pickPrompt(brief: string, direction: ArtDirection, feedback?: string, rigReady?: { cutOff: number[] }): string {
   return [
     "The image is a 2x2 concept sheet: cells 0 (top-left), 1 (top-right), 2 (bottom-left), 3 (bottom-right).",

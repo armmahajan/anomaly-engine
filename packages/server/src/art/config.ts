@@ -23,7 +23,7 @@ import type { ArtServiceOptions } from "./service.ts";
  *   STUDIO_ART_VISION_MODEL    default claude-opus-5-5 on claude-code,
  *                              anthropic/claude-haiku-5.5 on openrouter
  *   STUDIO_ART_VISION_EFFORT   claude-code only: low|medium|high|xhigh|max (default: the model's)
- *   STUDIO_ART_RIG_MODE        traced (default: the design's pieces redrawn as flat vector shapes), cutout or vector
+ *   STUDIO_ART_RIG_MODE        vector (default: the full pipeline, see stages.ts rigModeFor), traced or cutout
  *   STUDIO_ART_BUDGET          USD per job, default 0.25
  *   STUDIO_ART_BACKEND=fake    scripted models (tests/e2e); renders are still real
  * Defaults come from the Phase 0 benchmark: a whole character costs ~$0.01-0.02 on
@@ -39,7 +39,7 @@ export type VisionBackend = "claude-code" | "openrouter";
 
 function rigModeFromEnv(value: string | undefined): "vector" | "cutout" | "traced" {
   const v = value?.trim();
-  return v === "vector" || v === "cutout" ? v : "traced";
+  return v === "traced" || v === "cutout" ? v : "vector";
 }
 
 /** The vision backend the environment asks for; null when STUDIO_ART_VISION_BACKEND is misspelled. */
@@ -92,8 +92,8 @@ export function artOptionsFromEnv(
       }),
       vision,
     },
-    // Traced: the chosen design cut into pieces, each redrawn as flat vector shapes (likeness of a cutout, clean
-    // animation of a vector rig). STUDIO_ART_RIG_MODE=cutout or vector picks another.
+    // Vector: the full pipeline the creator voted for (rig-ready designs, a flat redraw, a vector rig with elbows
+    // and knees checked over render-and-compare rounds, detail shapes). STUDIO_ART_RIG_MODE=traced or cutout picks another.
     defaultRigMode: rigModeFromEnv(env.STUDIO_ART_RIG_MODE),
   };
 }

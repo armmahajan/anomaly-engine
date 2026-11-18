@@ -31,7 +31,7 @@ test("art: concepts -> pick -> rig -> animate in the Characters workbench, then 
 
   await panel.getByRole("button", { name: "Build rig" }).click();
   await expect(bench.getByTestId("rig-preview")).toBeAttached({ timeout: 60_000 });
-  await expect(bench.getByText(/critic \d+\/10 · 9 parts/)).toBeVisible();
+  await expect(bench.getByText(/critic \d+\/10 · \d+ parts/)).toBeVisible();
   await bench.getByLabel("onion skin").fill("0.8");
 
   await panel.getByRole("button", { name: "Animate" }).click();
@@ -92,7 +92,8 @@ test("art: a cutout rig is the design itself, drawn by the runtime on the stage 
   // The live rig on the stage is the design's pixels (onion skin off): its brown body shows.
   await bench.getByLabel("onion skin").fill("0");
   const body = [107, 79, 58];
-  await expect.poll(async () => colorCount(await page.locator("iframe.game-frame").screenshot(), body), { timeout: 15_000 }).toBeGreaterThan(300);
+  // (Concepts default to rig-ready sheets, which draw the figure smaller in its cell: a few hundred body pixels.)
+  await expect.poll(async () => colorCount(await page.locator("iframe.game-frame").screenshot(), body), { timeout: 15_000 }).toBeGreaterThan(200);
   await page.screenshot({ path: "test-results/art-cutout-stage.png" });
 
   await page.getByRole("button", { name: "▶ Play" }).click();

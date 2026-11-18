@@ -122,6 +122,8 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("Score how well the render matches")) reply = { score: 8, issues: ["horn a bit small"], rig: exampleRig() };
     else if (prompt.includes("Write these clips")) reply = { clips: exampleClips(), notes: "ok" };
     else if (prompt.includes("Score the animation")) reply = { score: 8, issues: [], clips: exampleClips() };
+    else if (prompt.includes("Add detail shapes so the rig reads like the design")) reply = { details: fakeDetails(prompt), notes: "a highlight" };
+    else if (prompt.includes("Score how well the detailed rig reads like the design")) reply = { score: 8, issues: [], details: fakeDetails(prompt) };
     else if (prompt.includes("Plan the cutout rig")) reply = fakeCutoutPlan(request);
     else if (prompt.includes("Review the cutout rig")) reply = { score: 8, issues: ["the head could turn further"], plan: null };
     else if (prompt.includes("Write the art direction for this game")) reply = fakeDirection(prompt);
@@ -161,6 +163,16 @@ export class FakeVisionModel implements VisionModel {
     else reply = fakeGameReply(prompt) ?? { error: "fake model got an unexpected prompt" };
     return { text: "```json\n" + JSON.stringify(reply) + "\n```", usage, model: this.id };
   }
+}
+
+/** One highlight inside the first listed part ("- id (bone b, ...): x a-b, y c-d"), so the detail pass has something to keep. */
+function fakeDetails(prompt: string): unknown[] {
+  const m = prompt.match(/^- ([a-z0-9_]+) \(bone [^)]*\): x (-?\d+)-(-?\d+), y (-?\d+)-(-?\d+)/m);
+  if (!m) return [];
+  const [x0, x1, y0, y1] = [m[2], m[3], m[4], m[5]].map(Number) as [number, number, number, number];
+  const rx = Math.max(1, (x1 - x0) / 4);
+  const ry = Math.max(1, (y1 - y0) / 4);
+  return [{ id: "fake_highlight", on: m[1], shape: { type: "ellipse", center: [(x0 + x1) / 2, (y0 + y1) / 2], rx, ry }, fill: "#ffffff", opacity: 0.3, clip: true }];
 }
 
 // --- art direction and kit plans ---------------------------------------------------

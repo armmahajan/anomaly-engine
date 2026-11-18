@@ -41,6 +41,8 @@ export const ConceptChoice = z.strictObject({
   sheet: z.number().int().min(0),
   cell: z.number().int().min(0).max(3),
   file: FileRef,
+  /** The design as drawn, when `file` is a redraw of it (the flat redraw a vector rig is built from): the finish looks to it. */
+  original: FileRef.optional(),
 });
 
 /** A preview render of the current representation, with the AI's assessment. */

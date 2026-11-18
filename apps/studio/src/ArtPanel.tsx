@@ -23,7 +23,12 @@ interface Props {
 export const money = (usd: number) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(3)}`);
 
 const RIG_MODE_CHOICES: { id: RigMode; label: string; title: string }[] = [
-  { id: "vector", label: "Vector", title: "Redrawn as flat shapes with outlines (the art direction's line and boil)" },
+  {
+    id: "vector",
+    label: "Vector (recommended)",
+    title:
+      "The full pipeline: designs drawn ready to rig, a clean flat redraw, a vector rig with elbows and knees checked over several rounds, then detail shapes (shading, highlights, folds) from the design. Animates cleanly.",
+  },
   { id: "cutout", label: "Cutout", title: "The design itself, cut into pieces on bones: looks exactly like the concept" },
   { id: "traced", label: "Traced", title: "The design cut into pieces on bones, each redrawn as flat shapes with the art direction's outline: close to the concept, matching the vector art" },
 ];
@@ -109,7 +114,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         <button
           type="button"
           disabled={disabled || !(brief.trim() || asset?.brief)}
-          onClick={() => start({ stage: auto ? "auto" : "concepts", brief: brief.trim() || undefined, feedback: conceptNote.trim() || undefined })}
+          onClick={() => start({ stage: auto ? "auto" : "concepts", brief: brief.trim() || undefined, feedback: conceptNote.trim() || undefined, rigMode })}
         >
           {auto ? "Generate everything" : "Generate concepts"}
         </button>
@@ -118,7 +123,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
             type="button"
             disabled={disabled}
             title="Four variations on the chosen design"
-            onClick={() => start({ stage: "concepts", refine: true, feedback: conceptNote.trim() || undefined })}
+            onClick={() => start({ stage: "concepts", refine: true, feedback: conceptNote.trim() || undefined, rigMode })}
           >
             Variations
           </button>

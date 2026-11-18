@@ -61,7 +61,8 @@ function harness(budget = 1) {
 describe("art pipeline stages", () => {
   it("runs concepts -> choose -> rig -> animate, each as committable operations", async () => {
     const h = harness();
-    const concepts = await generateConcepts(h.ctx, { characterId: "charger", brief: "a horned beetle" });
+    // The plain stage mechanics (the full vector pipeline has its own test below).
+    const concepts = await generateConcepts(h.ctx, { characterId: "charger", brief: "a horned beetle", rigReady: false });
     expect(concepts.operations.map((o) => o.name)).toEqual(["createAsset", "addConcept"]);
     h.commit(concepts.operations);
     const asset = () => h.project().art.assets[0]!;
@@ -69,12 +70,12 @@ describe("art pipeline stages", () => {
     expect(asset().concepts[0]?.recommended?.cell).toBe(1);
     expect(h.image.requests[0]?.prompt).toContain("a horned beetle");
 
-    h.commit((await chooseConcept(h.ctx, { characterId: "charger" })).operations);
+    h.commit((await chooseConcept(h.ctx, { characterId: "charger", rigReady: false })).operations);
     expect(asset().chosen).toMatchObject({ sheet: 0, cell: 1 });
     expect(h.renderer.crops.map((c) => c.x)).toEqual([0.51]); // the recommended (top-right) cell
     expect(h.log.some((a) => a.text === "mirrored the design to face right")).toBe(true);
 
-    const rig = await buildRig(h.ctx, { characterId: "charger" });
+    const rig = await buildRig(h.ctx, { characterId: "charger", redraw: false, detail: false });
     h.commit(rig.operations);
     const built = asset();
     expect(built.kind === "character" && built.rig?.parts.length).toBe(9);
@@ -87,6 +88,35 @@ describe("art pipeline stages", () => {
     expect(animated.kind === "character" && Object.keys(animated.clipPreviews).length).toBe(5);
     expect(h.spent()).toBeGreaterThan(0);
     expect(h.log.some((a) => a.file)).toBe(true);
+  });
+
+  it("vector rigs run the full pipeline: rig-ready designs, a flat redraw kept beside the original, joints, details, bending clips", async () => {
+    const h = harness();
+    h.commit((await generateConcepts(h.ctx, { characterId: "charger", brief: "a horned beetle" })).operations);
+    expect(h.image.requests[0]?.prompt).toMatch(/neutral|limbs/i); // the rig-ready concept prompt
+    h.commit((await chooseConcept(h.ctx, { characterId: "charger" })).operations);
+    const asset = () => h.project().art.assets[0]!;
+    const drawn = asset().kind === "character" ? (asset() as { chosen: { file: string } }).chosen.file : "";
+
+    const rig = await buildRig(h.ctx, { characterId: "charger" });
+    expect(rig.operations.map((o) => o.name)).toEqual(["chooseConcept", "setRig"]); // the redraw, then the rig
+    h.commit(rig.operations);
+    const built = asset();
+    if (built.kind !== "character") throw new Error("not a character");
+    expect(built.chosen?.original).toBe(drawn); // the design as drawn stays, the redraw is what was rigged
+    expect(h.image.requests.at(-1)?.references).toHaveLength(1); // the redraw: an edit of the chosen design
+    expect(h.vision.requests.some((r) => r.content.some((c) => c.type === "text" && c.text.includes("Split arms and legs") || (c.type === "text" && /elbow|knee/i.test(c.text))))).toBe(true);
+    expect(h.log.some((a) => a.text.startsWith("details: score"))).toBe(true);
+    expect(built.rig?.parts.some((p) => p.id.includes("fake_highlight"))).toBe(true);
+    expect(rig.summary).toMatch(/vector rig .*detail shapes/);
+
+    // A revision keeps the redraw and doesn't detail again.
+    const revised = await buildRig(h.ctx, { characterId: "charger", feedback: "bigger horn" });
+    expect(revised.operations.map((o) => o.name)).toEqual(["setRig"]);
+
+    h.vision.requests.length = 0;
+    h.commit((await animate(h.ctx, { characterId: "charger" })).operations);
+    expect(h.vision.requests.some((r) => r.content.some((c) => c.type === "text" && /elbow|knee/i.test(c.text)))).toBe(true);
   });
 
   it("needs the earlier stages first, with a clear message", async () => {
@@ -102,14 +132,14 @@ describe("art pipeline stages", () => {
     h.commit((await generateConcepts(h.ctx, { characterId: "charger" })).operations);
     h.commit((await chooseConcept(h.ctx, { characterId: "charger", cell: 0 })).operations);
     h.vision.replies.push('{"rig": {"bones": [], "parts": []}}');
-    const result = await buildRig(h.ctx, { characterId: "charger" });
+    const result = await buildRig(h.ctx, { characterId: "charger", redraw: false, detail: false });
     expect(result.operations[0]?.name).toBe("setRig");
     expect(h.log.some((a) => a.text.includes("asking for a fix"))).toBe(true);
   });
 
   it("refines with the chosen design as a reference image", async () => {
     const h = harness();
-    h.commit((await generateConcepts(h.ctx, { characterId: "charger" })).operations);
+    h.commit((await generateConcepts(h.ctx, { characterId: "charger", rigReady: false })).operations);
     h.commit((await chooseConcept(h.ctx, { characterId: "charger", cell: 2 })).operations);
     h.commit((await generateConcepts(h.ctx, { characterId: "charger", feedback: "longer horn", refine: true })).operations);
     expect(h.image.requests[1]?.references).toHaveLength(1);
