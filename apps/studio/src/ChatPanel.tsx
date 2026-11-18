@@ -227,12 +227,15 @@ export function ChatPanel({ session, agent, chat, revision, canUndo, playing, co
   const edit = (message: string, plan: EditPlan) =>
     plan.kind === "new" ? sendMessage(message) : sendMessage(message, { replace: plan.replace, undoRevision: plan.undoRevision });
 
+  /** Put text in the message box (after what's already typed there, never over it). */
   const reuse = (message: string) => {
-    setDraft(message);
+    const typed = draft.trim();
+    const next = typed && typed !== message ? `${draft.trimEnd()}\n\n${message}` : message;
+    setDraft(next);
     const el = inputRef.current;
     if (el) {
       el.focus();
-      requestAnimationFrame(() => el.setSelectionRange(message.length, message.length));
+      requestAnimationFrame(() => el.setSelectionRange(next.length, next.length));
     }
   };
 

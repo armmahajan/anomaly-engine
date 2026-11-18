@@ -257,7 +257,13 @@ function Changes({ changes }: { changes: string[] }) {
   const { saved, queued } = countChanges(changes);
   const summary = [saved > 0 && plural(saved, "change"), queued > 0 && `${queued} queued`].filter(Boolean).join(" · ");
   return (
-    <details className="msg-changes">
+    <details
+      className="msg-changes"
+      onToggle={(e) => {
+        const details = e.currentTarget;
+        if (details.open) details.scrollIntoView({ block: "nearest" });
+      }}
+    >
       <summary>{summary}</summary>
       <ul>
         {changes.map((change, i) => (
