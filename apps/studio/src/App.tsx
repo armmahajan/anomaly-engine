@@ -352,7 +352,7 @@ export function App({ session }: { session: Session }) {
       )}
       {tab === "game" && (
         <section className="stage-dock" data-testid="stage-dock">
-          <GameSettings project={project} session={session} locked={locked} />
+          <GameSettings project={project} session={session} locked={locked} onOpenWiki={openWikiPage} />
         </section>
       )}
       {tab === "characters" &&

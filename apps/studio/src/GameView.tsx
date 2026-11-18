@@ -34,7 +34,7 @@ export function GamePanel({ project, session, art, locked }: { project: ProjectS
   );
 }
 
-export function GameSettings({ project, session, locked }: { project: ProjectSpec; session: Session; locked: boolean }) {
+export function GameSettings({ project, session, locked, onOpenWiki }: { project: ProjectSpec; session: Session; locked: boolean; onOpenWiki?: (pageId: string) => void }) {
   const { rules } = project.world;
   const edit = async (op: string, input: unknown) => {
     const result: ChangeResult = await session.applyOperation(op, input);
@@ -97,7 +97,7 @@ export function GameSettings({ project, session, locked }: { project: ProjectSpe
           <LoadoutPanel project={project} session={session} locked={locked} />
         </GameSection>
         <GameSection id="weapons" title="Weapons" summary={project.weapons.list.length ? project.weapons.list.map((w) => w.name).join(", ") : "none"} wide>
-          <WeaponsPanel project={project} session={session} locked={locked} />
+          <WeaponsPanel project={project} session={session} locked={locked} onOpenWiki={onOpenWiki} />
         </GameSection>
         <GameSection id="modals" title="Modals" summary={modals.length ? `${modals.length} screen${modals.length === 1 ? "" : "s"}` : "none"}>
           <ModalsPanel project={project} session={session} locked={locked} />
