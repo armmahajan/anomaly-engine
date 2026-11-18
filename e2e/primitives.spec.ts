@@ -46,8 +46,13 @@ test("every new action and condition runs in the browser build", async ({ page }
   expect(last("homebody_1").behaviorState).toBe("home");
   expect(Math.abs(last("homebody_1").x - 1300)).toBeLessThanOrEqual(4);
 
-  const guardStates = new Set(track("guard_1").map((e) => e.behaviorState));
-  expect(guardStates).toEqual(new Set(["fall", "landed", "rest"]));
+  // The onGround interrupt takes the guard from its first state to "landed", then "after" to "rest". Its fall from
+  // the spawn lasts ~0.6 s, which can be over before play starts reporting, so "fall" may not be sampled; if it
+  // is, it comes before "landed".
+  const guardTrack = track("guard_1").map((e) => e.behaviorState);
+  expect(new Set(guardTrack)).toEqual(new Set(guardTrack.includes("fall") ? ["fall", "landed", "rest"] : ["landed", "rest"]));
+  if (guardTrack.includes("fall")) expect(guardTrack.lastIndexOf("fall")).toBeLessThan(guardTrack.indexOf("landed"));
+  expect(guardTrack.indexOf("landed")).toBeLessThan(guardTrack.indexOf("rest"));
 
   const sensed = Object.fromEntries(
     ["high", "level", "even", "uneven", "facer", "front", "seer", "blind", "edge", "dropper"].map((id) => [id, last(`${id}_1`).behaviorState]),

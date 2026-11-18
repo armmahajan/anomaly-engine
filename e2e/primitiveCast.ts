@@ -43,7 +43,9 @@ const cast: [ReturnType<typeof enemy>, [number, number][]][] = [
     [[1300, FLOOR]],
   ],
   [
-    enemy("guard", "fall", { fall: [wait], landed: [wait, [[{ type: "after", seconds: 0.3 }, "rest"]]], rest: [wait] }, [[{ type: "onGround" }, "landed"]]),
+    // onGround as a transition out of "fall" (an interrupt would re-fire whenever the guard is on the ground and
+    // isn't "landed", pulling it straight back from "rest" every frame).
+    enemy("guard", "fall", { fall: [wait, [[{ type: "onGround" }, "landed"]]], landed: [wait, [[{ type: "after", seconds: 0.3 }, "rest"]]], rest: [wait] }),
     [[1450, 300]],
   ],
   [enemy("coin", "flip", { flip: [wait, [[{ type: "chance", p: 0.5 }, "heads"], [{ type: "after", seconds: 0 }, "tails"]]], heads: [wait], tails: [wait] }), Array.from({ length: 12 }, () => [1500, FLOOR] as [number, number])],
