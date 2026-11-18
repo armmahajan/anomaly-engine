@@ -9,6 +9,8 @@ import { MapSettings } from "./MapSettings.tsx";
 import { CameraSettings } from "./CameraSettings.tsx";
 import { ControlsSettings } from "./ControlsSettings.tsx";
 import { GameSection } from "./content/GameSection.tsx";
+import { WeaponsPanel } from "./weapons/WeaponsPanel.tsx";
+import { LoadoutPanel, loadoutSummary } from "./weapons/LoadoutPanel.tsx";
 
 /**
  * Game mode: what belongs to the whole game rather than one room. The sidebar
@@ -90,6 +92,12 @@ export function GameSettings({ project, session, locked }: { project: ProjectSpe
         </GameSection>
         <GameSection id="items" title="Items" summary={items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : "none"}>
           <ItemsPanel project={project} session={session} locked={locked} />
+        </GameSection>
+        <GameSection id="loadout" title="Loadout" summary={loadoutSummary(project)}>
+          <LoadoutPanel project={project} session={session} locked={locked} />
+        </GameSection>
+        <GameSection id="weapons" title="Weapons" summary={project.weapons.list.length ? project.weapons.list.map((w) => w.name).join(", ") : "none"} wide>
+          <WeaponsPanel project={project} session={session} locked={locked} />
         </GameSection>
         <GameSection id="modals" title="Modals" summary={modals.length ? `${modals.length} screen${modals.length === 1 ? "" : "s"}` : "none"}>
           <ModalsPanel project={project} session={session} locked={locked} />
