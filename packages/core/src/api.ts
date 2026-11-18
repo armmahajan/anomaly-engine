@@ -59,7 +59,15 @@ export const ResetRequest = z.strictObject({
   from: z.enum(["starter", "example"]).default("starter"),
 });
 
-export const ChatRequest = z.strictObject({ message: z.string().trim().min(1).max(4000) });
+export const ChatRequest = z.strictObject({
+  message: z.string().trim().min(1).max(4000),
+  /**
+   * Edit or retry: the index of the latest user message, whose exchange (the message and its
+   * reply) this message replaces. Refused while that turn's saved changes are still in the
+   * project (undo them first), so replacing never hides changes.
+   */
+  replace: z.number().int().min(0).optional(),
+});
 
 /** The studio's AI agents, each with its own chat: build assistant (the game) and director (wiki and progression). */
 export const AgentId = z.enum(["build", "narrative", "architect"]);

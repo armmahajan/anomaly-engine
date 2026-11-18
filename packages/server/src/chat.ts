@@ -114,8 +114,21 @@ export class ChatService {
   async send(request: unknown): Promise<Result> {
     const parsed = ChatRequest.safeParse(request);
     if (!parsed.success) return fail("invalid_request", "malformed chat request", toIssues(parsed.error));
+    const { replace } = parsed.data;
+    const refused = replace === undefined ? null : this.checkReplace(replace);
+    if (refused) return refused;
     const lock = await this.store.beginAiTurn();
     if (!lock.ok) return lock;
+    if (replace !== undefined) {
+      // Checked again under the lock: another turn may have finished in between.
+      const late = this.checkReplace(replace);
+      if (late) {
+        this.store.endAiTurn();
+        return late;
+      }
+      this.entries = this.entries.slice(0, replace);
+      await writeFile(this.path, this.entries.map((e) => JSON.stringify(e) + "\n").join(""));
+    }
 
     const history = toHistory(this.entries.slice(-HISTORY_ENTRIES));
     const controller = new AbortController();
@@ -124,6 +137,17 @@ export class ChatService {
     await this.append({ role: "user", at: new Date().toISOString(), text: parsed.data.message });
     running.done = this.runTurn(running, parsed.data.message, history);
     return { ok: true };
+  }
+
+  /** Why the exchange starting at entry `index` can't be replaced, or null if it can (see ChatRequest.replace). */
+  private checkReplace(index: number): Result | null {
+    if (this.entries[index]?.role !== "user" || this.entries.slice(index + 1).some((e) => e.role === "user")) {
+      return fail("stale_revision", "only the latest message can be edited or retried; reload and try again");
+    }
+    const undone = this.store.undoneRevisions();
+    const standing = this.entries.slice(index + 1).some((e) => e.role === "assistant" && e.revision !== null && !undone.includes(e.revision));
+    if (standing) return fail("invalid_request", "that turn's changes are still in the project; undo them first, or send a new message instead");
+    return null;
   }
 
   cancel(): Result {

@@ -331,19 +331,26 @@ export class Session {
     return result;
   };
 
-  /** Send a chat message to one of the agents. A running playtest is stopped first. */
-  sendChat = async (agent: AgentId, message: string): Promise<boolean> => {
+  /**
+   * Send a chat message to one of the agents. A running playtest is stopped first.
+   * Edit/retry: `replace` is the index of the latest user message whose exchange this replaces;
+   * `undoRevision` (that turn's saved revision, still the latest) is undone first.
+   */
+  sendChat = async (agent: AgentId, message: string, edit: { replace?: number; undoRevision?: number } = {}): Promise<{ ok: true } | { ok: false; error: string }> => {
+    // The chat panel shows why a message wasn't sent, next to the message.
+    const failed = (error: string) => ({ ok: false as const, error });
     if (this.state.mode === "play") {
       this.stop();
-      if (!(await this.waitFor(() => this.state.mode === "edit", STOP_TIMEOUT_MS))) {
-        this.reportProblem("could not stop the playtest to send the message");
-        return false;
-      }
+      if (!(await this.waitFor(() => this.state.mode === "edit", STOP_TIMEOUT_MS))) return failed("could not stop the playtest to send the message");
     }
     await this.releasing;
-    const result = await api.sendChat(agent, message);
-    if (!result.ok) this.reportProblem(`chat: ${result.error.message}`);
-    return result.ok;
+    if (edit.undoRevision !== undefined) {
+      if (this.state.project.revision !== edit.undoRevision || !this.state.canUndo) return failed("the project changed since that turn, so its changes can't be undone automatically");
+      const undone = await this.undo();
+      if (!undone.ok) return { ok: false, error: undone.error.message };
+    }
+    const result = await api.sendChat(agent, message, edit.replace);
+    return result.ok ? { ok: true } : failed(result.error.message);
   };
 
   cancelChat = async (agent: AgentId): Promise<void> => {
