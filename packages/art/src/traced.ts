@@ -106,6 +106,17 @@ export function tracedRig(
 
   // Draw order of the plan's parts (z, then plan order) and how they touch.
   const P = plan.parts.length;
+  // Clean: each part's most common colour, and the part on its bone's parent (what a hidden stretch of it continues as).
+  const commonColor = plan.parts.map((_, k) => {
+    const counts = new Int32Array(palette.length);
+    for (let i = 0; i < N; i++) if (label[i] === k && cluster[i]! >= 0) counts[cluster[i]!]!++;
+    return counts.indexOf(Math.max(...counts));
+  });
+  const parentBone = new Map(plan.bones.map((b) => [b.id, b.parent]));
+  const parentPart = plan.parts.map((p) => {
+    const up = parentBone.get(p.bone);
+    return up ? plan.parts.findIndex((q) => q.bone === up) : -1;
+  });
   const order = plan.parts.map((_, k) => k).sort((a, b) => plan.parts[a]!.z - plan.parts[b]!.z || a - b);
   const rank = new Int32Array(P);
   order.forEach((k, r) => (rank[k] = r));
@@ -204,6 +215,10 @@ export function tracedRig(
         }
       : undefined;
     mergeSpecks(colors, own, W, H, minDetail, keepRegion);
+    // Clean: the stretch completed under the pieces in front is coloured like a drawn limb continuing: next to the
+    // piece's own pixels their colour, further in its parent piece's colour (a forearm runs on as the sleeve, a shin
+    // as the trousers), so a hidden limb swinging out shows no pale blank of its main colour.
+    if (clean) fillHidden(colors, own, base, W, H, parentPart[k]! >= 0 ? commonColor[parentPart[k]!]! : -1, Math.max(3, 0.02 * charHeight));
 
     // Thinner ink on thin pieces; the shape shrinks from the silhouette by most of it so the outline lands on the drawing's edge.
     const pieces = components(base, W, H, 8).sort((a, b) => b.length - a.length);
@@ -642,6 +657,25 @@ function crossesItself(points: [number, number][]): boolean {
 }
 
 // --- the clean tracer ------------------------------------------------------------------
+
+/**
+ * Colours for the hidden stretch of a piece (in `base`, not its own pixels): within `near` px of
+ * its own pixels the nearest own colour, beyond that `parent` (when >= 0, else the nearest own).
+ */
+function fillHidden(colors: Int16Array, own: Uint8Array, base: Uint8Array, W: number, H: number, parent: number, near: number): void {
+  const queue: number[] = [];
+  const steps = new Int32Array(colors.length);
+  for (let i = 0; i < colors.length; i++) if (own[i] && colors[i]! >= 0) queue.push(i);
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q]!;
+    each4(i, W, H, (j) => {
+      if (!base[j] || own[j] || colors[j]! >= 0) return;
+      steps[j] = steps[i]! + 1;
+      colors[j] = parent >= 0 && steps[j]! > near ? parent : colors[i]!;
+      queue.push(j);
+    });
+  }
+}
 
 /** The mask's largest 8-connected piece. */
 function largestPiece(mask: Uint8Array, W: number, H: number): Uint8Array<ArrayBuffer> {

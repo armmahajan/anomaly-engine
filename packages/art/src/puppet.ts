@@ -173,6 +173,8 @@ export type PieceNudge = z.infer<typeof PieceNudge>;
 
 /** How far a part's own scale may stray from the pieces' median (the sheet draws every piece at one scale). */
 const SCALE_SPREAD = 1.3;
+/** A piece whose anchors are turned less than this (degrees) from the design's is placed upright, as drawn. */
+const UPRIGHT = 25;
 /** Far-side twins are this much darker (toward the ink). */
 const FAR_SHADE = 0.18;
 
@@ -254,8 +256,12 @@ export function assemblePuppet(input: {
     const mirror = (q: readonly [number, number]): [number, number] => (match.flip ? [2 * mid - q[0], q[1]] : [q[0], q[1]]);
     const a = mirror(match.a!);
     const b = mirror(match.b!);
-    const angle =
-      Math.atan2(anchor[1].at[1] - anchor[0].at[1], anchor[1].at[0] - anchor[0].at[0]) - Math.atan2(b[1] - a[1], b[0] - a[0]) + ((nudge.get(part.id)?.rotate ?? 0) * Math.PI) / 180;
+    // The sheet draws pieces upright in the same side view: a small angle between the anchor pairs is the anchors'
+    // imprecision, not a turned piece, so only a clearly turned piece (drawn lying down, say) is turned back.
+    let turn = Math.atan2(anchor[1].at[1] - anchor[0].at[1], anchor[1].at[0] - anchor[0].at[0]) - Math.atan2(b[1] - a[1], b[0] - a[0]);
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    if (Math.abs(turn) < (UPRIGHT * Math.PI) / 180) turn = 0;
+    const angle = turn + ((nudge.get(part.id)?.rotate ?? 0) * Math.PI) / 180;
     const [cos, sin] = [Math.cos(angle), Math.sin(angle)];
     const [tx, ty] = [anchor[0].at[0] + (nudge.get(part.id)?.dx ?? 0), anchor[0].at[1] + (nudge.get(part.id)?.dy ?? 0)];
     const map = (q: readonly [number, number]): [number, number] => {
