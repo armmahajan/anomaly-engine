@@ -239,6 +239,15 @@ builds from them in the background (`packages/server/src/live/service.ts`):
   else its link to a character, the progression's region enemy and boss lists,
   or a `role` that starts with a character kind. Each page is handled once:
   undoing or deleting what it made doesn't bring it back.
+- **Weapons from the wiki.** "Weapon" is just another game kind (core
+  `gamePages`): a page with `in_game: weapon` (or of kind `weapon`, or linked
+  by `weaponId`) gets a new weapon with the page's id, name, summary and look
+  (`appearance`), linked to the page (`weaponId`); its attacks are written from
+  the page in one private build-assistant turn (`setWeaponAttack`), saved only
+  onto weapons nobody changed meanwhile (an edited weapon is the creator's).
+  The Live menu says what it made; renaming either side keeps the link, and a
+  deleted weapon leaves a wiki gap (`missing_weapon`), not a new weapon. Art
+  for weapons isn't queued here.
 - **Rooms from the progression.** Once the progression has regions and a
   start, the Architect's code stages build rooms for it with no model and no art
   (core `buildPreview`: the plan seeded from the progression, then layout,
@@ -660,6 +669,23 @@ creator's `direction` (the animation list). Operations: `createWeapon`, `updateW
 `setWeaponAttack`, `deleteWeaponAttack`, `deleteWeapon`, `setLoadout`, and the bone editor's
 `moveBonePivot`, `rotateBoneRest`, `scaleBone`, `reassignPart`, `addBone`, `removeBone`, `setGrip`,
 `removeGrip` (the bone editor's are studio-only, not build-assistant tools).
+
+**In the design.** The director writes weapon pages (kind `weapon`, `in_game: weapon`, how it looks,
+its attacks, how the player gets it) only when the creator's game has weapons; the live cast turns them
+into weapons (see Live). The build assistant builds weapons from those pages (createWeapon, then
+setWeaponAttack per move; no stock types), sets the loadout the design implies and gives later weapons
+through handlers. The **Architect** gives weapons the way it gives abilities: a plan `pickup` or a
+guardian's `grants` may name a weapon id (population: `giveWeapon` with a "You got" message), and a
+link's `requires` may name one (a barrier prop solid while the player lacks it, like a key gate). Plan
+checks (`weaponGrantIssues`, sent back to the plan by verify): `weapon-ungranted` (a link needs it,
+nothing gives it, the loadout doesn't start with it), `weapon-behind-gate` (only given past the link
+that needs it), `weapon-unreachable`, `weapon-gate-bypass` (the room behind it is reachable without
+it) and `granted-twice`. **Controls:** the game's help (core `gameControlHelp`, and so the exported
+game's keys) shows `alt_attack` / `special_attack` only for a loadout slot that starts with a weapon
+or that the game gives one into, named for its slot and weapon (`ranged: Long Bow`), the attack line
+names the main weapon, and `weapon_cycle` shows when cycling is on and the player can hold two.
+Tests: `packages/core/test/weaponDesign.test.ts`, `packages/server/test/live.test.ts`,
+`e2e/live-weapons.spec.ts`.
 
 In the studio: **Game ▸ Weapons** edits weapons and every attack field (each change one undoable
 operation; **Draw it** starts the `weaponArt` job once that stage exists) and **Game ▸ Loadout** the

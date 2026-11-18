@@ -43,9 +43,30 @@ const fakeCast: TurnRunner = (request) =>
     ]),
   });
 
-/** Scripted director: drafts the progression when asked about structure, the cast when asked for it, otherwise a small wiki skeleton. */
+/** "weapon": a weapon page, marked with in_game. */
+const fakeWeapon: TurnRunner = (request) =>
+  runAgentTurn({
+    ...request,
+    model: new FakeModel([
+      callTools(
+        page("ember_hook", "weapon", "Ember Hook", {
+          summary: "A lamplighter's hook, still warm.",
+          fields: { in_game: "weapon", appearance: "a brass hook glowing at the tip", attacks: "a wide sweep; an upward jab" },
+        }),
+      ),
+      say("Drafted the Ember Hook."),
+    ]),
+  });
+
+/** Scripted director: drafts the progression when asked about structure, the cast when asked for it, a weapon when asked for one, otherwise a small wiki skeleton. */
 const fakeDirector: TurnRunner = (request) =>
-  /structure|progression/i.test(request.userMessage) ? fakeStructure(request) : /\bcast\b/i.test(request.userMessage) ? fakeCast(request) : fakeWiki(request);
+  /structure|progression/i.test(request.userMessage)
+    ? fakeStructure(request)
+    : /\bcast\b/i.test(request.userMessage)
+      ? fakeCast(request)
+      : /\bweapon\b/i.test(request.userMessage)
+        ? fakeWeapon(request)
+        : fakeWiki(request);
 
 const fakeWiki: TurnRunner = (request) =>
   runAgentTurn({
@@ -116,8 +137,21 @@ const fakeBehaviors: TurnRunner = (request) => {
   });
 };
 
+/** The live cast's request for new weapons: a sweep and an upward jab for each. */
+const fakeAttacks: TurnRunner = (request) => {
+  const list = /their attacks: (.+?)\. They were/.exec(request.userMessage)?.[1] ?? "";
+  const ids = list.split(", ").map((s) => s.split(" ")[0]!);
+  const sweep = { id: "sweep", name: "Sweep", shape: { type: "arc", radius: 80, from: -70, to: 70 }, damage: 1 };
+  const jab = { id: "jab", name: "Upward jab", trigger: { aim: "up" }, shape: { type: "thrust", length: 110 }, damage: 1 };
+  return runAgentTurn({
+    ...request,
+    model: new FakeModel([callTools(...ids.flatMap((weaponId) => [toolCall("setWeaponAttack", { weaponId, attack: sweep }), toolCall("setWeaponAttack", { weaponId, attack: jab })])), say("Wrote their attacks.")]),
+  });
+};
+
 const fakeBuilder: TurnRunner = (request) => {
   if (/^build from the design/i.test(request.userMessage.trim())) return fakeBuildFromDesign(request);
+  if (/^give these new weapons their attacks/i.test(request.userMessage.trim())) return fakeAttacks(request);
   if (/^give these new enemy characters their behavior/i.test(request.userMessage.trim())) return fakeBehaviors(request);
   // The Architect's cast stage: nothing to create in the scripted games.
   if (/^create these enemy characters/i.test(request.userMessage.trim())) return runAgentTurn({ ...request, model: new FakeModel([say("Nothing to create.")]) });
