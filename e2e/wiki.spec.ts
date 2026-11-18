@@ -29,7 +29,7 @@ test("the narrative director drafts the wiki; the creator reviews, edits and ext
   await expect(article).toContainText("Draft by the director");
   await article.getByRole("button", { name: "the last lamplighter" }).click();
   await expect(article.getByRole("heading", { level: 1 })).toHaveText("The Lamplighter");
-  await expect(article.getByRole("button", { name: "Wanderer →" })).toBeVisible();
+  await expect(article.getByRole("button", { name: "Player →" })).toBeVisible();
   await expect(page.getByTestId("wiki-gaps")).toContainText("links to [[charger_lore]], which doesn't exist");
   await expect(page.getByTestId("wiki-gaps")).toContainText("Crawler (enemy) is in the game but has no wiki page.");
 

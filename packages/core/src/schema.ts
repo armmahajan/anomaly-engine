@@ -64,7 +64,7 @@ export const EnemyDeath = z.strictObject({
 });
 
 const characterBase = {
-  id: Id.describe("Unique lowercase snake_case id, e.g. \"stone_beetle\"."),
+  id: Id.describe("Unique lowercase snake_case id, e.g. \"river_guard\"."),
   name: z.string().min(1).max(80).describe("Display name."),
   color: Color.describe("Body color, #rrggbb (placeholder art)."),
   size: Size.describe("Collision box in px."),

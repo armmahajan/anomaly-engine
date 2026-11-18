@@ -18,7 +18,7 @@ export function createDefaultProject(): ProjectSpec {
       {
         id: "player",
         kind: "player",
-        name: "Wanderer",
+        name: "Player",
         color: "#e8e3d3",
         size: { width: 28, height: 44 },
         stats: {

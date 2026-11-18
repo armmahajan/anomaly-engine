@@ -91,7 +91,7 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
             id="biome-theme"
             className="art-text"
             rows={3}
-            placeholder="e.g. a forgotten underground cathedral overgrown with pale glowing fungus"
+            placeholder="Describe the place in your own words: what it's made of, its light, weather and mood"
             value={theme}
             disabled={disabled}
             onChange={(e) => setTheme(e.target.value)}
