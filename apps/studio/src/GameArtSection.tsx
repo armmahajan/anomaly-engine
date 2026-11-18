@@ -12,9 +12,10 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
   const estimate = plan.reduce((sum, s) => sum + s.estimatedCost, 0);
   const running = art.running?.stage === "gameArt" ? art.running : null;
   const last = [...art.jobs].reverse().find((j) => j.stage === "gameArt");
+  const groups = stepGroups(plan);
+  const changed = plan.filter((s) => s.reason === "out_of_date").length;
   return (
     <div className="game-art" data-testid="game-art">
-      <h3>Art</h3>
       <ArtDirectionView project={project} session={session} art={art} locked={locked} />
       {plan.length === 0 ? (
         <p className="hint">Everything is drawn.</p>
@@ -23,15 +24,31 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
           <p className="hint">
             {plan.length} step{plan.length === 1 ? "" : "s"} to draw the whole game, about {money(estimate)}.
           </p>
-          <ul className="game-art-steps">
-            {plan.slice(0, 12).map((s) => (
-              <li key={s.id} data-testid={`art-step-${s.id}`}>
-                {s.description}
-                {s.reason === "out_of_date" && <span className="tag">changed</span>}
-              </li>
+          <details className="game-art-details" data-testid="game-art-steps">
+            <summary>
+              {groups.map((g) => `${g.count} ${g.count === 1 ? g.one : g.many}`).join(" · ")}
+              {changed > 0 && ` · ${changed} out of date`}
+            </summary>
+            {groups.map((g) => (
+              <div key={g.kind} className="game-art-group">
+                <h4>
+                  {g.count} {g.count === 1 ? g.one : g.many}
+                  <span className="hint"> · about {money(g.cost)}</span>
+                </h4>
+                <ul className="game-art-steps">
+                  {plan
+                    .filter((s) => s.kind === g.kind)
+                    .map((s) => (
+                      <li key={s.id} data-testid={`art-step-${s.id}`}>
+                        {s.description}
+                        {s.reason === "out_of_date" && <span className="tag">changed</span>}
+                        {s.reason === "incomplete" && <span className="tag">incomplete</span>}
+                      </li>
+                    ))}
+                </ul>
+              </div>
             ))}
-            {plan.length > 12 && <li className="muted">…and {plan.length - 12} more</li>}
-          </ul>
+          </details>
           <button
             type="button"
             disabled={locked || !art.available || art.running !== null}
@@ -57,6 +74,37 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
         </p>
       )}
     </div>
+  );
+}
+
+const KIND_NAMES: Record<string, [string, string]> = {
+  direction: ["art direction", "art direction"],
+  character: ["character", "characters"],
+  biome: ["biome kit", "biome kits"],
+  room: ["room to dress", "rooms to dress"],
+  props: ["prop set", "prop sets"],
+  modal: ["screen", "screens"],
+  items: ["item sheet", "item sheets"],
+};
+
+/** The plan's steps by kind, in plan order, with their count and estimated cost. */
+function stepGroups(plan: ReturnType<typeof gameArtPlan>) {
+  const kinds = [...new Set(plan.map((s) => s.kind as string))];
+  return kinds.map((kind) => {
+    const steps = plan.filter((s) => s.kind === kind);
+    const [one, many] = KIND_NAMES[kind] ?? [kind, kind];
+    return { kind, one, many, count: steps.length, cost: steps.reduce((n, s) => n + s.estimatedCost, 0) };
+  });
+}
+
+/** The art section's one-line summary (shown in its header, folded or not). */
+export function GameArtSummary({ project }: { project: ProjectSpec }) {
+  const plan = gameArtPlan(project);
+  if (plan.length === 0) return <>all drawn</>;
+  return (
+    <>
+      {plan.length} step{plan.length === 1 ? "" : "s"} to draw · ~{money(plan.reduce((n, s) => n + s.estimatedCost, 0))}
+    </>
   );
 }
 

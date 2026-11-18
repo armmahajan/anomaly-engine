@@ -56,9 +56,7 @@ export function ListSection({
     <div className={`list-section${shown ? " open" : ""}`} data-testid={testId}>
       <h3 className="list-section-head">
         <button type="button" aria-expanded={shown} onClick={() => setOpen(!shown)}>
-          <span className="list-section-caret" aria-hidden>
-            {shown ? "▾" : "▸"}
-          </span>
+          <span className="list-section-caret caret" aria-hidden />
           <span className="list-section-title">{title}</span>
           {count !== undefined && <span className="list-section-count">{count}</span>}
           {extra}

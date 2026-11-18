@@ -9,7 +9,6 @@ export function MapSettings({ project, session, locked }: { project: ProjectSpec
   };
   return (
     <div className="map-settings">
-      <h3>Map</h3>
       <label className="field-check">
         <input type="checkbox" checked={project.world.map.enabled} disabled={locked} onChange={(e) => void set(e.target.checked)} />
         Map screen (M / Tab)

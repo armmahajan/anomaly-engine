@@ -17,7 +17,6 @@ export function ItemsPanel({ project, session, locked }: { project: ProjectSpec;
   };
   return (
     <>
-      <h3>Items</h3>
       <p className="hint">Things the player carries, counted. Handlers give and take them; conditions check them.</p>
       {project.world.items.length > 0 && (
         <div className="art-actions">

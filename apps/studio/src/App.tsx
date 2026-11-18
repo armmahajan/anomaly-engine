@@ -7,10 +7,10 @@ import { WikiMain, WikiSidebar, type WikiNav } from "./WikiView.tsx";
 import { ProgressionMain, ProgressionSidebar, type ProgressionNav } from "./ProgressionView.tsx";
 import { ArchitectMain, ArchitectSidebar } from "./architect/ArchitectView.tsx";
 import { ArtPanel } from "./ArtPanel.tsx";
-import { CharacterBench } from "./CharacterBench.tsx";
+import { CharacterBench, NoCharacterBench } from "./CharacterBench.tsx";
 import { currentWorld, WorldBench, type WorldUi } from "./WorldBench.tsx";
 import { WorldPanel } from "./WorldPanel.tsx";
-import { GamePanel } from "./GameView.tsx";
+import { GamePanel, GameSettings } from "./GameView.tsx";
 import { initialRoomsUi, RoomPainter, RoomsBench, RoomsPanel, type RoomsUi } from "./RoomsView.tsx";
 import { fileUrl } from "./api.ts";
 import { useChatOpen, useSidebarWidth } from "./layout.ts";
@@ -70,12 +70,15 @@ export function App({ session }: { session: Session }) {
   const aiBusy = Object.values(state.chats).some((c) => c.running !== null);
   const locked = playing || aiBusy;
   const { project } = state;
-  const selected = project.characters.find((c) => c.id === selectedId) ?? null;
+  // The chosen character, else the player (or the first): something is always selected while there is anything.
+  const selected = project.characters.find((c) => c.id === selectedId) ?? project.characters.find((c) => c.kind === "player") ?? project.characters[0] ?? null;
   const characterIds = project.characters.map((c) => c.id);
   const { playtest } = project.world;
   const testRoom = project.world.rooms.find((r) => r.id === playtest?.room) ?? null;
   /** Where new things appear: the playtest room's centre, on the player's floor. */
   const defaultSpawn = testRoom && playtest ? { x: Math.round(gridSize(testRoom.grid).width / 2), y: playtest.y } : null;
+  /** The playtest room's shape: the stage hugs it in Playtest and Game, with the panel under it (content.css). */
+  const roomAspect = testRoom ? gridSize(testRoom.grid).width / gridSize(testRoom.grid).height : 16 / 9;
   const spawnHere = (characterId: string, at: { x: number; y: number } | null) =>
     testRoom && at ? [{ name: "addRoomSpawn", input: { roomId: testRoom.id, characterId, ...at } }] : [];
 
@@ -210,8 +213,8 @@ export function App({ session }: { session: Session }) {
 
   return (
     <div
-      className={`studio mode-${tab}${chatOpen ? "" : " chat-closed"}`}
-      style={{ "--side-w": `${sidebarWidth}px` } as React.CSSProperties}
+      className={`studio mode-${tab}${chatOpen ? "" : " chat-closed"}${playing ? " playing" : ""}`}
+      style={{ "--side-w": `${sidebarWidth}px`, "--room-aspect": roomAspect } as React.CSSProperties}
     >
       <header className="toolbar">
         <span className="title">{state.project.name}</span>
@@ -285,9 +288,35 @@ export function App({ session }: { session: Session }) {
           ⛶
         </button>
       </main>
-      {tab === "characters" && selected && (
-        <CharacterBench key={`${selected.id}:${state.runtimeStatus}`} character={selected} project={project} art={state.art} session={session} />
+      {/* Under the stage (Playtest, Game): the selected character's inspector, the game's settings. */}
+      {tab === "playtest" && selected && (
+        <section className="stage-dock" data-testid="stage-dock">
+          <Inspector
+            key={selected.id}
+            character={selected}
+            roomId={testRoom?.id ?? null}
+            spawns={testRoom?.spawns.filter((s) => s.characterId === selected.id) ?? []}
+            defaultSpawn={defaultSpawn}
+            session={session}
+            locked={locked}
+            lockHint={aiBusy ? "The AI is editing. Wait for it or cancel." : "Stop the playtest to edit."}
+            wikiPageId={project.wiki.pages.find((p) => p.characterId === selected.id)?.id}
+            playtest={playtest}
+            onOpenWiki={openWikiPage}
+          />
+        </section>
       )}
+      {tab === "game" && (
+        <section className="stage-dock" data-testid="stage-dock">
+          <GameSettings project={project} session={session} locked={locked} />
+        </section>
+      )}
+      {tab === "characters" &&
+        (selected ? (
+          <CharacterBench key={`${selected.id}:${state.runtimeStatus}`} character={selected} project={project} art={state.art} session={session} />
+        ) : (
+          <NoCharacterBench />
+        ))}
       {tab === "worlds" && (
         <WorldBench
           project={project}
@@ -397,7 +426,7 @@ export function App({ session }: { session: Session }) {
                 <button
                   type="button"
                   data-testid={`character-${c.id}`}
-                  className={c.id === selectedId ? "selected" : ""}
+                  className={c.id === selected?.id ? "selected" : ""}
                   onClick={() => setSelectedId(c.id)}
                 >
                   {(() => {
@@ -440,21 +469,6 @@ export function App({ session }: { session: Session }) {
         </section>
         {selected && tab === "characters" && (
           <ArtPanel key={selected.id} character={selected} project={project} art={state.art} session={session} locked={playing || Object.values(state.chats).some((c) => c.running !== null)} />
-        )}
-        {selected && tab === "playtest" && (
-          <Inspector
-            key={selected.id}
-            character={selected}
-            roomId={testRoom?.id ?? null}
-            spawns={testRoom?.spawns.filter((s) => s.characterId === selected.id) ?? []}
-            defaultSpawn={defaultSpawn}
-            session={session}
-            locked={locked}
-            lockHint={aiBusy ? "The AI is editing. Wait for it or cancel." : "Stop the playtest to edit."}
-            wikiPageId={project.wiki.pages.find((p) => p.characterId === selected.id)?.id}
-            playtest={playtest}
-            onOpenWiki={openWikiPage}
-          />
         )}
         {problem}
       </aside>

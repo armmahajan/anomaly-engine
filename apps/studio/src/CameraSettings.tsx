@@ -11,7 +11,6 @@ export function CameraSettings({ project, session, locked }: { project: ProjectS
   };
   return (
     <div className="camera-settings">
-      <h3>Camera</h3>
       <div className="field">
         <label htmlFor="camera-rows">View height (tiles)</label>
         <input
