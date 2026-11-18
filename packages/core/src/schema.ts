@@ -127,7 +127,7 @@ export const ProjectSpec = z
   })
   .superRefine((project, ctx) => {
     for (const issue of progressionIssues(project.progression, project.characters)) ctx.addIssue({ code: "custom", ...issue });
-    for (const issue of architectIssues(project.architect, project.progression)) ctx.addIssue({ code: "custom", ...issue });
+    for (const issue of architectIssues(project.architect, project.progression, project.weapons.list)) ctx.addIssue({ code: "custom", ...issue });
     const enemies = new Set(project.characters.filter((c) => c.kind === "enemy").map((c) => c.id));
     for (const issue of worldIssues(project.world, enemies)) ctx.addIssue({ code: "custom", ...issue });
     for (const issue of weaponIssues(project.weapons, new Set(project.world.items.map((i) => i.id)))) ctx.addIssue({ code: "custom", ...issue });

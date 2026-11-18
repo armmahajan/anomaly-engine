@@ -6,7 +6,7 @@ import { ruleHandlers } from "../../events/rules.ts";
 import { gridSize } from "../tiles.ts";
 import { DOOR_UP_CARRY, type Prop, type PropSwitch, type WorldRoom } from "../world.ts";
 import { doorEntry, moveTrace, reachableFrom, roomGraph, type RoomGraph, type TraversalMove } from "../traversal.ts";
-import { answers, LogicRun, logicGame, type Checkpoint, type LogicGame, type Point, type RunSnapshot } from "./interpret.ts";
+import { answers, LogicRun, logicGame, weaponFlag, type Checkpoint, type LogicGame, type Point, type RunSnapshot } from "./interpret.ts";
 
 export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type RunSnapshot, type RunState } from "./interpret.ts";
 
@@ -278,6 +278,8 @@ class WorldModel {
     }
     for (const { c } of this.conditions) {
       if (c.type === "flag") this.flags.add(c.flag);
+      // Weapons the player has are reserved flags (interpret.ts weaponFlag): keep them in the state when a condition reads them.
+      if (c.type === "weapon") this.flags.add(weaponFlag(c.weapon));
       if (c.type === "visited") this.visited.add(c.room);
       if (c.type === "item") {
         const n = c.atLeast ?? 1;
