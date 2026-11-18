@@ -86,6 +86,14 @@ test("Start from the progression creates room cards grouped by region", async ({
   await expect(page.getByTestId("architect-region-deep").locator(".room-card")).toHaveCount(2);
   await expect(page.getByTestId("architect-stats")).toContainText("9 rooms");
 
+  // The run strip above the plan shows every stage; a region folds away and back.
+  await expect(page.getByTestId("architect-strip")).toContainText("Plan");
+  await expect(page.getByTestId("architect-strip")).toContainText("Art");
+  await page.getByRole("button", { name: "Fold Drowned City" }).click();
+  await expect(page.getByTestId("architect-region-city").locator(".room-card")).toHaveCount(0);
+  await page.getByRole("button", { name: "Unfold Drowned City" }).click();
+  await expect(page.getByTestId("architect-region-city").locator(".room-card")).toHaveCount(4);
+
   // Cards summarize what each room holds: the start, the guardian that grants Dash, the ending.
   await expect(card(page, "gate_1")).toContainText("▶ start");
   await expect(card(page, "city_4")).toContainText("☠ Charger → Dash");
@@ -202,8 +210,9 @@ test("a pinned room is read-only and a rebuild leaves its plan alone", async ({ 
 
   const pinned = await planRoom(page, "gate_3");
   // Rebuild the whole plan from the progression, then build the game: the pinned room stays as it is.
-  page.once("dialog", (d) => void d.accept());
+  // Replacing the plan asks in the page first.
   await page.getByRole("button", { name: "Start again from the progression" }).click();
+  await page.getByRole("button", { name: "Replace the plan" }).click();
   await page.getByTestId("architect-sidebar").getByRole("button", { name: "Build game" }).click();
   await expect.poll(() => page.evaluate(() => window.studio!.getProject().architect.stages.plan?.status)).toBe("done");
   await runEnded(page);
