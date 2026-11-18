@@ -763,7 +763,7 @@ function reviewPrompt(input: ReviewInput, composition: Composition, frames: numb
     `Room: ${room.width}x${room.height}px (x right, y DOWN). Walkable platforms: ${room.platforms.map((r) => `[x ${r.x}, y ${r.y}, w ${r.width}, h ${r.height}]`).join(", ")}.`,
     doorsText(input.doors, room),
     "Layers back to front: mid (distant, fogged, scrolls slower), back (just behind play, scrolls a bit slower), play (the walkable layer), front (near-black silhouettes that scroll faster). Because of parallax, mid/back/front pieces line up with the platforms only when the camera is near them.",
-    "Each placement's y is its bottom (its top for hanging pieces).",
+    "Each placement's y is its bottom (its top for hanging pieces). Standing front-layer silhouettes are set below the room's bottom edge on purpose (they rise into view, cut off by it): that is not a mistake.",
     `Placements:\n${rows.join("\n")}`,
     unsupported.length ? `These play pieces stand over nothing (no platform under their x): ${unsupported.join(", ")}.` : "",
     "Look for, most important first:",
