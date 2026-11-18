@@ -111,7 +111,7 @@ export const ArtDirection = z.strictObject({
   ink: Color.describe("Outline color."),
   inkWidth: z.number().min(0).max(12).describe("Base outline width in px."),
   boil: z.number().min(0).max(1).describe("Hand-drawn line wobble, 0 = none (re-drawn ~8 times a second)."),
-  rigMode: z.enum(RIG_MODES).optional().describe("How characters are rigged: vector (flat shapes, default) or cutout (pieces of the concept image)."),
+  rigMode: z.enum(RIG_MODES).optional().describe("How characters are rigged: cutout (pieces of the concept image, default) or vector (flat shapes)."),
 });
 export type ArtDirection = z.infer<typeof ArtDirection>;
 

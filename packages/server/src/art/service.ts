@@ -52,6 +52,8 @@ export interface ArtServiceOptions {
   rigRounds?: number;
   animRounds?: number;
   roomRounds?: number;
+  /** Rig mode when the art direction doesn't pick one: cutout for real models (it won the rig A/B, 2026-11-18). */
+  defaultRigMode?: "vector" | "cutout";
 }
 
 type Result = { ok: true; jobId: string } | { ok: false; error: OperationError };
@@ -328,6 +330,7 @@ export class ArtService {
       rigRounds: this.options.rigRounds,
       animRounds: this.options.animRounds,
       roomRounds: this.options.roomRounds,
+      ...(this.options.defaultRigMode ? { defaultRigMode: this.options.defaultRigMode } : {}),
       log: (a) => {
         running.activity.push({ at: new Date().toISOString(), ...a });
         this.emit();

@@ -23,6 +23,7 @@ import type { ArtServiceOptions } from "./service.ts";
  *   STUDIO_ART_VISION_MODEL    default claude-opus-5-5 on claude-code,
  *                              anthropic/claude-haiku-5.5 on openrouter
  *   STUDIO_ART_VISION_EFFORT   claude-code only: low|medium|high|xhigh|max (default: the model's)
+ *   STUDIO_ART_RIG_MODE        cutout (default: rigs are pieces of the chosen design; won the rig A/B) or vector
  *   STUDIO_ART_BUDGET          USD per job, default 0.25
  *   STUDIO_ART_BACKEND=fake    scripted models (tests/e2e); renders are still real
  * Defaults come from the Phase 0 benchmark: a whole character costs ~$0.01-0.02 on
@@ -86,5 +87,7 @@ export function artOptionsFromEnv(
       }),
       vision,
     },
+    // Cutout won the rig A/B (2026-11-18): rigs are pieces of the chosen design. STUDIO_ART_RIG_MODE=vector for flat shapes.
+    defaultRigMode: env.STUDIO_ART_RIG_MODE?.trim() === "vector" ? "vector" : "cutout",
   };
 }

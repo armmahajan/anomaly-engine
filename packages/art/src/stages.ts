@@ -102,6 +102,8 @@ export interface ArtContext {
   animRounds?: number;
   /** Look-and-fix rounds for composed rooms (default 1; 0 skips the review). */
   roomRounds?: number;
+  /** Rig mode when neither the request nor the art direction picks one (default vector; real backends pass cutout). */
+  defaultRigMode?: "vector" | "cutout";
 }
 
 export interface StageResult {
@@ -348,7 +350,7 @@ export interface RigInput {
   characterId: string;
   /** Revise the existing rig with this direction instead of building from scratch. */
   feedback?: string;
-  /** Vector shapes or cutout pieces of the design (default: the art direction's rigMode, else vector). */
+  /** Vector shapes or cutout pieces of the design (default: the art direction's rigMode, else the backend's default). */
   rigMode?: RigMode;
 }
 
@@ -437,7 +439,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
   // The design cut out of its background: the cutout rig's image, and what every attempt is measured against.
   const cut = cutCharacter(decodePng(concept));
   const reference = cut ? flatten(placeCutout(cut, size), BACKGROUND) : null;
-  const mode = input.rigMode ?? project.art.direction.rigMode ?? "vector";
+  const mode = input.rigMode ?? project.art.direction.rigMode ?? ctx.defaultRigMode ?? "vector";
   const best =
     mode === "cutout"
       ? await cutoutAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim() })

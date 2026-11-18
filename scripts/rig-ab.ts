@@ -3,7 +3,7 @@
  *   node scripts/rig-ab.ts <out-dir> [--opus] [--count N]
  * Real models cost money (reads OPENROUTER_API_KEY from .env; set STUDIO_ART_BACKEND=fake for a dry run).
  * Per brief: one concept sheet and pick, shared by every arm; then per arm a rig and its animations:
- *   vector (default vision model), cutout (default vision model), vector-opus (--opus: Claude Opus 5.5 rigs).
+ *   vector and cutout (default vision model), vector-opus and cutout-opus (--opus: Claude Opus 5.5 rigs).
  * Writes <out>/results.json, each concept and each arm's rig, clips and renders;
  * `node scripts/rig-ab-page.ts <out-dir>` turns it into the blind voting page.
  */
@@ -58,6 +58,7 @@ const arms: { id: string; mode: "vector" | "cutout"; service: ArtService }[] = [
 if (args.includes("--opus") && env.STUDIO_ART_BACKEND !== "fake") {
   const opus = new OpenRouterVisionModel({ apiKey: env.OPENROUTER_API_KEY!.trim() }, "anthropic/claude-opus-5.5");
   arms.push({ id: "vector-opus", mode: "vector", service: await ArtService.open(store, { ...options, files, budget: 3, models: { ...options.models, vision: opus } }) });
+  arms.push({ id: "cutout-opus", mode: "cutout", service: await ArtService.open(store, { ...options, files, budget: 3, models: { ...options.models, vision: opus } }) });
 }
 
 async function job(service: ArtService, request: ArtJobRequest) {
