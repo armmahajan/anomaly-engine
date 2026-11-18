@@ -204,6 +204,15 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     camera: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).nullable().default(null),
     /** The keyboard keys in effect per action (the game's, with the player's overrides), by key name. */
     controls: z.record(z.string(), z.array(z.string())).default({}),
+    /** Play: the weapons the player has, each loadout slot's weapon (null = empty) and the HUD's rows; null in edit mode. */
+    weapons: z
+      .object({
+        owned: z.array(z.string()),
+        slots: z.record(z.string(), z.string().nullable()),
+        hud: z.array(z.record(z.string(), z.unknown())),
+      })
+      .nullable()
+      .default(null),
   }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
   /** Play: the player entered a room (at the start of the run, through a door, or on respawn). */

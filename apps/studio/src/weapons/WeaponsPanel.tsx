@@ -57,7 +57,8 @@ const WHERE = [
  * damage, timing, movement, combo, ammo and clip are edited here, one operation per change
  * (createWeapon, updateWeapon, setWeaponAttack, deleteWeaponAttack, deleteWeapon).
  */
-export function WeaponsPanel({ project, session, locked }: { project: ProjectSpec; session: Session; locked: boolean }) {
+/** `onOpenWiki`: open a wiki page (a weapon's page links to it: `WikiPage.weaponId`). */
+export function WeaponsPanel({ project, session, locked, onOpenWiki }: { project: ProjectSpec; session: Session; locked: boolean; onOpenWiki?: (pageId: string) => void }) {
   const { list } = project.weapons;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -105,7 +106,7 @@ export function WeaponsPanel({ project, session, locked }: { project: ProjectSpe
         </button>
       </div>
       {weapon ? (
-        <WeaponEditor key={weapon.id} weapon={weapon} project={project} session={session} locked={locked} run={run} />
+        <WeaponEditor key={weapon.id} weapon={weapon} project={project} session={session} locked={locked} run={run} onOpenWiki={onOpenWiki} />
       ) : (
         <p className="hint">No weapons yet: the player uses the built-in attack (their stats).</p>
       )}
@@ -115,7 +116,8 @@ export function WeaponsPanel({ project, session, locked }: { project: ProjectSpe
 
 type Run = (op: string, input: unknown) => Promise<ChangeResult>;
 
-function WeaponEditor({ weapon, project, session, locked, run }: { weapon: Weapon; project: ProjectSpec; session: Session; locked: boolean; run: Run }) {
+function WeaponEditor({ weapon, project, session, locked, run, onOpenWiki }: { weapon: Weapon; project: ProjectSpec; session: Session; locked: boolean; run: Run; onOpenWiki?: (pageId: string) => void }) {
+  const wikiPage = project.wiki.pages.find((p) => p.weaponId === weapon.id);
   const [open, setOpen] = useState<string | null>(weapon.attacks[0]?.id ?? null);
   const update = (changes: { name?: string; description?: string; art?: Partial<WeaponArt> }) => void run("updateWeapon", { weaponId: weapon.id, ...changes });
   const setAttack = (attack: Attack) => void run("setWeaponAttack", { weaponId: weapon.id, attack });
@@ -137,6 +139,11 @@ function WeaponEditor({ weapon, project, session, locked, run }: { weapon: Weapo
     <div className="wpn-editor" data-testid={`weapon-${weapon.id}`}>
       <div className="modal-editor-head">
         <code>{weapon.id}</code>
+        {wikiPage && onOpenWiki && (
+          <button type="button" className="wiki-link" title={`Open “${wikiPage.title}” in the wiki`} onClick={() => onOpenWiki(wikiPage.id)}>
+            Wiki page →
+          </button>
+        )}
         <button type="button" disabled={locked} onClick={() => void remove()}>
           Delete
         </button>

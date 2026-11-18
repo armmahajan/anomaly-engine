@@ -210,6 +210,8 @@ static func _valid_param(kind: String, value: Variant) -> bool:
 			return _is_color(value)
 		"id":
 			return typeof(value) == TYPE_STRING and value != ""
+		"id?":
+			return value == null or (typeof(value) == TYPE_STRING and value != "")
 	if kind.begins_with("enum:"):
 		return typeof(value) == TYPE_STRING and value in kind.substr(5).split("|")
 	return false

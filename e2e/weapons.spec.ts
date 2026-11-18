@@ -48,16 +48,13 @@ test("the creator makes a weapon with an arc attack, puts it in the main slot an
   await loadout.getByRole("button", { name: "remove slot Alt" }).click();
   await expect(page.getByTestId("control-alt_attack")).toHaveCount(0);
 
-  // The loadout is project data: the playtest has it (and, once the runtime reports weapons, shows it equipped).
+  // The loadout is project data: the playtest has it, with the weapon equipped in the main slot.
   const revision = await projectRevision(page);
   await expect.poll(async () => (await runtimeState(page)).revision).toBe(revision);
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
-  const state = (await runtimeState(page)) as unknown as Record<string, unknown>;
-  expect(state.revision).toBe(revision);
-  const weaponKeys = Object.keys(state).filter((k) => /weapon|loadout/i.test(k));
-  if (weaponKeys.length > 0) expect(JSON.stringify(weaponKeys.map((k) => state[k]))).toContain("bone_sickle");
-  else test.info().annotations.push({ type: "pending", description: "the runtime doesn't report weapons in its state yet (W1)" });
+  await expect.poll(async () => (await runtimeState(page)).weapons?.slots.main ?? null).toBe("bone_sickle");
+  expect((await runtimeState(page)).weapons?.owned).toContain("bone_sickle");
   await page.keyboard.press("x");
   await page.getByRole("button", { name: "■ Stop" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Editing");

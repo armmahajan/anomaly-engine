@@ -86,11 +86,17 @@ func _state(main: Node) -> Dictionary:
 	if screen.modal != null:
 		modals.append(screen.modal.id)
 	modals.append_array(screen.queued)
-	var flags: Array = run.events.flags.keys()
+	# The checker keeps the weapons the player has as reserved flags (core interpret.ts weaponFlag).
+	var flags: Array = run.events.flags.keys() + run.weapons.map(func(w): return "weapon:" + w)
 	flags.sort()
 	var saved = WorldRuntime._memory_store.get(run._save_key)
+	if saved != null:
+		saved = JSON.parse_string(saved)
+		saved.flags = saved.flags + saved.get("weapons", []).map(func(w): return "weapon:" + w)
+		saved.erase("weapons")
+		saved.erase("slots")
 	return {
 		"room": run.room_id, "visited": run.visited.duplicate(), "flags": flags, "items": run.events.items.duplicate(),
 		"abilities": run.abilities.duplicate(), "checkpoint": run.events.checkpoint if not run.events.checkpoint.is_empty() else null,
-		"modals": modals, "saved": JSON.parse_string(saved) if saved != null else null,
+		"modals": modals, "saved": saved,
 	}
