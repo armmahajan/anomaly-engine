@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { artDirectionWanted, gameArtPlan, isDefaultArtDirection, type ArtState, type ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { money } from "./ArtPanel.tsx";
@@ -117,6 +118,7 @@ function ArtDirectionView({ project, session, art, locked }: { project: ProjectS
   const isDefault = isDefaultArtDirection(direction);
   const wanted = artDirectionWanted(project);
   const running = art.running?.stage === "artDirection";
+  const [full, setFull] = useState(false);
   return (
     <div className="art-direction" data-testid="art-direction">
       <div className="art-direction-head">
@@ -128,9 +130,14 @@ function ArtDirectionView({ project, session, art, locked }: { project: ProjectS
           ))}
         </span>
       </div>
-      <p className="hint" data-testid="art-direction-style">
+      <p className={`hint art-direction-style${full ? "" : " clamped"}`} data-testid="art-direction-style">
         {direction.style}
       </p>
+      {direction.style.length > 160 && (
+        <button type="button" className="wiki-link art-direction-more" onClick={() => setFull(!full)}>
+          {full ? "Show less" : "Show all"}
+        </button>
+      )}
       {isDefault && (
         <button
           type="button"

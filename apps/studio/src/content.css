@@ -848,3 +848,26 @@ a.wiki-link {
   letter-spacing: 0;
   color: var(--text);
 }
+
+.art-direction-style.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.art-direction-more {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+/* The editor's Save / Cancel stay in reach below a long body. */
+.wiki-editor > .list-actions:last-child {
+  position: sticky;
+  bottom: 0;
+  margin: 12px -8px 0;
+  padding: 10px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}

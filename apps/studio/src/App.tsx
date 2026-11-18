@@ -8,6 +8,7 @@ import { ProgressionMain, ProgressionSidebar, type ProgressionNav } from "./Prog
 import { ArchitectMain, ArchitectSidebar } from "./architect/ArchitectView.tsx";
 import { ArtPanel } from "./ArtPanel.tsx";
 import { CharacterBench, NoCharacterBench } from "./CharacterBench.tsx";
+import { ConfirmButton } from "./content/ListSection.tsx";
 import { currentWorld, WorldBench, type WorldUi } from "./WorldBench.tsx";
 import { WorldPanel } from "./WorldPanel.tsx";
 import { GamePanel, GameSettings } from "./GameView.tsx";
@@ -116,8 +117,6 @@ export function App({ session }: { session: Session }) {
 
   const deleteSelected = async () => {
     if (!selected) return;
-    const spawnCount = project.world.rooms.flatMap((r) => r.spawns).filter((s) => s.characterId === selected.id).length;
-    if (!window.confirm(`Delete ${selected.name} and its ${spawnCount} spawn(s)? (Undo can restore it.)`)) return;
     if (report(await session.applyOperation("deleteCharacter", { characterId: selected.id }))) setSelectedId("player");
   };
 
@@ -462,9 +461,13 @@ export function App({ session }: { session: Session }) {
             >
               Duplicate
             </button>
-            <button type="button" onClick={() => void deleteSelected()} disabled={locked || selected?.kind !== "enemy"}>
-              Delete
-            </button>
+            <ConfirmButton
+              label="Delete"
+              question={`Delete ${selected?.name} and its ${project.world.rooms.flatMap((r) => r.spawns).filter((s) => s.characterId === selected?.id).length} spawn(s)? Undo restores it.`}
+              confirmLabel={`Delete ${selected?.name}`}
+              disabled={locked || selected?.kind !== "enemy"}
+              onConfirm={() => void deleteSelected()}
+            />
           </div>
         </section>
         {selected && tab === "characters" && (
