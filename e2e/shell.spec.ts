@@ -13,10 +13,10 @@ test("tabs follow the creator's flow in groups: design, build, play; arrows move
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
   const tabs = page.getByRole("tab");
-  await expect(tabs).toHaveText(["Wiki", "Progression", "Architect", "Rooms", "Worlds", "Characters", "Game", "Playtest"]);
+  await expect(tabs).toHaveText(["Wiki", "Progression", "Architect", "Rooms", "Scenery", "Characters", "Game", "Playtest"]);
   for (const [group, names] of [
     ["design", ["Wiki", "Progression", "Architect"]],
-    ["build", ["Rooms", "Worlds", "Characters", "Game"]],
+    ["build", ["Rooms", "Scenery", "Characters", "Game"]],
     ["play", ["Playtest"]],
   ] as const) {
     const box = page.locator(`.tab-group[data-group="${group}"]`);

@@ -26,7 +26,7 @@ const AGENT_TEXT: Record<AgentId, AgentText> = {
   build: {
     title: "Build assistant",
     role: "Builds and tunes the game: characters, rooms, items, rules and art.",
-    tabs: "Playtest, Characters, Worlds, Rooms and Game tabs",
+    tabs: "Playtest, Rooms, Scenery, Characters and Game tabs",
     intro: "Describe a change to the game and the Build assistant makes it. Every turn is one undo step.",
     examples: ["Make the Charger wind up longer and hit harder.", "Add a Crawler to the first room."],
   },
