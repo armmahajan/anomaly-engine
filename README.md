@@ -724,6 +724,28 @@ outline, fill or boil). The runtime gets the source like other images (the
 studio's `images` message; `renderRig` carries it in `images`). The art
 direction (style words, palette, outline) is project-wide.
 
+Any vector part may also carry a **texture** (`texture {file, rect, uv, opacity}`: the image
+region `uv` stretched over the rest-pose rectangle `rect`, drawn inside the part's shape over its
+fill and under its outline and the parts in front; it moves, turns and scales with the bone, and
+transparent texels show the flat fill), and a part may be **clipped** to another part on the same
+bone(s) (`clipTo`: shading bands, highlights and patterns that never leave their part). A rig's
+textures travel like a cutout's source (`rigFiles`: sent with `images`, bundled by the game
+export); until one arrives its parts show their flat fill.
+
+**Rig looks on trial** (`dressRig {look}` in `packages/art/src/dress.ts`, opt-in, no default flow
+calls it; compared blind by `node scripts/rig-ab4.ts <round3> <out>` then
+`node scripts/rig-ab4-page.ts <out>`): the same shapes, bones and clips, dressed from the design.
+- *detail*: the vision model adds vector detail shapes per part (shading bands, highlights, folds,
+  seams, patterns, small accessories), clipped to their part and drawn right above it, then reviews
+  renders and fixes them (3 rounds, best score kept); never past `MAX_PARTS`.
+- *projected*: each part shows the design's own pixels: the design lined up with the rig's
+  silhouette, then each bone group by its outline and by its drawing (luminance correlation, so a
+  recoloured design still lines up); hidden stretches keep the flat fill (retinted to the texture).
+- *paintover*: the rest pose with its bone groups pulled apart (nothing overlaps) is painted over
+  by one image edit in the design's style; the paint is lined up again per group and baked per part.
+- *combo*: detail shapes over a paint-over of the detailed rig at 60% strength.
+Textures are baked per part over its whole shape and packed into one atlas per character (≤512 px).
+
 **Rig strategies on trial** (opt-in stage options, off by default; compared blind by
 `node scripts/rig-ab3.ts <out>` then `node scripts/rig-ab3-page.ts <out>`):
 - *Rig-ready concepts* (`concepts {rigReady}`, `choose {rigReady}`): the sheet asks for a neutral
@@ -748,7 +770,10 @@ assembly), `packages/art/test/cutout.test.ts` (background removal, pixel assignm
 both modes from one concept, the critique loops keep the best match),
 `packages/server/test/cutoutRender.test.ts` (in the runtime: the rest pose
 matches a drawn test creature, no gaps at joints turned ±30°),
-`game/test/art_phases.test.ts` (heavy enemies play windup → strike → recover).
+`game/test/art_phases.test.ts` (heavy enemies play windup → strike → recover),
+`packages/art/test/look.test.ts` (detail shapes, baking, the atlas, lining up, pulling apart),
+`packages/server/test/rigRenderer.test.ts` (textures drawn inside the shape and turning with the
+bone, clipped details, the flat fill until a texture arrives).
 
 ## Scenery
 

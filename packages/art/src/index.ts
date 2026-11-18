@@ -14,3 +14,5 @@ export * from "./animMetrics.ts";
 export * from "./traced.ts";
 export * from "./motionLimits.ts";
 export * from "./puppet.ts";
+export * from "./texture.ts";
+export * from "./dress.ts";

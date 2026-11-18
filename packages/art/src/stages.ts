@@ -156,7 +156,7 @@ function checkAbort(ctx: ArtContext): void {
  * One vision call that must return JSON matching `schema`. A malformed reply
  * gets one repair round with the problems listed.
  */
-async function askJson<T extends z.ZodType>(
+export async function askJson<T extends z.ZodType>(
   ctx: ArtContext,
   schema: T,
   request: VisionRequest,
