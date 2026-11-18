@@ -24,6 +24,9 @@ var speed := 1.0
 var show_bones := false:
 	set(value):
 		show_bones = value
+		# The overlay is only repainted while bones show: hide it here, or turning bones off leaves it up.
+		if _bone_overlay != null:
+			_bone_overlay.visible = value
 		queue_redraw()
 ## Cutout rigs: decoded images by file ref. Unset, the view looks for its source in the nearest
 ## ancestor's `_textures` (main.gd, filled by the studio's `images` message), until it arrives.
