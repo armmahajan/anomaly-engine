@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyOperation, attackClipName, planGameExport, runtimeImageRefs, wantedWeaponClips, Weapon, type ProjectSpec } from "../src/index.ts";
+import { applyOperation, ArtJobRequest, attackClipName, planGameExport, runtimeImageRefs, wantedWeaponClips, Weapon, type ProjectSpec } from "../src/index.ts";
 import { artfulGame } from "./fixtures/exportGame.ts";
 
 // Weapon art in the core: the images the runtime is sent for weapons, the art operation keeping
@@ -37,6 +37,13 @@ describe("weapon art in the core", () => {
     if (!result.ok) throw new Error(result.error.message);
     const art = result.project.weapons.list[0]!.art;
     expect(art).toMatchObject({ sprite: SPRITE, grip: [12, 14], tip: [90, 12], brief: "a long tube" });
+  });
+
+  it("art job requests: weaponArt needs a weapon, animate takes one clip by name with a direction", () => {
+    expect(ArtJobRequest.safeParse({ stage: "weaponArt", weaponId: "launcher" }).success).toBe(true);
+    expect(ArtJobRequest.safeParse({ stage: "weaponArt" }).success).toBe(false);
+    expect(ArtJobRequest.safeParse({ stage: "animate", characterId: "player", clip: "taunt", direction: "a cocky shrug" }).success).toBe(true);
+    expect(ArtJobRequest.safeParse({ stage: "animate", characterId: "player", clip: "Not An Id" }).success).toBe(false);
   });
 
   it("a wielder's art needs one clip per attack: the attack's clip, else <weapon>_<attack>", () => {

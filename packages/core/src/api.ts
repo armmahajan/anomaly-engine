@@ -143,9 +143,9 @@ export type ChatEvent = z.infer<typeof ChatEvent>;
  * concepts: new 2x2 concept sheet (creates the character's art asset if needed)
  * choose:   pick a design from a sheet (default: latest sheet, AI's recommendation)
  * rig:      build (or, with feedback, revise) the rig from the chosen design
- * animate:  write the clips the character needs (its slots and its weapons' attack clips); `clips` redoes
- *           only those clips by name (`feedback` is kept as each one's direction), `weaponId` only that
- *           weapon's attack clips
+ * animate:  write the clips the character needs (its slots and its weapons' attack clips); `clip` (or
+ *           `clips`) redoes only those by name, from `direction` (kept as each one's Clip.direction; else
+ *           its stored one); `weaponId` only that weapon's attack clips
  * auto:    all of the above in order, taking the AI's recommendations
  */
 export const ArtStage = z.enum([
@@ -202,7 +202,11 @@ export const ArtJobRequest = z
     modalId: Id.optional(),
     /** weaponArt: the weapon to draw. animate: only this weapon's attack clips. */
     weaponId: Id.optional(),
-    /** animate: only these clips, by name (clip slots or weapon attack clips); `feedback` is kept as their direction. */
+    /** animate: only this clip, by name (a clip slot, a weapon attack clip or any other name), written from `direction`. */
+    clip: Id.optional(),
+    /** animate: what the clip(s) should be, in the creator's words (kept on Clip.direction to redo them). */
+    direction: z.string().trim().max(600).optional(),
+    /** animate: only these clips, by name (the game-art plan's missing ones); `direction` (else `feedback`) is kept as their direction. */
     clips: z.array(Id).min(1).max(64).optional(),
     /** gameArt: only these plan steps. */
     steps: z.array(z.string().max(120)).max(500).optional(),

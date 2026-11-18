@@ -285,7 +285,7 @@ describe("weapon-aware clips", () => {
     const h = harness(withPlayerRig(withWeapon([swing])));
     const taunt = JSON.stringify({ clips: { taunt: { duration: 1, loop: false, tracks: [{ bone: "head", property: "rotate", keys: [[0, 0], [0.5, 12], [1, 0]] }] } } });
     h.vision.replies.push(taunt);
-    h.commit((await animate(h.ctx, { characterId: "player", clips: ["taunt"], feedback: "a cocky shrug" })).operations);
+    h.commit((await animate(h.ctx, { characterId: "player", clip: "taunt", direction: "a cocky shrug" })).operations);
     const clips = () => {
       const asset = h.project().art.assets[0]!;
       return asset.kind === "character" ? asset.clips : {};
@@ -294,7 +294,7 @@ describe("weapon-aware clips", () => {
     const asked = (n: number) => h.vision.requests.filter((r) => r.content.some((c) => c.type === "text" && c.text.includes('"taunt" (a cocky shrug)'))).length >= n;
     expect(asked(1)).toBe(true);
     h.vision.replies.push(taunt);
-    h.commit((await animate(h.ctx, { characterId: "player", clips: ["taunt"] })).operations);
+    h.commit((await animate(h.ctx, { characterId: "player", clip: "taunt" })).operations);
     expect(clips().taunt?.direction).toBe("a cocky shrug");
     expect(asked(2)).toBe(true);
     // Only the named clip was written.

@@ -998,6 +998,10 @@ export interface AnimateInput {
    * direction is used again).
    */
   clips?: string[];
+  /** One clip by name (the same as `clips: [clip]`). */
+  clip?: string;
+  /** What the named clips should be (the creator's words, kept on Clip.direction); else `feedback`. */
+  direction?: string;
   /** Only this weapon's attack clips (one per attack). */
   weaponId?: string;
   /** The rig has elbows and knees: ask for them to bend. Default: on for vector rigs (built with them). */
@@ -1070,7 +1074,9 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
     return weapon && attack ? { clip: attackClipName(weapon, attack), weapon, attack } : null;
   };
   const allAttackClips = project.weapons.list.flatMap((w) => w.attacks.map((a) => attackOf(w.id, a.id)!));
-  const explicit = Boolean(input.clips || input.slots || input.weaponId);
+  const named = input.clips ?? (input.clip ? [input.clip] : undefined);
+  const explicit = Boolean(named || input.slots || input.weaponId);
+  const said = input.direction?.trim() || input.feedback?.trim();
   let slots: ClipSlot[];
   const jobs = new Map<string, WeaponJob>();
   const custom: string[] = [];
@@ -1081,14 +1087,14 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
       if (job) jobs.set(job.clip, job);
     }
   } else {
-    slots = [...new Set([...(input.slots ?? []), ...(input.clips ?? []).filter(isSlot)])];
+    slots = [...new Set([...(input.slots ?? []), ...(named ?? []).filter(isSlot)])];
     if (input.weaponId) {
       const weapon = project.weapons.list.find((w) => w.id === input.weaponId);
       if (!weapon) throw new StageError(`no weapon "${input.weaponId}"`);
       if (weapon.attacks.length === 0) throw new StageError(`${weapon.name} has no attacks to animate yet`);
       for (const a of weapon.attacks) jobs.set(attackClipName(weapon, a), attackOf(weapon.id, a.id)!);
     }
-    for (const name of input.clips ?? []) {
+    for (const name of named ?? []) {
       if (isSlot(name) || jobs.has(name)) continue;
       const job = allAttackClips.find((j) => j.clip === name);
       if (job) jobs.set(name, job);
@@ -1097,7 +1103,7 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
   }
   // The creator's direction for each clip written: the new one for clips named here, else the clip's own.
   const direction = (name: string): string | undefined =>
-    ((explicit && input.feedback?.trim()) || asset.clips[name]?.direction || undefined)?.slice(0, 600);
+    ((explicit && said) || asset.clips[name]?.direction || undefined)?.slice(0, 600);
   const wanted = [...slots, ...custom];
 
   const rest = asset.preview ? await ctx.files.get(asset.preview.file) : (await renderRest(ctx, rig)).png;
