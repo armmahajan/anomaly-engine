@@ -4,7 +4,7 @@ import { menuKeyDown, usePopover } from "../ui/usePopover.ts";
 
 /**
  * The game's name, at the left of the toolbar: click it to open the project
- * menu (rename, load the example game, start over); double-click to rename.
+ * menu (rename, export the game, load the example game, start over); double-click to rename.
  * The two rare, destructive actions live here, each behind an in-page confirmation.
  */
 export function ProjectMenu({
@@ -13,6 +13,7 @@ export function ProjectMenu({
   onRename,
   onExample,
   onReset,
+  onExport,
 }: {
   name: string;
   /** Editing is locked (a playtest or the AI is running): renaming and the destructive actions wait. */
@@ -20,6 +21,8 @@ export function ProjectMenu({
   onRename: (name: string) => Promise<boolean>;
   onExample: () => void;
   onReset: () => void;
+  /** Export the game as a standalone web game (works while locked: it only reads the project). */
+  onExport: () => void;
 }) {
   const { open, setOpen, ref } = usePopover();
   const [renaming, setRenaming] = useState(false);
@@ -75,7 +78,7 @@ export function ProjectMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${name}: project menu`}
-        title="Project: rename, example game, start over (double-click to rename)"
+        title="Project: rename, export, example game, start over (double-click to rename)"
         onClick={() => setOpen(!open)}
         onDoubleClick={() => {
           if (locked) return;
@@ -90,6 +93,10 @@ export function ProjectMenu({
         <div className="menu project-menu-list" role="menu" aria-label="Project" ref={menuRef} onKeyDown={menuKeyDown}>
           <button type="button" role="menuitem" disabled={locked} onClick={() => choose(() => setRenaming(true))}>
             Rename game
+          </button>
+          <button type="button" role="menuitem" onClick={() => choose(onExport)}>
+            Export game…
+            <small>A web build anyone can play in a browser</small>
           </button>
           <div className="menu-separator" role="separator" />
           <button type="button" role="menuitem" disabled={locked} onClick={() => choose(() => void loadExample())}>

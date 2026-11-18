@@ -65,3 +65,5 @@ export * from "./architect/planCheck.ts";
 export * from "./architect/pacing.ts";
 export * from "./architect/preview.ts";
 export * from "./wiki/gameCharacters.ts";
+export * from "./export/gameExport.ts";
+export * from "./export/bootPage.ts";

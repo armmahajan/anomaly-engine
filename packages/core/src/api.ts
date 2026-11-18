@@ -20,6 +20,8 @@ import { ArchitectStage } from "./architect/plan.ts";
  *   POST /api/chat      ChatRequest      -> { ok } (the turn runs in the background)
  *   POST /api/chat/cancel          -> { ok }
  *   GET  /api/events?clientId=…    -> server-sent events, `data:` = ServerEvent
+ *   POST /api/export    {}               -> ExportResult (builds the standalone web game: folder + zip)
+ *   GET  /api/export/<name>.zip    -> the zip built last (application/zip, as a download)
  *
  * Every edit names the revision it was based on (`baseRevision`) and is
  * rejected with `stale_revision` if the project has moved on since.
@@ -370,3 +372,30 @@ export type LiveEvent = z.infer<typeof LiveEvent>;
 
 export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent, ArtEvent, ArchitectEvent, LiveEvent]);
 export type ServerEvent = z.infer<typeof ServerEvent>;
+
+// --- game export ---
+
+/** One file of a game export (paths relative to its index.html). */
+export interface ExportedFile {
+  path: string;
+  bytes: number;
+  kind: "page" | "data" | "art" | "runtime" | "readme";
+}
+
+/** A built game export: the folder <project>/exports/<name>/ and its zip <name>.zip. */
+export interface GameExportSummary {
+  /** Safe file name, from the game's name. */
+  name: string;
+  /** The game's name (the page title). */
+  title: string;
+  /** The zip's file name (download it from GET /api/export/<zip>). */
+  zip: string;
+  zipBytes: number;
+  /** Every file of the folder, in path order. */
+  files: ExportedFile[];
+  folderBytes: number;
+  revision: number;
+}
+
+export const ExportRequest = z.strictObject({});
+export type ExportResult = { ok: true; export: GameExportSummary } | { ok: false; error: OperationError };

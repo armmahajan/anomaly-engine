@@ -6,6 +6,7 @@ import {
   PROTOCOL_VERSION,
   snapPlacement,
   toRuntimeProject,
+  runtimeImageRefs,
   kitFiles,
   type AgentId,
   type ArtJobRequest,
@@ -159,19 +160,9 @@ export class Session {
     if (runtimeStatus !== "ready" || mode !== "edit" || this.requestedRevision === project.revision) return;
     // The runtime never needs the design documents.
     if (this.bridge.send({ type: "load", project: toRuntimeProject(project) })) this.requestedRevision = project.revision;
-    // A dressed room (or a prop drawn with a kit piece) needs its biome's images (sent once; the runtime redraws when they arrive).
-    const biomeIds = new Set(project.world.rooms.flatMap((r) => [...(r.dressing ? [r.dressing.biome] : []), ...r.props.flatMap((p) => (p.art ? [p.art.biome] : []))]));
-    for (const biome of project.art.assets) {
-      if (biome.kind === "biome" && biome.kit && biomeIds.has(biome.id)) {
-        void this.sendImages(kitFiles(biome.kit));
-      }
-    }
-    // Modal images, item icons and cutout rigs' source images too.
-    const images = [
-      ...project.world.modals.flatMap((m) => (m.image ? [m.image] : [])),
-      ...project.world.items.flatMap((i) => (i.icon ? [i.icon] : [])),
-      ...project.art.assets.flatMap((a) => (a.kind === "character" && a.rig?.source ? [a.rig.source.file] : [])),
-    ];
+    // The images it draws: kits of biomes that dress rooms or draw props, modal images, item icons and cutout
+    // rigs' images (sent once each; the runtime redraws when they arrive). A game export bundles the same set.
+    const images = runtimeImageRefs(project);
     if (images.length > 0) void this.sendImages(images);
   }
 

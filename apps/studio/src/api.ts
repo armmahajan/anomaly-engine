@@ -6,6 +6,7 @@ import {
   type BatchRequest,
   ServerEvent,
   type ChangeResult,
+  type ExportResult,
   type LiveSettings,
   type LiveState,
   type OperationRequest,
@@ -51,6 +52,9 @@ export const cancelArtJob = () => post<{ ok: true }>("/api/art/cancel", {});
 export const setLive = (settings: Partial<LiveSettings>) => post<{ ok: true; live: LiveState }>("/api/live", settings);
 export const startArchitect = (request: ArchitectRunRequest) => post<{ ok: true }>("/api/architect/run", request);
 export const cancelArchitect = () => post<{ ok: true }>("/api/architect/cancel", {});
+/** Build the standalone web game on the server (folder + zip); download it from exportUrl(result.export.zip). */
+export const exportGame = () => post<ExportResult>("/api/export", {});
+export const exportUrl = (zip: string) => `/api/export/${encodeURIComponent(zip)}`;
 /** URL of a stored image (concept sheets, renders). */
 export const fileUrl = (ref: string) => `/api/files/${ref}`;
 export const setPlaytest = (active: boolean, clientId: string) =>

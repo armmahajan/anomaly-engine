@@ -18,6 +18,7 @@ import { ConfirmHost, askConfirm } from "./ui/confirm.tsx";
 import { SidePanel } from "./ui/SidePanel.tsx";
 import { CharacterList } from "./CharacterList.tsx";
 import { ProjectMenu } from "./shell/ProjectMenu.tsx";
+import { ExportGameDialog } from "./shell/ExportGame.tsx";
 import { StudioTabs, type TabGroup } from "./shell/StudioTabs.tsx";
 import { PlayControls } from "./shell/PlayControls.tsx";
 import { SaveStatus } from "./shell/SaveStatus.tsx";
@@ -65,6 +66,7 @@ export function App({ session }: { session: Session }) {
   const [sidebarWidth, startResize, setSidebarWidth] = useSidebarWidth();
   const sideResize = { width: sidebarWidth, startResize, setWidth: setSidebarWidth };
   const [characterQuery, setCharacterQuery] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [chatOpen, setChatOpen] = useChatOpen();
   const [worldUi, setWorldUi] = useState<WorldUi>({
     biomeId: null,
@@ -275,6 +277,7 @@ export function App({ session }: { session: Session }) {
           onRename={renameProject}
           onExample={() => void loadExample()}
           onReset={() => void resetProject()}
+          onExport={() => setExporting(true)}
         />
         <StudioTabs groups={TAB_GROUPS} labels={TAB_LABEL} hints={TAB_HINT} counts={drafts} countHint="Drafts awaiting your review" active={tab} onOpen={openTab} />
         <div className="toolbar-end">
@@ -301,6 +304,7 @@ export function App({ session }: { session: Session }) {
         </div>
       </header>
       <ConfirmHost />
+      {exporting && <ExportGameDialog project={project} onClose={() => setExporting(false)} />}
 
       {/* The game stays mounted (and sized) in every mode so it never reboots; modes only move it. */}
       <main className={`viewport${documentTab ? " offstage" : ""}`} aria-hidden={documentTab}>
