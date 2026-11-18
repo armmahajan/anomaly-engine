@@ -22,7 +22,7 @@ export function allHandlers(project: ProjectSpec): { path: string; handlers: Han
 }
 
 /** Every condition the project reads (handlers' and props' solid/visible), with its path. */
-function allConditions(project: ProjectSpec): { path: string; condition: GameCondition }[] {
+export function allConditions(project: ProjectSpec): { path: string; condition: GameCondition }[] {
   const out: { path: string; condition: GameCondition }[] = [];
   for (const { path, handlers } of allHandlers(project)) {
     handlers.forEach((h, i) => flattenConditions(h.when).forEach((condition) => out.push({ path: `${path}.${i}.when`, condition })));

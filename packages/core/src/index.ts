@@ -73,3 +73,4 @@ export * from "./combat/weapon.ts";
 export * from "./combat/weaponOperations.ts";
 export * from "./art/rigEdit.ts";
 export * from "./combat/weaponModel.ts";
+export * from "./combat/weaponLint.ts";
