@@ -53,4 +53,11 @@ export async function createProjectServer(
   const api = createApiHandler(store, chats, art ? { service: art, files } : undefined, architect);
   return { store, chat: chats.build, chats, art, architect, handler: (req, res, next) => auth(req, res, () => api(req, res, next)) };
 }
-export { artOptionsFromEnv, DEFAULT_IMAGE_MODEL, DEFAULT_VISION_MODEL } from "./art/config.ts";
+export {
+  artOptionsFromEnv,
+  visionBackendFromEnv,
+  DEFAULT_CLAUDE_VISION_MODEL,
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_VISION_MODEL,
+} from "./art/config.ts";
+export { ClaudeCodeVisionModel } from "./art/claudeCodeVision.ts";

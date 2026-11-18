@@ -704,14 +704,33 @@ player is behind them.
 
 ## Art jobs, settings and storage
 
-- **Cost:** about $0.015-0.02 per character and $0.017 per draft biome with the
-  defaults (`openai/gpt-image-1-mini` at low quality for images,
-  `anthropic/claude-haiku-5.5` for everything else). Each job has a budget
+- **Models:** images are painted by `openai/gpt-image-1-mini` (low quality) on
+  OpenRouter. Everything else (picks, facing checks, rigs, critiques, clips, kit
+  labels, room composing and reviews) is the *vision model*, which by default
+  runs on your local Claude Code login with `claude-opus-5-5`, like the chat
+  agents (`packages/server/src/art/claudeCodeVision.ts`): one Claude Code turn
+  per call with only the stage's system prompt and one user message (images as
+  base64 image blocks), no tools, MCP, settings or session file. Those calls
+  cost nothing beyond the subscription (shown as $0); the studio's art header
+  shows `claude-code/<model>`. As with chat, this is for personal local use.
+- **Cost:** with the defaults only images cost money: about $0.003 per
+  character (concept sheet) and $0.06 per draft biome kit (measured
+  2026-11-17). Vision on OpenRouter (`anthropic/claude-haiku-5.5`) adds about
+  $0.01 per character. On Claude Code a call takes about 2 s of overhead plus
+  the model's time (a rig build or review about 20 s, a room review about
+  10 s, a whole character concept-to-animated about 2.5 min); calls the
+  pipeline makes in parallel run in parallel, each in its own Claude Code
+  process, and count against the subscription's usage limits. Each job has a budget
   (`STUDIO_ART_BUDGET`, default $0.25) and the sidebars show what was spent.
-- **Settings** (`.env`): `OPENROUTER_API_KEY` (required),
+- **Settings** (`.env`): `OPENROUTER_API_KEY` (required, for images),
   `STUDIO_ART_IMAGE_MODEL`, `STUDIO_ART_IMAGE_QUALITY`,
-  `STUDIO_ART_VISION_MODEL`, `STUDIO_ART_BUDGET`; `STUDIO_ART_BACKEND=fake`
-  uses scripted models (e2e).
+  `STUDIO_ART_VISION_BACKEND` (`claude-code` or `openrouter`; default
+  `claude-code`, but `openrouter` when `STUDIO_CHAT_BACKEND=fake` or
+  `STUDIO_ART_VISION_MODEL` is an OpenRouter id like `anthropic/claude-haiku-5.5`),
+  `STUDIO_ART_VISION_MODEL` (default `claude-opus-5-5` on Claude Code,
+  `anthropic/claude-haiku-5.5` on OpenRouter), `STUDIO_ART_VISION_EFFORT`
+  (Claude Code only: `low`..`max`), `STUDIO_ART_BUDGET`;
+  `STUDIO_ART_BACKEND=fake` uses scripted models (e2e).
 - **Storage:** images live in `<project>/files/` under content hashes; the
   project only references them, so undo is exact. Each finished stage is one
   AI change (one undo step). The job log is `<project>/art-jobs.jsonl`.
