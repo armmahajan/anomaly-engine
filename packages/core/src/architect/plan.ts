@@ -110,6 +110,14 @@ export const ArchitectPlan = z.strictObject({
   /** Stages that stop for the creator's review when they finish (the run resumes on request). */
   pauseAfter: z.array(ArchitectStage).max(ARCHITECT_STAGES.length).default([]),
   stages: z.partialRecord(ArchitectStage, StageStatus).default({}),
+  /** Set when the studio built the plan and its rooms as a live preview of the progression (see preview.ts). */
+  preview: z
+    .strictObject({
+      progression: z.string().max(64).describe("Fingerprint of the progression the preview followed."),
+      plan: z.string().max(64).describe("Fingerprint of the plan (rooms, links, stage statuses) as the preview left it."),
+      rooms: z.string().max(64).describe("Fingerprint of the plan's world rooms as the preview left them."),
+    })
+    .optional(),
 });
 export type ArchitectPlan = z.infer<typeof ArchitectPlan>;
 

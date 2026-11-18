@@ -28,9 +28,24 @@ const fakeStructure: TurnRunner = (request) =>
     ]),
   });
 
-/** Scripted director: drafts the progression when asked about structure, otherwise a small wiki skeleton. */
+/** "cast": the player, two enemies (one a guardian) and a story-only sage, marked with in_game. */
+const fakeCast: TurnRunner = (request) =>
+  runAgentTurn({
+    ...request,
+    model: new FakeModel([
+      callTools(
+        page("lamplighter", "character", "The Lamplighter", { summary: "The last keeper of the flame.", fields: { role: "protagonist", in_game: "player", appearance: "a small cloaked figure with a lantern" } }),
+        page("moth_knight", "character", "Moth Knight", { summary: "Guardian of the bell.", fields: { role: "guardian", in_game: "enemy (boss)", appearance: "dusty wings, a pale lance" } }),
+        page("lamp_grub", "character", "Lamp Grub", { summary: "Vermin that eat light.", fields: { role: "vermin", in_game: "enemy", appearance: "a glowing larva" } }),
+        page("old_sage", "character", "The Old Sage", { summary: "Remembers the flood.", fields: { role: "mentor", in_game: "none" } }),
+      ),
+      say("Drafted the Lamplighter, two enemies and the Old Sage."),
+    ]),
+  });
+
+/** Scripted director: drafts the progression when asked about structure, the cast when asked for it, otherwise a small wiki skeleton. */
 const fakeDirector: TurnRunner = (request) =>
-  /structure|progression/i.test(request.userMessage) ? fakeStructure(request) : fakeWiki(request);
+  /structure|progression/i.test(request.userMessage) ? fakeStructure(request) : /\bcast\b/i.test(request.userMessage) ? fakeCast(request) : fakeWiki(request);
 
 const fakeWiki: TurnRunner = (request) =>
   runAgentTurn({
@@ -90,8 +105,20 @@ const fakeArchitect: TurnRunner = (request) => {
   });
 };
 
+/** The live cast's request: a chasing behavior and a size for each new enemy. */
+const fakeBehaviors: TurnRunner = (request) => {
+  const list = /their behavior: (.+?)\. They were/.exec(request.userMessage)?.[1] ?? "";
+  const ids = list.split(", ").map((s) => s.split(" ")[0]!);
+  const behavior = { initial: "prowl", states: { prowl: { action: { type: "patrol", speed: 150, distance: 260, turnAtLedge: true, turnAtWall: true }, transitions: [] } }, interrupts: [] };
+  return runAgentTurn({
+    ...request,
+    model: new FakeModel([callTools(...ids.flatMap((characterId) => [toolCall("setBehavior", { characterId, behavior }), toolCall("updateCharacter", { characterId, changes: { size: { width: 40, height: 36 } } })])), say("Wrote their behaviors.")]),
+  });
+};
+
 const fakeBuilder: TurnRunner = (request) => {
   if (/^build from the design/i.test(request.userMessage.trim())) return fakeBuildFromDesign(request);
+  if (/^give these new enemy characters their behavior/i.test(request.userMessage.trim())) return fakeBehaviors(request);
   // The Architect's cast stage: nothing to create in the scripted games.
   if (/^create these enemy characters/i.test(request.userMessage.trim())) return runAgentTurn({ ...request, model: new FakeModel([say("Nothing to create.")]) });
   const world = /^world: (.+)$/i.exec(request.userMessage.trim());

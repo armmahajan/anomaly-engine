@@ -63,3 +63,5 @@ export * from "./architect/population/index.ts";
 export * from "./combat/difficulty.ts";
 export * from "./architect/planCheck.ts";
 export * from "./architect/pacing.ts";
+export * from "./architect/preview.ts";
+export * from "./wiki/gameCharacters.ts";

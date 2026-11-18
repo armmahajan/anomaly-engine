@@ -38,7 +38,7 @@ export const defaultWiki = (): Wiki => ({ pages: [] });
 /** Kinds the studio offers first, with the fields worth filling for each. Any other kind is fine too. */
 export const SUGGESTED_KINDS = [
   { kind: "overview", label: "Overview", fields: ["genre", "tone", "themes", "player fantasy"] },
-  { kind: "character", label: "Characters", fields: ["role", "motivation", "appearance"] },
+  { kind: "character", label: "Characters", fields: ["role", "in_game", "motivation", "appearance"] },
   { kind: "place", label: "Places", fields: ["mood", "appearance"] },
   { kind: "faction", label: "Factions", fields: ["goal", "leader"] },
   { kind: "lore", label: "Lore", fields: ["era"] },

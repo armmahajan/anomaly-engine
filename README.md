@@ -66,7 +66,9 @@ e2e/            Playwright acceptance test.
   edit through the same HTTP API; every change is validated, saved,
   attributed (`user`/`ai`), and pushed live to open studios.
 - **Edits name the revision they're based on.** If the project moved on, the
-  edit is rejected (`stale_revision`) instead of silently overwriting.
+  edit is rejected (`stale_revision`) instead of silently overwriting, unless
+  everything since was a background save (art, the live cast and rooms): then
+  it applies on top. Undo is always strict (see *Live* below).
 - **No editing while playing.** Play takes a server-side lock and freezes a
   snapshot; Stop rebuilds the scene from the spec (= reset). Edits from
   anywhere are rejected with `locked` until then.
@@ -209,6 +211,56 @@ conversation.
   starts from the starter project and an empty chat.
 - **Live tests:** `ANOMALY_LIVE_CLAUDE=1 npx vitest run claudeCode.live narrative.live`
   (uses your Claude plan).
+
+## Live: the studio fills in as you design
+
+While the director (or you) writes the wiki and the progression, the studio
+builds from them in the background (`packages/server/src/live/service.ts`):
+
+- **Characters from the wiki.** A wiki page that describes a game character
+  becomes one: an enemy page gets a new enemy (the page's id, linked to the
+  page), the player page is linked to the player (who takes its title). New
+  enemies get a behavior from their page (one build-assistant turn on a
+  private copy, at first-region strength), then each gets its art (an `auto`
+  art job briefed from the page). Which pages are game characters is read from
+  the page (core `gameCharacterPages`): its `in_game` field (`player`, `enemy`,
+  `enemy (boss)`, or `none` for story-only people; the director writes it),
+  else its link to a character, the progression's region enemy and boss lists,
+  or a `role` that starts with a character kind. Each page is handled once:
+  undoing or deleting what it made doesn't bring it back.
+- **Rooms from the progression.** Once the progression has regions and a
+  start, the Architect's code stages build rooms for it with no model and no art
+  (core `buildPreview`: the plan seeded from the progression, then layout,
+  geometry and population; in a worker thread) and rebuild them when the
+  progression changes. Not done: difficulty variants and the screens stage,
+  and your playtest spot is kept. The preview owns the plan only until someone
+  shapes it: a plan edit, a pinned room, an Architect run, an edited or dressed
+  room (fingerprints in `architect.preview`). From then on a progression change
+  marks the Architect's done stages stale instead; you rebuild from the
+  Architect tab. **Build game** treats an untouched preview as a fresh plan.
+- **Concurrency.** A chat turn or an Architect run holds the project (only the
+  AI's edits pass; the creator's wait, as before); a playtest refuses all edits.
+  Background work (art jobs, the live cast's saves and its behavior turn, the
+  live rooms) holds no lock and never locks the studio: its results are saved
+  through `ProjectStore.commitBackground`, each as its own AI revision applied
+  to the project as it is at that moment, and wait while a chat turn, an
+  Architect run or a playtest is underway (the toolbar says so). A reset stops
+  it. An edit you based on a revision that only background saves have moved on
+  from still applies.
+- **Undo** stays linear: it takes back the latest revision, whoever made it, so
+  after a background save Undo takes back that save first (each is one step).
+  An Undo based on a stale view is refused with a note rather than undoing
+  something you haven't seen; a chat turn's own "Undo this" shows only while
+  the turn is the latest change.
+- **Studio:** the toolbar's *Live* menu shows what runs (`drawing Moth Knight
+  (rig) · 2 art jobs queued`) and turns each half on or off; the character list
+  tags characters being written or drawn; the Rooms and Architect sidebars say
+  what the live rooms did.
+- **Settings:** `STUDIO_LIVE` = `on` (default), `off`, `cast` or `rooms` for a
+  project with no `<project>/live.json` yet (that file keeps the switches, the
+  pages handled and the progression followed). Turning it on for an existing
+  project counts what is already there as done. API: `GET /api/live`,
+  `POST /api/live {cast?, rooms?}`; SSE `live` events.
 
 ## Wiki and the director
 
@@ -731,6 +783,14 @@ player is behind them.
   `anthropic/claude-haiku-5.5` on OpenRouter), `STUDIO_ART_VISION_EFFORT`
   (Claude Code only: `low`..`max`), `STUDIO_ART_BUDGET`;
   `STUDIO_ART_BACKEND=fake` uses scripted models (e2e).
+- **Background work:** art jobs hold no lock: the creator keeps editing and
+  chatting while one runs. One job runs at a time; a job started meanwhile
+  (from a workbench, a chat turn or the live cast) queues behind it. Each
+  finished stage is saved onto the project as it is then (its operations applied
+  again); a stage whose changes no longer apply (its character was deleted)
+  fails the job cleanly. Saves wait while a playtest or an AI turn runs. The
+  Architect's game-art job is the exception: it runs inside the Architect's run
+  and stops a background job in its way (it draws whatever is missing).
 - **Storage:** images live in `<project>/files/` under content hashes; the
   project only references them, so undo is exact. Each finished stage is one
   AI change (one undo step). The job log is `<project>/art-jobs.jsonl`.

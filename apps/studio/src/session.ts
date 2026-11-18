@@ -16,6 +16,8 @@ import {
   type ChangeResult,
   type ChatState,
   type EntityState,
+  type LiveSettings,
+  type LiveState,
   type ProjectSpec,
   type ProjectState,
   type RuntimeMode,
@@ -46,6 +48,8 @@ export interface SessionState {
   art: ArtState;
   /** The Architect's run (stage progress, last outcome, activity). The plan itself is project.architect. */
   architect: ArchitectState;
+  /** Background work that fills the studio in as the creator designs (game characters from the wiki, rooms from the progression). */
+  live: LiveState;
   /** Worlds mode: the piece the creator clicked in the runtime (null = none), and where the camera looks. */
   worldPick: string | null;
   worldCameraX: number | null;
@@ -93,8 +97,14 @@ export class Session {
       lastProblem: null,
       chats: { build: idleChat, narrative: idleChat, architect: idleChat },
       seed: null,
-      art: { available: false, models: { image: "", vision: "" }, budget: 0, running: null, jobs: [], queued: 0, totalCost: 0 },
+      art: { available: false, models: { image: "", vision: "" }, budget: 0, running: null, jobs: [], queued: 0, pending: [], totalCost: 0 },
       architect: { running: null, last: null, log: [] },
+      live: {
+        settings: { cast: false, rooms: false },
+        cast: { working: [], message: "", error: null },
+        rooms: { status: "idle", message: "", error: null },
+        waiting: null,
+      },
       worldPick: null,
       worldCameraX: null,
       room: null,
@@ -125,6 +135,7 @@ export class Session {
         if (event.type === "project") this.receiveProject(event);
         else if (event.type === "chat") this.set({ chats: { ...this.state.chats, [event.agent]: event.chat } });
         else if (event.type === "architect") this.set({ architect: event.architect });
+        else if (event.type === "live") this.set({ live: event.live });
         else this.set({ art: event.art });
       },
       (connected) => {
@@ -263,10 +274,13 @@ export class Session {
 
   getProject = (): ProjectSpec => this.state.project;
 
-  /** Apply any named core operation through the server. */
-  /** True while an AI turn or art job runs: the project is locked to everyone but the AI. */
+  /**
+   * True while an AI turn or an Architect run (with its game-art job) holds the project: it
+   * is locked to everyone but the AI. Background work (art jobs, the live cast and rooms)
+   * never locks the creator out; its saves wait while a playtest runs.
+   */
   aiBusy = (): boolean =>
-    Object.values(this.state.chats).some((c) => c.running !== null) || this.state.art.running !== null || this.state.architect.running !== null;
+    Object.values(this.state.chats).some((c) => c.running !== null) || this.state.architect.running !== null || this.state.art.running?.underLock === true;
 
   private editBlocked(): ChangeResult | null {
     if (this.state.mode !== "edit") return locked("stop the playtest before editing");
@@ -299,6 +313,7 @@ export class Session {
     if (blocked) return blocked;
     const result = await api.undo({ baseRevision: this.state.project.revision, author: "user" });
     if (result.ok) this.receiveProject(result);
+    else this.reportProblem(result.error.message);
     return result;
   };
 
@@ -362,6 +377,14 @@ export class Session {
     await this.releasing;
     const result = await api.startArchitect(request);
     if (!result.ok) this.reportProblem(`architect: ${result.error.message}`);
+    return result.ok;
+  };
+
+  /** Turn the live cast (wiki characters become game characters) and/or the live rooms (the progression becomes rooms) on or off. */
+  setLive = async (settings: Partial<LiveSettings>): Promise<boolean> => {
+    const result = await api.setLive(settings);
+    if (!result.ok) this.reportProblem(`live: ${result.error.message}`);
+    else this.set({ live: result.live });
     return result.ok;
   };
 
@@ -470,7 +493,17 @@ export class Session {
     if (!this.canPlay()) return false;
     const runSeed = seed ?? Math.floor(Math.random() * MAX_SEED);
     this.set({ mode: "play", seed: runSeed }); // lock local edits immediately
-    const lock = await api.setPlaytest(true, this.clientId);
+    let lock = await api.setPlaytest(true, this.clientId);
+    // Background work may save just before the lock: load that revision and ask again (its saves wait from now on).
+    for (let tries = 0; lock.ok && lock.revision !== this.state.loadedRevision && tries < 3; tries++) {
+      await api.setPlaytest(false, this.clientId);
+      this.set({ mode: "edit" });
+      this.syncRuntime();
+      const target = lock.revision;
+      if (!(await this.waitFor(() => this.state.loadedRevision !== null && this.state.loadedRevision >= target && this.state.loadedRevision === this.state.project.revision, STOP_TIMEOUT_MS))) break;
+      this.set({ mode: "play" });
+      lock = await api.setPlaytest(true, this.clientId);
+    }
     // Abort if the lock failed or the project moved on while we asked.
     if (!lock.ok || lock.revision !== this.state.loadedRevision) {
       if (lock.ok) void api.setPlaytest(false, this.clientId);

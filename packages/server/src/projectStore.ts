@@ -21,6 +21,7 @@ import {
   type ChangeResult,
   type HistoryEntry,
   type HistorySummary,
+  type OperationCall,
   type OperationError,
   type PlaytestResult,
   type ProjectEvent,
@@ -37,12 +38,34 @@ import {
  * operations, appended to history, then committed by atomically replacing
  * project.json. On load, history entries newer than project.json (a crash
  * between the two writes) are discarded.
+ *
+ * Who may change the project when:
+ * - The AI lock (`beginAiTurn`: a chat turn, an Architect run) lets only the AI's own
+ *   edits through; the creator's edits are refused until it ends.
+ * - The playtest lock refuses every edit.
+ * - Background jobs (art, the live cast and rooms) hold no lock. They save with
+ *   `commitBackground`, which applies their result to the project as it is at that
+ *   moment (a rebase: their operations again, or a merge their builder computes from
+ *   the current project) as one AI revision, and waits, without blocking anyone,
+ *   while either lock is held. So nothing lands under a chat turn, an Architect run
+ *   or a playtest, and the creator can keep editing while background work runs.
+ * - An edit based on an older revision is still accepted when every revision since
+ *   was a background save (it applies to the project as it is now). Undo stays
+ *   strict: it takes back the latest revision, whoever made it, and is refused when
+ *   the creator's view is stale, so it never undoes something they haven't seen.
  */
 export class ProjectStore {
   private queue: Promise<unknown> = Promise.resolve();
   private listeners = new Set<(event: ProjectEvent) => void>();
   private playtestOwner: string | null = null;
   private aiTurn = false;
+  /** Revisions saved by background jobs (this session): edits based on an earlier revision still apply over them. */
+  private background = new Set<number>();
+  /** Bumped by a reset: background work started before it saves nothing. */
+  private epochValue = 0;
+  /** Waiting background saves, woken when a lock is released. */
+  private unlockWaiters = new Set<() => void>();
+  private lockListeners = new Set<() => void>();
   readonly dir: string;
   private readonly createInitial: () => ProjectSpec;
   private project: ProjectSpec;
@@ -113,7 +136,7 @@ export class ProjectStore {
       if (!parsed.success) return fail("invalid_request", "malformed operation request", toIssues(parsed.error));
       const { name, input, baseRevision, author } = parsed.data;
 
-      const blocked = this.checkEditable(baseRevision, author);
+      const blocked = this.checkEditable(baseRevision, author, true);
       if (blocked) return blocked;
 
       const result = applyOperation(this.project, name, input);
@@ -129,7 +152,7 @@ export class ProjectStore {
       if (!parsed.success) return fail("invalid_request", "malformed batch request", toIssues(parsed.error));
       const { operations, baseRevision, author } = parsed.data;
 
-      const blocked = this.checkEditable(baseRevision, author);
+      const blocked = this.checkEditable(baseRevision, author, true);
       if (blocked) return blocked;
 
       const result = applyBatch(this.project, operations);
@@ -188,8 +211,10 @@ export class ProjectStore {
           return fail("locked", "another studio window is already playtesting");
         }
         this.playtestOwner = clientId;
+        this.lockChanged();
       } else if (this.playtestOwner === clientId) {
         this.playtestOwner = null;
+        this.lockChanged();
       }
       return { ok: true, revision: this.project.revision };
     });
@@ -201,12 +226,85 @@ export class ProjectStore {
       if (this.playtestOwner !== null) return fail("locked", "a playtest is running; stop it before chatting");
       if (this.aiTurn) return fail("locked", "the AI is already working on a message");
       this.aiTurn = true;
+      this.lockChanged();
       return { ok: true as const };
     });
   }
 
   endAiTurn(): void {
     this.aiTurn = false;
+    this.lockChanged();
+  }
+
+  /** Changes each time a reset replaces the project (background work started before it must not save). */
+  epoch(): number {
+    return this.epochValue;
+  }
+
+  /** True while a chat turn or an Architect run holds the project. */
+  isAiLocked(): boolean {
+    return this.aiTurn;
+  }
+
+  /** Why background saves wait right now, or null. */
+  waitingReason(): string | null {
+    if (this.playtestOwner !== null) return "a playtest is running";
+    if (this.aiTurn) return "the AI is working on the project";
+    return null;
+  }
+
+  /** Called whenever the AI lock or the playtest lock is taken or released, and on a reset. */
+  subscribeLocks(listener: () => void): () => void {
+    this.lockListeners.add(listener);
+    return () => this.lockListeners.delete(listener);
+  }
+
+  /**
+   * Save a background job's result as one revision by the AI, onto the project as it
+   * is when the save happens. `build` gets that project and returns operations to apply
+   * to it (a batch), a whole next project (a named stage), or null when there is
+   * nothing to save any more. Waits while a playtest or the AI lock is held (`onWait`
+   * hears why, then null when it goes on); `signal` gives up waiting; a reset since
+   * `epoch` refuses. A result that no longer applies fails with the reason; the job
+   * reports it and stops.
+   */
+  async commitBackground(
+    build: (project: ProjectSpec) => { operations: OperationCall[] } | { project: ProjectSpec; stage: string; summary: string } | null,
+    options: { signal?: AbortSignal; epoch?: number; onWait?: (reason: string | null) => void } = {},
+  ): Promise<{ ok: true; project: ProjectSpec; revision: number | null } | { ok: false; error: OperationError }> {
+    const WAIT = Symbol("wait");
+    for (;;) {
+      const result = await this.exclusive(async () => {
+        if (options.signal?.aborted) return fail("unavailable", "cancelled");
+        if (options.epoch !== undefined && options.epoch !== this.epochValue) return fail("not_found", "the project was reset");
+        if (this.waitingReason()) return WAIT;
+        let built: ReturnType<typeof build>;
+        try {
+          built = build(this.project);
+        } catch (e) {
+          return fail("invalid_result", e instanceof Error ? e.message : String(e));
+        }
+        if (built === null || ("operations" in built && built.operations.length === 0)) return { ok: true as const, project: this.project, revision: null };
+        let saved: ChangeResult;
+        if ("operations" in built) {
+          const applied = applyBatch(this.project, built.operations);
+          if (!applied.ok) return applied;
+          const calls = built.operations.map(({ name, input }) => ({ name, input }));
+          saved = await this.commit(applied.project, "ai", { kind: "batch", operations: calls });
+        } else {
+          const validated = validateProject({ ...built.project, revision: this.project.revision + 1 });
+          if (!validated.ok) return fail("invalid_result", `${built.stage} would leave the project invalid: ${validated.issues.map((i) => i.message).slice(0, 5).join("; ")}`, validated.issues);
+          saved = await this.commit(validated.project, "ai", { kind: "stage", stage: built.stage, summary: built.summary });
+        }
+        if (!saved.ok) return saved;
+        this.background.add(saved.project.revision);
+        return { ok: true as const, project: saved.project, revision: saved.project.revision };
+      });
+      if (result !== WAIT) return result;
+      options.onWait?.(this.waitingReason());
+      await this.nextUnlock(options.signal);
+      options.onWait?.(null);
+    }
   }
 
   /** Back up the project folder to backups/<time>/, then replace the project with a fresh one. */
@@ -214,7 +312,8 @@ export class ProjectStore {
     return this.exclusive(async () => {
       const parsed = ResetRequest.safeParse(request);
       if (!parsed.success) return fail("invalid_request", "malformed reset request", toIssues(parsed.error));
-      const blocked = this.checkEditable(parsed.data.baseRevision, "user");
+      // A reset replaces everything: background saves since the creator looked don't matter.
+      const blocked = this.checkEditable(parsed.data.baseRevision, "user", true);
       if (blocked) return blocked;
 
       const backup = join(this.dir, "backups", new Date().toISOString().replace(/[:.]/g, "-"));
@@ -229,6 +328,9 @@ export class ProjectStore {
       await this.writeProject(next);
       this.project = next;
       this.history = [];
+      this.background.clear();
+      this.epochValue++;
+      this.lockChanged();
       this.emit({ revision: next.revision, author: "user", summary: "reset project" });
       return { ok: true, ...this.getState() };
     });
@@ -236,7 +338,10 @@ export class ProjectStore {
 
   /** Called when a client disconnects, so a closed tab can't hold the lock forever. */
   releasePlaytest(clientId: string): void {
-    if (this.playtestOwner === clientId) this.playtestOwner = null;
+    if (this.playtestOwner === clientId) {
+      this.playtestOwner = null;
+      this.lockChanged();
+    }
   }
 
   /** Wait for queued changes to finish (used by tests). */
@@ -246,16 +351,47 @@ export class ProjectStore {
 
   // --- internals ---
 
-  private checkEditable(baseRevision: number, author: Author): { ok: false; error: OperationError } | null {
+  /** `overBackground`: an edit based on an older revision applies when only background saves came since. */
+  private checkEditable(baseRevision: number, author: Author, overBackground = false): { ok: false; error: OperationError } | null {
     if (this.playtestOwner !== null) return fail("locked", "a playtest is running; stop it before editing");
     if (this.aiTurn && author !== "ai") return fail("locked", "the AI is editing the project; wait for it or cancel");
+    if (overBackground && this.onlyBackgroundSince(baseRevision)) return null;
     if (baseRevision !== this.project.revision) {
+      if (this.onlyBackgroundSince(baseRevision)) {
+        return fail("stale_revision", "background work just saved a change; Undo now takes back that change, so press it again if that is what you want");
+      }
       return fail(
         "stale_revision",
         `edit was based on revision ${baseRevision} but the project is at revision ${this.project.revision}`,
       );
     }
     return null;
+  }
+
+  private onlyBackgroundSince(baseRevision: number): boolean {
+    if (baseRevision >= this.project.revision) return false;
+    for (let r = baseRevision + 1; r <= this.project.revision; r++) if (!this.background.has(r)) return false;
+    return true;
+  }
+
+  private lockChanged(): void {
+    const waiters = [...this.unlockWaiters];
+    this.unlockWaiters.clear();
+    for (const wake of waiters) wake();
+    for (const listener of this.lockListeners) listener();
+  }
+
+  /** Resolves at the next lock change (or when `signal` aborts). */
+  private nextUnlock(signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        this.unlockWaiters.delete(done);
+        signal?.removeEventListener("abort", done);
+        resolve();
+      };
+      this.unlockWaiters.add(done);
+      signal?.addEventListener("abort", done, { once: true });
+    });
   }
 
   private async commit(next: ProjectSpec, author: Author, change: Change): Promise<ChangeResult> {

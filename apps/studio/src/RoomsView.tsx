@@ -14,7 +14,9 @@ import {
   type WorldRoom,
   type WorldStart,
 } from "@anomaly/core";
+import type { LiveState } from "@anomaly/core";
 import type { Session } from "./session.ts";
+import { RoomsLive } from "./LiveStatus.tsx";
 import { HandlerEditor } from "./HandlerEditor.tsx";
 import { PropsOverlay } from "./PropsOverlay.tsx";
 import { PropsSection } from "./PropsSection.tsx";
@@ -321,10 +323,12 @@ interface PanelProps {
   ui: RoomsUi;
   setUi: (ui: RoomsUi) => void;
   locked: boolean;
+  /** The live rooms (built from the progression in the background). */
+  live?: LiveState;
 }
 
 /** Sidebar: rooms and the world map, the selected room's doors, enemies and start, and the rules. */
-export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) {
+export function RoomsPanel({ project, session, ui, setUi, locked, live }: PanelProps) {
   const room = currentRoom(project, ui);
   const [name, setName] = useState("");
   const [door, setDoor] = useState<{ side: DoorSide; offset: number; size: number }>({ side: "right", offset: 1, size: 3 });
@@ -350,6 +354,7 @@ export function RoomsPanel({ project, session, ui, setUi, locked }: PanelProps) 
   return (
     <section className="rooms-panel" data-testid="rooms-panel">
       <h2>Rooms</h2>
+      {live && <RoomsLive live={live} />}
       <WorldMap project={project} selected={room?.id ?? null} onSelect={select} />
       <ul className="character-list">
         {project.world.rooms.map((r) => (

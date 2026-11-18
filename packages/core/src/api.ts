@@ -251,12 +251,18 @@ export const ArtState = z.object({
       startedAt: z.string(),
       cost: z.number(),
       activity: z.array(ArtActivityEntry),
+      /** True when the job runs inside the Architect's run (which holds the project lock); false for background jobs, which never lock the creator out. */
+      underLock: z.boolean().default(false),
+      /** Why its finished stage isn't saved yet (a playtest or an AI turn is running), if it is waiting. */
+      waiting: z.string().nullable().default(null),
     })
     .nullable(),
   /** Recent jobs, newest last. */
   jobs: z.array(ArtJobSummary),
-  /** Jobs waiting to start (queued by the chat). */
+  /** Jobs waiting to start (queued by the chat, the creator or the live cast). */
   queued: z.number().default(0),
+  /** What those queued jobs are, in order. */
+  pending: z.array(z.object({ stage: ArtStage, characterId: z.string().optional(), biomeId: z.string().optional() })).default([]),
   /** USD spent on art in this project. */
   totalCost: z.number(),
 });
@@ -314,5 +320,45 @@ export type ArchitectState = z.infer<typeof ArchitectState>;
 export const ArchitectEvent = z.object({ type: z.literal("architect"), architect: ArchitectState });
 export type ArchitectEvent = z.infer<typeof ArchitectEvent>;
 
-export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent, ArtEvent, ArchitectEvent]);
+// --- live: the studio fills in as the creator designs ------------------------------
+//   GET  /api/live                     -> LiveState
+//   POST /api/live  LiveSettingsRequest -> LiveState (turn the live cast / live rooms on or off)
+// Background work: it never holds the project lock. Its results are saved as their own
+// AI revisions onto the project as it is then (waiting while a playtest or an AI turn runs).
+
+export const LiveSettings = z.object({
+  /** Wiki pages of game characters become characters (linked, with a behavior and art). */
+  cast: z.boolean(),
+  /** The progression's regions become rooms (the Architect's code stages, no model, no art). */
+  rooms: z.boolean(),
+});
+export type LiveSettings = z.infer<typeof LiveSettings>;
+
+export const LiveSettingsRequest = LiveSettings.partial().strict();
+
+export const LiveState = z.object({
+  settings: LiveSettings,
+  cast: z.object({
+    /** Characters being made or given a behavior now. */
+    working: z.array(z.string()),
+    /** What the live cast is doing (empty when idle). */
+    message: z.string(),
+    /** The last problem, if the last run had one. */
+    error: z.string().nullable(),
+  }),
+  rooms: z.object({
+    status: z.enum(["idle", "building", "saving"]),
+    /** What the live rooms did last or are doing. */
+    message: z.string(),
+    error: z.string().nullable(),
+  }),
+  /** Why background saves are waiting right now (a playtest, an AI turn), or null. */
+  waiting: z.string().nullable(),
+});
+export type LiveState = z.infer<typeof LiveState>;
+
+export const LiveEvent = z.object({ type: z.literal("live"), live: LiveState });
+export type LiveEvent = z.infer<typeof LiveEvent>;
+
+export const ServerEvent = z.discriminatedUnion("type", [ProjectEvent, ChatEvent, ArtEvent, ArchitectEvent, LiveEvent]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

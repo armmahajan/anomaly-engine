@@ -85,7 +85,7 @@ describe("art jobs over HTTP", () => {
     expect(undone.ok && undone.project.art.assets[0]).toMatchObject({ clips: {} });
   });
 
-  it("locks edits while a job runs, and cancel saves nothing more", async () => {
+  it("doesn't lock the creator out while a job runs (another job queues), and cancel saves nothing more", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     const original = vision.complete.bind(vision);
@@ -95,13 +95,14 @@ describe("art jobs over HTTP", () => {
     };
     expect(await post("/api/art/jobs", { stage: "concepts", characterId: "charger" })).toMatchObject({ ok: true });
     const { project } = await get<ProjectState>("/api/project");
-    const blocked = await post("/api/ops", {
+    const edit = await post("/api/ops", {
       name: "moveRoomSpawn",
       input: { roomId: "arena", spawnId: "crawler_1", x: 10 },
       baseRevision: project.revision,
     });
-    expect(blocked.error?.code).toBe("locked");
-    expect((await post("/api/art/jobs", { stage: "concepts", characterId: "charger" })).error?.code).toBe("locked");
+    expect(edit).toMatchObject({ ok: true });
+    expect(await post("/api/art/jobs", { stage: "concepts", characterId: "crawler" })).toMatchObject({ ok: true, queued: true });
+    expect((await get<ArtState>("/api/art")).pending).toEqual([{ stage: "concepts", characterId: "crawler" }]);
 
     await post("/api/art/cancel", {});
     release();

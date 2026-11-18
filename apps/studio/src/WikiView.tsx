@@ -127,14 +127,15 @@ export function WikiMain({ project, session, nav, setNav, locked, onOpenCharacte
     const initial: PageDraft = isNew
       ? { kind: "lore", title: "", summary: "", body: "", fields: {}, ...(nav.editing as { template: Partial<PageDraft> }).template }
       : page!;
-    const save = async (values: PageDraft) => {
+    const save = async (values: PageDraft, characterChanged: boolean) => {
       if (isNew) {
         const id = uniqueId(slugify(values.title, "page"), pages.map((p) => p.id));
         const page = { ...values, id, status: "canon" };
         if (report(await session.applyOperation("createWikiPage", { page }))) setNav({ pageId: id, editing: null });
       } else {
+        // The link is sent only when the creator changed it here: the studio may have linked the page meanwhile.
         const { characterId, ...rest } = values;
-        const changes = { ...rest, characterId: characterId || null, status: "canon" };
+        const changes = { ...rest, ...(characterChanged && { characterId: characterId || null }), status: "canon" };
         if (report(await session.applyOperation("updateWikiPage", { pageId: page!.id, changes }))) setNav({ pageId: page!.id, editing: null });
       }
     };
@@ -145,7 +146,7 @@ export function WikiMain({ project, session, nav, setNav, locked, onOpenCharacte
         project={project}
         locked={locked}
         heading={isNew ? "New page" : `Editing “${page!.title}”`}
-        onSave={(values) => void save(values)}
+        onSave={(values, characterChanged) => void save(values, characterChanged)}
         onCancel={() => setNav({ pageId: page?.id ?? null, editing: null })}
       />
     );
@@ -241,7 +242,7 @@ interface EditorProps {
   project: ProjectSpec;
   locked: boolean;
   heading: string;
-  onSave: (values: PageDraft) => void;
+  onSave: (values: PageDraft, characterChanged: boolean) => void;
   onCancel: () => void;
 }
 
@@ -251,6 +252,7 @@ function PageEditor({ initial, project, locked, heading, onSave, onCancel }: Edi
   const [summary, setSummary] = useState(initial.summary);
   const [body, setBody] = useState(initial.body);
   const [characterId, setCharacterId] = useState(initial.characterId ?? "");
+  const [originalCharacterId] = useState(initial.characterId ?? "");
   const [fields, setFields] = useState<[string, string][]>(() => {
     const rows = Object.entries(initial.fields);
     const missing = suggestedFields(initial.kind).filter((k) => !(k in initial.fields));
@@ -268,7 +270,7 @@ function PageEditor({ initial, project, locked, heading, onSave, onCancel }: Edi
       body,
       fields: Object.fromEntries(fields.filter(([k, v]) => k.trim() && v.trim()).map(([k, v]) => [k.trim(), v.trim()])),
       ...(characterId && { characterId }),
-    });
+    }, characterId !== originalCharacterId);
 
   return (
     <form
