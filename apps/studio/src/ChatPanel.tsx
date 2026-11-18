@@ -369,7 +369,7 @@ export function ChatPanel({ session, agent, chat, revision, canUndo, playing, co
           </section>
         ))}
         {running && <Working activity={chat.running!.activity} since={runningSince} name={text.title} />}
-        {!atBottom && (
+        {!atBottom && pending !== "edit" && (
           <button type="button" className="chat-jump" onClick={jumpToLatest}>
             ↓ Latest
           </button>
