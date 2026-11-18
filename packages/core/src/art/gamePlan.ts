@@ -2,6 +2,7 @@ import type { ProjectSpec } from "../schema.ts";
 import { dressingOutOfDate } from "../world/world.ts";
 import { isDefaultArtDirection } from "./asset.ts";
 import { ACTION_CLIP_SLOTS, ACTION_PHASE_SLOTS, ENEMY_CLIP_SLOTS, PLAYER_CLIP_SLOTS, type ClipSlot } from "./clip.ts";
+import type { Weapon, WeaponAttack } from "../combat/weapon.ts";
 
 /**
  * What a game still needs to be fully drawn, as ordered steps the game-art
@@ -14,10 +15,10 @@ import { ACTION_CLIP_SLOTS, ACTION_PHASE_SLOTS, ENEMY_CLIP_SLOTS, PLAYER_CLIP_SL
  * prop is for: props are drawn from their names, sizes and handlers.
  */
 
-export type ArtStepKind = "direction" | "character" | "biome" | "room" | "props" | "modal" | "items";
+export type ArtStepKind = "direction" | "character" | "biome" | "room" | "props" | "modal" | "items" | "weapon";
 
 export interface ArtStepRequest {
-  stage: "artDirection" | "auto" | "animate" | "worldKit" | "worldCompose" | "propArt" | "modalArt" | "itemArt";
+  stage: "artDirection" | "auto" | "animate" | "worldKit" | "worldCompose" | "propArt" | "modalArt" | "itemArt" | "weaponArt";
   characterId?: string;
   biomeId?: string;
   /** The biome made by this earlier step (worldKit) of the plan. */
@@ -31,6 +32,10 @@ export interface ArtStepRequest {
   modalId?: string;
   /** animate: only these clips (the ones still missing; the rest are kept). */
   slots?: ClipSlot[];
+  /** animate: weapon attack clips still missing (by name). */
+  clips?: string[];
+  /** weaponArt: the weapon to draw. */
+  weaponId?: string;
 }
 
 export interface ArtStep {
@@ -54,6 +59,7 @@ export const ART_COST_ESTIMATES = {
   props: 0.004,
   modal: 0.01,
   items: 0.01,
+  weapon: 0.003, // one low image (grip and tip found by the vision model)
 } as const;
 
 export interface GameArtOptions {
@@ -83,6 +89,57 @@ export function wantedClipSlots(project: ProjectSpec, assetId: string): ClipSlot
     }
   }
   return [...slots];
+}
+
+/** The clip a weapon attack plays on its wielder: the attack's `clip`, else `<weapon>_<attack>`. */
+export function attackClipName(weapon: Pick<Weapon, "id">, attack: Pick<WeaponAttack, "id" | "clip">): string {
+  return attack.clip ?? `${weapon.id}_${attack.id}`.slice(0, 64);
+}
+
+/** Every object in a tree of plain data (handlers, effects), depth first. */
+function* walk(value: unknown): Generator<Record<string, unknown>> {
+  if (Array.isArray(value)) for (const v of value) yield* walk(v);
+  else if (value && typeof value === "object") {
+    yield value as Record<string, unknown>;
+    for (const v of Object.values(value)) yield* walk(v);
+  }
+}
+
+/** Weapons the player can hold: the loadout's starting weapons and every weapon a handler gives. */
+export function playerWeaponIds(project: Pick<ProjectSpec, "weapons" | "world">): Set<string> {
+  const ids = new Set(project.weapons.loadout.slots.flatMap((s) => (s.start ? [s.start] : [])));
+  for (const o of walk(project.world)) if (o.type === "giveWeapon" && typeof o.weapon === "string") ids.add(o.weapon);
+  return ids;
+}
+
+/** Weapons a character wields: the player's (playerWeaponIds), an enemy's from its useWeapon actions. */
+export function wieldedWeapons(project: Pick<ProjectSpec, "weapons" | "world">, character: ProjectSpec["characters"][number]): Weapon[] {
+  const ids =
+    character.kind === "player"
+      ? playerWeaponIds(project)
+      : new Set(Object.values(character.behavior.states).flatMap((s) => (s.action.type === "useWeapon" ? [s.action.weapon] : [])));
+  return project.weapons.list.filter((w) => ids.has(w.id));
+}
+
+/** Weapons the game uses (held by the player or an enemy). */
+export function usedWeapons(project: Pick<ProjectSpec, "weapons" | "world" | "characters">): Weapon[] {
+  const ids = new Set(project.characters.flatMap((c) => wieldedWeapons(project, c).map((w) => w.id)));
+  return project.weapons.list.filter((w) => ids.has(w.id));
+}
+
+/** The weapon attack clips a character asset needs: one per attack of every weapon its characters wield. */
+export function wantedWeaponClips(project: ProjectSpec, assetId: string): { weaponId: string; attackId: string; clip: string }[] {
+  const out = new Map<string, { weaponId: string; attackId: string; clip: string }>();
+  for (const c of project.characters) {
+    if (c.appearance !== assetId) continue;
+    for (const w of wieldedWeapons(project, c)) {
+      for (const a of w.attacks) {
+        const clip = attackClipName(w, a);
+        if (!out.has(clip)) out.set(clip, { weaponId: w.id, attackId: a.id, clip });
+      }
+    }
+  }
+  return [...out.values()];
 }
 
 /** The room groups that share a biome: by progression region, else one "world" group. */
@@ -150,16 +207,30 @@ export function gameArtPlan(project: ProjectSpec, options: GameArtOptions = {}):
     if (drawnAssets.has(asset.id)) continue;
     drawnAssets.add(asset.id);
     const missing = wantedClipSlots(project, asset.id).filter((slot) => !asset.clips[slot]);
-    if (missing.length > 0) {
+    const missingWeapon = wantedWeaponClips(project, asset.id).filter((w) => !asset.clips[w.clip]).map((w) => w.clip);
+    if (missing.length + missingWeapon.length > 0) {
       steps.push({
         id: `character:${c.id}`,
         kind: "character",
         reason: "incomplete",
-        description: `animate ${c.name}: ${missing.join(", ")}`,
-        request: { stage: "animate", characterId: c.id, slots: missing },
+        description: `animate ${c.name}: ${[...missing, ...missingWeapon].join(", ")}`,
+        request: { stage: "animate", characterId: c.id, slots: missing, ...(missingWeapon.length ? { clips: missingWeapon } : {}) },
         estimatedCost: ART_COST_ESTIMATES.animate,
       });
     }
+  }
+
+  // Weapons: the held sprite of every weapon the game uses.
+  for (const w of usedWeapons(project)) {
+    if (w.art.sprite) continue;
+    steps.push({
+      id: `weapon:${w.id}`,
+      kind: "weapon",
+      reason: "missing",
+      description: `draw ${w.name}`,
+      request: { stage: "weaponArt", weaponId: w.id },
+      estimatedCost: ART_COST_ESTIMATES.weapon,
+    });
   }
 
   // Rooms: one biome per group, every room dressed around its current tiles.

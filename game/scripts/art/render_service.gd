@@ -5,6 +5,9 @@ extends Node
 
 const RigView := preload("res://scripts/art/rig_view.gd")
 const WorldView := preload("res://scripts/art/world_view.gd")
+const WeaponView := preload("res://scripts/art/weapon_view.gd")
+## Frames of tip history drawn into a render's trail (the trail needs where the tip has been).
+const TRAIL_STEPS := 8
 
 const MAX_FRAMES := 96  # every clip slot (15) x 6 filmstrip frames fits
 const MAX_CELL := 512
@@ -68,6 +71,10 @@ func _render_one(request: Dictionary) -> Dictionary:
 	var origin := Vector2.ZERO
 	# A cutout rig's source image (base64 by file ref).
 	var textures := WorldView.textures_from(request.get("images", {}))
+	# A held weapon (and the attack whose phases follow each frame's time).
+	var held = request.get("weapon")
+	var weapon: Dictionary = held.get("weapon", {}) if typeof(held) == TYPE_DICTIONARY and typeof(held.get("weapon")) == TYPE_DICTIONARY else {}
+	var attack := _attack_of(weapon, held.get("attack") if typeof(held) == TYPE_DICTIONARY else null)
 	for i in frames.size():
 		var frame = frames[i]
 		var view = RigView.new()
@@ -87,13 +94,19 @@ func _render_one(request: Dictionary) -> Dictionary:
 				var fitted := _fit(rig, cell_size)
 				fit = fitted[0]
 				origin = fitted[1]
+			var sprite = weapon.get("art", {}).get("sprite") if not weapon.is_empty() and typeof(weapon.get("art")) == TYPE_DICTIONARY else null
+			if sprite != null and not textures.has(str(sprite)):
+				warnings.append("the weapon's sprite %s was not sent (images): it is drawn as a plain shape" % sprite)
 		var clip = frame.get("clip") if typeof(frame) == TYPE_DICTIONARY else null
-		view.play(str(clip) if clip != null else "")
-		view.pose_at(float(frame.get("time", 0.0)) if typeof(frame) == TYPE_DICTIONARY else 0.0, i)
+		var time := float(frame.get("time", 0.0)) if typeof(frame) == TYPE_DICTIONARY else 0.0
 		var cell := Vector2(i % columns, i / columns) * Vector2(cell_size)
 		view.position = cell + origin
 		view.scale = Vector2(fit, fit)
 		viewport.add_child(view)
+		view.play(str(clip) if clip != null else "")
+		if not weapon.is_empty():
+			_hold_weapon(viewport, view, weapon, attack if clip != null and str(clip) == attack_clip(weapon, attack) else {}, time, i, textures)
+		view.pose_at(time, i)
 
 	viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	await RenderingServer.frame_post_draw
@@ -110,6 +123,66 @@ func _render_one(request: Dictionary) -> Dictionary:
 		"scale": fit,
 		"warnings": warnings,
 	}
+
+
+## A weapon held by a frame's rig: drawn over it, with the attack's phase at the frame's time (and,
+## in its active window, the trail of where the tip has been).
+func _hold_weapon(viewport: SubViewport, view: Node2D, weapon: Dictionary, attack: Dictionary, time: float, frame: int, textures: Dictionary) -> void:
+	var held = WeaponView.new()
+	held.textures = textures
+	held.manual_time = true
+	held.position = view.position
+	held.scale = view.scale
+	viewport.add_child(held)
+	held.set_weapon(weapon, view)
+	if attack.is_empty():
+		return
+	var phase := phase_at(attack, time)
+	if phase == "active":
+		held.set_phase(attack, "active", Vector2.RIGHT, 1.0)
+		var trail: Dictionary = weapon.get("art", {}).get("trail", {}) if typeof(weapon.get("art")) == TYPE_DICTIONARY else {}
+		var start := maxf(float(attack.get("timing", {}).get("windup", 0.0)), time - float(trail.get("seconds", 0.12)))
+		for k in TRAIL_STEPS:
+			var at := lerpf(start, time, float(k) / TRAIL_STEPS)
+			held.at_time(at)
+			view.pose_at(at, frame)
+	held.set_phase(attack, phase, Vector2.RIGHT, 1.0)
+	held.at_time(time)
+
+
+## An attack's phase `seconds` after it starts: windup, active, recovery, then "" (done).
+static func phase_at(attack: Dictionary, seconds: float) -> String:
+	var timing: Dictionary = attack.get("timing", {}) if typeof(attack.get("timing")) == TYPE_DICTIONARY else {}
+	var windup := float(timing.get("windup", 0.05))
+	var active := float(timing.get("active", 0.12))
+	var recovery := float(timing.get("recovery", 0.15))
+	if seconds < windup:
+		return "windup"
+	if seconds < windup + active:
+		return "active"
+	if seconds < windup + active + recovery:
+		return "recovery"
+	return ""
+
+
+## The clip an attack plays on its wielder: its `clip`, else "<weapon>_<attack>" (core attackClipName).
+static func attack_clip(weapon: Dictionary, attack: Dictionary) -> String:
+	if attack.is_empty():
+		return ""
+	var clip = attack.get("clip")
+	if clip != null and str(clip) != "":
+		return str(clip)
+	return ("%s_%s" % [weapon.get("id", ""), attack.get("id", "")]).left(64)
+
+
+## The weapon's attack by id ({} for none).
+static func _attack_of(weapon: Dictionary, attack_id: Variant) -> Dictionary:
+	if attack_id == null:
+		return {}
+	for attack in weapon.get("attacks", []):
+		if typeof(attack) == TYPE_DICTIONARY and str(attack.get("id", "")) == str(attack_id):
+			return attack
+	return {}
 
 
 ## Render a world scene from several camera positions, stacked top to bottom.

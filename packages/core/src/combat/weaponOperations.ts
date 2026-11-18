@@ -60,7 +60,10 @@ export function updateWeapon(project: ProjectSpec, input: unknown): OperationRes
   if (!p.ok) return p;
   const found = findWeapon(project, p.data.weaponId);
   if (!found.ok) return found.result;
-  const { name, description, art } = p.data;
+  const { name, description } = p.data;
+  // Only the art fields given change: the partial schema fills the others with defaults, which must not win.
+  const given = (input as { art?: Record<string, unknown> }).art ?? {};
+  const art = p.data.art && Object.fromEntries(Object.entries(p.data.art).filter(([key]) => key in given));
   const weapon: Weapon = {
     ...found.weapon,
     ...(name !== undefined ? { name } : {}),

@@ -5,6 +5,8 @@ extends Node2D
 ## with mode "character" (packages/core/src/protocol.ts).
 
 const CharacterArt := preload("res://scripts/art/character_art.gd")
+const WeaponView := preload("res://scripts/art/weapon_view.gd")
+const RenderService := preload("res://scripts/art/render_service.gd")
 
 var _camera: Camera2D
 var _backdrop: ColorRect
@@ -17,6 +19,12 @@ var _key := ""  # what the rig was built from (character + revision)
 var _bounds := Rect2(-20, -40, 40, 40)
 var _onion_image := ""
 var _message: Label
+## The held weapon (stage.weapon), its attack (whose phases follow the clip's time), and what it was built from.
+var _weapon: Node2D = null
+var _attack := {}
+## The clip that attack plays (its phases follow only that clip).
+var _attack_clip := ""
+var _weapon_key := ""
 
 
 func _ready() -> void:
@@ -77,6 +85,7 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 		if _rig != null:
 			_rig.queue_free()
 			_rig = null
+		_weapon_key = ""
 		if asset.is_empty():
 			_say("%s has no rig yet." % character.get("name", character_id))
 			return ""
@@ -96,6 +105,7 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 	_holder.scale.x = -1.0 if bool(stage.get("flip", false)) else 1.0
 	_rig.play(str(clip) if clip != null else "")
 	_rig.manual_time = time != null
+	_hold(project, stage.get("weapon"))
 	if time != null:
 		_rig.pose_at(float(time))
 
@@ -115,6 +125,43 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 	_onion.visible = _onion.texture != null and alpha > 0.0
 	_onion.modulate = Color(1, 1, 1, alpha)
 	return ""
+
+
+## The held weapon: rebuilt when the weapon, the rig or the project changes; with an attack, its
+## phase follows the playing clip's time (the trail shows during its active window).
+func _hold(project: Dictionary, held: Variant) -> void:
+	var id := str(held.get("id", "")) if typeof(held) == TYPE_DICTIONARY else ""
+	var weapon := {}
+	for w in project.get("weapons", {}).get("list", []):
+		if typeof(w) == TYPE_DICTIONARY and str(w.get("id", "")) == id:
+			weapon = w
+	var key := "%s@%s" % [id, _key]
+	if weapon.is_empty():
+		if _weapon != null:
+			_weapon.queue_free()
+			_weapon = null
+		_weapon_key = ""
+		_attack = {}
+		return
+	if key != _weapon_key or _weapon == null:
+		_weapon_key = key
+		if _weapon != null:
+			_weapon.queue_free()
+		_weapon = WeaponView.new()
+		_holder.add_child(_weapon)
+		_weapon.set_weapon(weapon, _rig)
+	_attack = RenderService._attack_of(weapon, held.get("attack"))
+	_attack_clip = RenderService.attack_clip(weapon, _attack)
+	if _attack.is_empty():
+		_weapon.set_phase({}, "", Vector2.RIGHT, 1.0)
+
+
+func _process(_delta: float) -> void:
+	if _weapon == null or _rig == null or _attack.is_empty():
+		return
+	var phase := RenderService.phase_at(_attack, _rig.clip_time()) if _rig.current_clip() == _attack_clip else ""
+	if phase != _weapon._phase:
+		_weapon.set_phase(_attack, phase, Vector2.RIGHT, 1.0)
 
 
 ## A note in the middle of the stage ("" hides it).

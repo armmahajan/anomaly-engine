@@ -697,6 +697,44 @@ mirrored in `apps/studio/src/characters/rigView.ts`): drag a joint (carrying the
 or scale a bone, reassign parts, add or remove bones, place grips, and a pose test that isn't saved.
 Cutout pieces show the design at its place, so their bones only move their joints.
 
+**Weapon art** (`packages/art/src/weapons.ts`, `game/scripts/art/weapon_view.gd`):
+- *The held sprite*: art job `weaponArt {weaponId, feedback?}`: one low-quality transparent image
+  (~$0.003) of the weapon alone, pointing right, from its name, description and `art.brief` in the
+  project's art direction; trimmed to the object. The vision model (Claude Code, free) finds the grip
+  and the tip; code checks them (the grip on the object's pixels, the tip at its far end, else fixed;
+  no reply: the long axis decides) and mirrors a sprite that points left. Writes `art {sprite, grip,
+  tip, scale}` (scale: grip to tip about half the longest melee reach, 16-90 game px; 22 without
+  one). The game-art plan draws every weapon the game uses (the player's loadout and `giveWeapon`s,
+  enemies' `useWeapon`) that has no sprite.
+- *Grips*: building a rig places a `hand` grip when it has an arm (bones or parts named arm, hand,
+  forearm, wrist...): the end bone of its front arm (drawn highest), at its hand part, else near the
+  far end of its parts, the weapon pointing 35° forward of the forearm (down and forward when the arm
+  hangs). A valid hand grip already there is kept; a rig without arms holds weapons in front of the
+  body. Never fails a build.
+- *Attack clips*: animate writes a clip per attack of every weapon a character wields (named by the
+  attack's `clip`, else `<weapon>_<attack>`, which the attack is then pointed at), lasting the attack's
+  windup + active + recovery and played once. The model gets the attack's shape and timing and the
+  angles the held weapon should point at (an arc cocked back, swept from -> to over the active
+  window, followed through; a thrust or box pulled back then driven along the aim; projectiles raised
+  then released). Code checks the clip (the tip's fastest motion, for thrusts and shots its drive
+  along the aim, inside the active window; angles within 25° of their targets) and, when it misses,
+  turns the arm to the attack: the shoulder carries an arc; on a two-bone arm the upper arm drives a
+  thrust or shot along the aim while the forearm keeps the weapon pointing. One clip by name:
+  `animate {characterId, clip, direction}` (a slot, an attack clip or any other name; `direction` is
+  kept as `Clip.direction` and used again when the clip is redone without one); `weaponId` writes
+  only that weapon's attack clips.
+- *In the game*: `weapon_view.gd` draws the sprite at the rig's `hand` grip on every pose (it follows
+  the rig's `posed` signal, so no frame lags; mirrored with the wielder), a code-drawn shape in the
+  trail colour when there is no sprite, the trail behind the tip during the active window and hit
+  sparks; `WeaponView.make_projectile(projectile)` gives a projectile's look (its sprite, else a
+  coloured shape). Renders (`renderRig {weapon: {weapon, attack?}}`) and the Characters stage
+  (`stage.weapon {id, attack?}`) hold a weapon too; with an attack, its clip's time drives the phase
+  and so the trail. Weapon and projectile sprites travel like other images (`runtimeImageRefs`).
+- Tests: `packages/art/test/weapons.test.ts`, `packages/core/test/weaponArt.test.ts`,
+  `packages/server/test/weaponRender.test.ts` (in the runtime: the sprite's grip within 4 px of the
+  hand across a walk and a swing; the trail only in the attack's active window). Blind check:
+  `node scripts/weapon-ab.ts <round3> <out>` then `node scripts/weapon-ab-page.ts <out>`.
+
 **Mechanics** (`packages/core/src/combat/weaponModel.ts`, mirrored line for line by the runtime's
 `game/scripts/combat/weapon_runner.gd`; the player's side is `combat/arsenal.gd`, an enemy's `useWeapon`
 runs the same runner):
@@ -1030,7 +1068,7 @@ player is behind them.
 - **API:** `POST /api/art/jobs {stage, characterId? | biomeId?, brief?, feedback?, ...}`
   (character stages `concepts`, `choose`, `rig`, `animate`, `auto`; world
   stages `worldKit`, `worldCompose`, `worldRepaint`; game stages `propArt {worldRoomId}`,
-  `modalArt {modalId}`, `itemArt`), `GET /api/art`,
+  `modalArt {modalId}`, `itemArt`, `weaponArt {weaponId}`; `animate {clip, direction}` redoes one clip), `GET /api/art`,
   `POST /api/art/cancel`, `GET /api/files/<ref>`.
 - **Rendering** for critics and kit slicing runs the web export in headless
   Chromium (`packages/server/src/art/renderer.ts`); `node scripts/render-rig.ts out.png`
