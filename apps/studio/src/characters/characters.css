@@ -1,0 +1,58 @@
+/* Characters ▸ Animation list and the bone editor. */
+
+.anim-list { display: flex; flex-direction: column; gap: 10px; }
+.anim-caption { color: var(--muted); font-size: 11px; }
+.anim-detail { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--panel); }
+.anim-detail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px; }
+.anim-detail .art-text { margin: 0; }
+.anim-detail textarea { resize: vertical; font: inherit; }
+.anim-name { flex: 0 1 12em; font-weight: 600; }
+.anim-attach { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.anim-chip { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.anim-chip button { padding: 0 5px; border: 0; background: none; color: var(--muted); line-height: 1; }
+.anim-attach select { font: inherit; font-size: 12px; max-width: 100%; }
+.anim-add { font-size: 12px; }
+.anim-add > summary { cursor: pointer; color: var(--accent); }
+.anim-add[open] { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
+.anim-add[open] > summary { margin-bottom: 2px; }
+.anim-add .art-text { margin: 0; }
+.anim-add textarea { resize: vertical; font: inherit; }
+.anim-add .hint { margin: 0; font-size: 11px; }
+.anim-from { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.anim-missing { margin: 0; font-size: 12px; }
+
+/* The bone editor: the panel (left of the stage) and the handles over the stage. */
+.bone-editor { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.bone-editor h4 { margin: 4px 0 0; font-size: 12px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.bone-editor .hint { margin: 0; font-size: 12px; }
+.bone-tree { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
+.bone-tree button { display: flex; gap: 6px; align-items: baseline; width: 100%; padding: 2px 6px; border: 1px solid transparent; background: none; color: var(--text); font: inherit; text-align: left; }
+.bone-tree button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.bone-tree small { color: var(--muted); }
+.bone-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bone-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.bone-row .wpn-number { max-width: 70px; }
+.bone-parts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.bone-parts li { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; }
+.bone-parts code { overflow: hidden; text-overflow: ellipsis; }
+.bone-parts select, .bone-row select { font: inherit; font-size: 12px; min-width: 0; }
+.bone-grips { display: flex; flex-direction: column; gap: 4px; }
+
+.bone-overlay { position: absolute; inset: 0; z-index: 2; }
+.bone-overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.bone-overlay .pose-backdrop { fill: #15171d; }
+.bone-overlay .bone-line { stroke: rgb(255 255 255 / 0.55); stroke-width: 2; }
+.bone-overlay .bone-line.selected { stroke: var(--accent); }
+.bone-overlay .joint { fill: rgb(20 22 28 / 0.85); stroke: #fff; stroke-width: 1.5; cursor: grab; }
+.bone-overlay .joint.selected { stroke: var(--accent); fill: color-mix(in srgb, var(--accent) 35%, #14161c); stroke-width: 2.5; }
+.bone-overlay .joint.dragging { cursor: grabbing; }
+.bone-overlay .turn-handle { fill: var(--accent); stroke: #000; cursor: alias; }
+.bone-overlay .turn-line { stroke: var(--accent); stroke-dasharray: 3 3; }
+.bone-overlay .grip { fill: #f0b85a; stroke: #000; cursor: move; }
+.bone-overlay .bone-label { fill: #fff; font-size: 11px; paint-order: stroke; stroke: #000; stroke-width: 3px; pointer-events: none; }
+.bone-overlay .pose-note { fill: var(--accent); font-size: 12px; }
+
+/* Selects match the studio's fields (styles.css .field select). */
+.bone-editor select,
+.anim-detail select,
+.anim-add select { font: inherit; font-size: 12px; color: var(--text); background: #11141a; border: 1px solid var(--border); border-radius: 4px; padding: 3px 4px; }

@@ -1,0 +1,49 @@
+/* Game ▸ Weapons and Loadout. */
+
+.stage-dock .game-section.wide.open { grid-column: 1 / -1; }
+
+.wpn-chip-count { margin-left: 6px; color: var(--muted); font-size: 11px; }
+.wpn-editor { display: flex; flex-direction: column; gap: 6px; }
+.wpn-heading { margin: 10px 0 2px; font-size: 12px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.wpn-sub { margin: 8px 0 2px; font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* A grid of small labelled controls. */
+.wpn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 10px; align-items: end; }
+.wpn-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; }
+.wpn-cell.wide { grid-column: span 2; }
+.wpn-caption { color: var(--muted); font-size: 11px; }
+.wpn-cell select,
+.wpn-cell .art-text { width: 100%; min-width: 0; margin: 0; }
+.wpn-cell textarea.art-text { resize: vertical; font: inherit; }
+.wpn-cell input[type="checkbox"] { align-self: flex-start; margin: 4px 0; }
+.wpn-inline { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.wpn-inline .unit { width: auto; flex: none; }
+.wpn-number { width: 100%; min-width: 0; max-width: 90px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
+.wpn-readonly span:last-child { font-family: ui-monospace, monospace; color: var(--muted); }
+
+.wpn-art { display: flex; gap: 12px; align-items: flex-start; }
+.wpn-art .wpn-grid { flex: 1; }
+.wpn-sprite { flex: none; width: 96px; height: 96px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 6px; background: repeating-conic-gradient(#20242c 0 25%, #191c22 0 50%) 0 0 / 16px 16px; }
+.wpn-sprite img { max-width: 90px; max-height: 90px; image-rendering: auto; }
+.wpn-sprite .hint { margin: 0; font-size: 11px; text-align: center; }
+
+.wpn-attack { border: 1px solid var(--border); border-radius: 6px; }
+.wpn-attack.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.wpn-attack-head { margin: 0; font-size: 13px; text-transform: none; letter-spacing: 0; color: var(--text); }
+.wpn-attack-head button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wpn-attack-name { font-weight: 600; }
+.wpn-attack-summary { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wpn-attack-body { padding: 0 8px 8px; border-top: 1px solid var(--border); }
+.wpn-attack-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.wpn-attack-actions code { color: var(--muted); font-size: 11px; }
+
+.loadout-slots { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.loadout-slot { display: grid; grid-template-columns: minmax(60px, 0.8fr) minmax(90px, 1.2fr) minmax(90px, 1.2fr) auto; gap: 4px; align-items: center; }
+.loadout-slot .art-text { margin: 0; min-width: 0; }
+.loadout-slot select { min-width: 0; }
+.loadout-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.loadout-foot .field-check { font-size: 12px; }
+
+/* Selects match the studio's fields (styles.css .field select). */
+.wpn-cell select,
+.loadout-slot select { font: inherit; font-size: 12px; color: var(--text); background: #11141a; border: 1px solid var(--border); border-radius: 4px; padding: 3px 4px; }
