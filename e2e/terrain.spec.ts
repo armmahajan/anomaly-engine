@@ -5,7 +5,7 @@ import { borderedGrid, encodeStudioMessage, fillTiles, toRuntimeProject, type Pr
 import { collectConsoleErrors, openStudio, projectRevision, runtimeState } from "./helpers.ts";
 
 // Terrain screenshots for a look (kept in .e2e-data/terrain): the plain and the dressed arena,
-// a Worlds-mode room, and a grid with every tile kind. Art is scripted (STUDIO_ART_BACKEND=fake).
+// a Scenery-mode dressing, and a grid with every tile kind. Art is scripted (STUDIO_ART_BACKEND=fake).
 
 const SHOTS = ".e2e-data/terrain";
 
@@ -100,7 +100,7 @@ async function playShot(page: Page, name: string) {
   await expect(page.getByTestId("runtime-status")).toHaveText("Editing");
 }
 
-test("terrain: plain and dressed arenas, a Worlds room, every tile kind", async ({ page }) => {
+test("terrain: plain and dressed arenas, a Scenery dressing, every tile kind", async ({ page }) => {
   test.setTimeout(180_000);
   mkdirSync(SHOTS, { recursive: true });
   const consoleErrors = collectConsoleErrors(page);
@@ -111,10 +111,10 @@ test("terrain: plain and dressed arenas, a Worlds room, every tile kind", async 
   await loadInRuntime(page, withArenaGrid(plain, trickyGrid()));
   await shot(page, "tricky-plain");
 
-  await page.getByRole("tab", { name: "Worlds" }).click();
+  await page.getByRole("tab", { name: "Scenery" }).click();
   const panel = page.getByTestId("world-panel");
   await panel.getByLabel("What is this place?").fill("a fungal cathedral");
-  await panel.getByRole("button", { name: /Paint kit \+ first room/ }).click();
+  await panel.getByRole("button", { name: /Paint look \+ first dressing/ }).click();
   await expect.poll(async () => (await runtimeState(page)).stage, { timeout: 90_000 }).toBe("world");
   await shot(page, "room-worlds");
 

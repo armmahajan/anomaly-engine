@@ -25,7 +25,7 @@ import "./shell.css";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
 type Tab = "playtest" | "characters" | "worlds" | "rooms" | "game" | "wiki" | "progression" | "architect";
-const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Worlds", rooms: "Rooms", game: "Game", wiki: "Wiki", progression: "Progression", architect: "Architect" };
+const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Scenery", rooms: "Rooms", game: "Game", wiki: "Wiki", progression: "Progression", architect: "Architect" };
 /** The tabs in the creator's order: design the game, build it, play it. */
 const TAB_GROUPS: readonly TabGroup<Tab>[] = [
   { label: "Design", tabs: ["wiki", "progression", "architect"] },
@@ -38,7 +38,7 @@ const TAB_HINT: Partial<Record<Tab, string>> = {
   progression: "Regions, abilities, how they connect and the story beats",
   architect: "Turns the progression into a world of rooms and proves it can be finished",
   rooms: "The game's rooms: tiles, doors, enemies, props and rules",
-  worlds: "The art of each region: its kit of pieces, backdrops and atmosphere",
+  worlds: "How rooms look: each look's pieces, backdrops and atmosphere, and the rooms it dresses",
   characters: "Characters' art, rigs and animation",
   game: "The whole game: check it, its art, rules, map and screens",
   playtest: "Play the playtest room and tune characters while you play",
@@ -187,6 +187,16 @@ export function App({ session }: { session: Session }) {
   const openWikiPage = (pageId: string) => {
     setWikiNav({ pageId, editing: null });
     openTab("wiki");
+  };
+
+  /** Scenery <-> Rooms: a game room in Rooms, or a look and dressing (and the room to dress) in Scenery. */
+  const openGameRoom = (roomId: string) => {
+    setRoomsUi((ui) => ({ ...ui, roomId, spot: null, propId: null }));
+    openTab("rooms");
+  };
+  const openScenery = ({ lookId, dressingId, room }: { lookId: string | null; dressingId: string | null; room: string }) => {
+    setWorldUi((ui) => ({ ...ui, biomeId: lookId, roomId: dressingId, previewLayout: false, target: room }));
+    openTab("worlds");
   };
 
   const openCharacter = (characterId: string) => {
@@ -351,6 +361,7 @@ export function App({ session }: { session: Session }) {
           selected={worldSelected}
           locked={locked}
           onPlacePiece={(pieceId) => void placePiece(pieceId)}
+          onOpenRoom={openGameRoom}
         />
       )}
       {tab === "rooms" && (
@@ -407,7 +418,7 @@ export function App({ session }: { session: Session }) {
           <WikiSidebar project={project} session={session} nav={wikiNav} setNav={setWikiNav} locked={locked} />
         </SidePanel>
       ) : tab === "worlds" ? (
-        <SidePanel label="Worlds" resize={sideResize} footer={problem}>
+        <SidePanel label="Scenery" resize={sideResize} footer={problem}>
           <WorldPanel
             project={project}
             art={state.art}
@@ -417,11 +428,12 @@ export function App({ session }: { session: Session }) {
             selected={worldSelected}
             setSelected={setWorldSelected}
             locked={locked}
+            onOpenRoom={openGameRoom}
           />
         </SidePanel>
       ) : tab === "rooms" ? (
         <SidePanel label="Rooms" resize={sideResize} footer={problem}>
-          <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} live={state.live} />
+          <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} live={state.live} onOpenScenery={openScenery} />
         </SidePanel>
       ) : tab === "game" ? (
         <SidePanel label="Game" resize={sideResize} footer={problem}>

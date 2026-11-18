@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { floorLine, gridPlatforms, gridSize, type BiomeAsset, type ProjectSpec } from "@anomaly/core";
 import { collectConsoleErrors, openStudio, projectRevision, runtimeState } from "./helpers.ts";
 
-// Worlds mode with scripted models (STUDIO_ART_BACKEND=fake); images are
+// Scenery mode (looks and their dressings) with scripted models (STUDIO_ART_BACKEND=fake); images are
 // still sliced and the room is drawn by the real runtime.
 
 test.afterEach(async ({ page }) => {
@@ -22,12 +22,12 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   test.setTimeout(180_000);
   const consoleErrors = collectConsoleErrors(page);
   await openStudio(page);
-  await page.getByRole("tab", { name: "Worlds" }).click();
+  await page.getByRole("tab", { name: "Scenery" }).click();
   const panel = page.getByTestId("world-panel");
   await expect(page.getByText(/Describe a place in the sidebar/)).toBeVisible();
 
   await panel.getByLabel("What is this place?").fill("a fungal cathedral");
-  await panel.getByRole("button", { name: /Paint kit \+ first room/ }).click();
+  await panel.getByRole("button", { name: /Paint look \+ first dressing/ }).click();
   await expect(page.getByTestId("piece-p0_lantern")).toBeVisible({ timeout: 60_000 });
   await expect(panel.getByRole("button", { name: /fungal cathedral/i }).first()).toBeVisible();
   await expect.poll(async () => (await runtimeState(page)).stage, { timeout: 90_000 }).toBe("world"); // after the room is composed and reviewed (two headless renders)
@@ -64,17 +64,44 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   // A second room with a suggested layout: nothing changes until it is accepted.
   const tiles = (await project(page)).world.rooms[0]!.grid;
   await panel.getByLabel("Suggest layout").check();
-  await panel.getByRole("button", { name: /Compose room/ }).click();
-  await expect(page.getByText("This room suggests a new platform layout.")).toBeVisible({ timeout: 30_000 });
+  await panel.getByRole("button", { name: /Compose dressing/ }).click();
+  await expect(page.getByText(/This dressing suggests a new platform layout/)).toBeVisible({ timeout: 30_000 });
   expect((await project(page)).world.rooms[0]!.grid).toEqual(tiles);
   await page.getByLabel("Preview it").check();
   await page.getByRole("button", { name: "Use this layout" }).click();
   await expect.poll(async () => (await project(page)).world.rooms[0]!.grid).not.toEqual(tiles);
-  await expect(page.getByText("This room suggests a new platform layout.")).toHaveCount(0);
+  await expect(page.getByText(/This dressing suggests a new platform layout/)).toHaveCount(0);
 
   // Undo puts the arena room back.
   await page.getByRole("button", { name: "↶ Undo" }).click();
   await expect.poll(async () => (await project(page)).world.rooms[0]!.grid).toEqual(tiles);
+
+  // Scenery and Rooms point at each other: the first dressing dresses the arena.
+  const dressing = first.rooms[0]!;
+  await panel.getByTestId(`dressing-${dressing.id}`).click();
+  await expect(panel.getByTestId(`dressing-${dressing.id}`)).toContainText(`→ ${arena.name}`);
+  await expect(page.getByLabel("game room it dresses")).toHaveValue(arena.id);
+  await expect(panel.getByTestId(`look-${first.id}`)).toContainText(`dresses ${arena.name}`);
+  await page.getByTestId("scenery-title").getByRole("button", { name: `${arena.name} ↗` }).click();
+  await expect(page.getByRole("tab", { name: "Rooms" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId(`room-${arena.id}`)).toHaveClass(/selected/);
+  await expect(page.getByTestId("room-scenery")).toHaveAttribute("data-art", "dressed");
+  await expect(page.getByTestId("room-art-chip")).toContainText(dressing.name);
+  // Plain tiles from Rooms, and back with Undo.
+  await page.getByRole("button", { name: "Use plain tiles" }).click();
+  await expect(page.getByTestId("room-scenery")).toHaveAttribute("data-art", "plain");
+  expect((await project(page)).world.rooms[0]!.dressing).toBeNull();
+  await page.getByRole("button", { name: "↶ Undo" }).click();
+  await expect(page.getByTestId("room-scenery")).toHaveAttribute("data-art", "dressed");
+  await page.getByRole("button", { name: "Open in Scenery →" }).click();
+  await expect(page.getByRole("tab", { name: "Scenery" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("scenery-title")).toContainText(dressing.name);
+  // A dressing moves to another room in one step (and out of the arena).
+  await page.getByLabel("game room it dresses").selectOption("");
+  await expect.poll(async () => (await project(page)).world.rooms[0]!.dressing).toBeNull();
+  await expect(page.getByTestId("scenery-title")).toContainText("not used");
+  await page.getByLabel("game room it dresses").selectOption(arena.id);
+  await expect.poll(async () => (await project(page)).world.rooms[0]!.dressing).toMatchObject({ biome: first.id, room: dressing.id });
 
   // The arena room is drawn with the biome room, and the game still plays in it.
   await page.getByRole("tab", { name: "Playtest" }).click();
@@ -88,10 +115,10 @@ test("worlds: paint a kit, see the room, place and move pieces, accept a suggest
   expect(consoleErrors).toEqual([]);
 });
 
-test("worlds: the build assistant queues a world from chat; it appears in Worlds", async ({ page }) => {
+test("worlds: the build assistant queues a world from chat; it appears in Scenery", async ({ page }) => {
   test.setTimeout(120_000);
   await openStudio(page);
-  await page.getByRole("tab", { name: "Worlds" }).click();
+  await page.getByRole("tab", { name: "Scenery" }).click();
   await page.getByLabel("Message").fill("world: a sunken garden of giant ferns");
   await page.getByLabel("Message").press("Enter");
   await expect(page.getByTestId("chat-reply").last()).toContainText("queued: paint world");

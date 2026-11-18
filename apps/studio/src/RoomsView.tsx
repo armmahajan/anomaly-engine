@@ -21,15 +21,22 @@ import { HandlerEditor } from "./HandlerEditor.tsx";
 import { PropsOverlay } from "./PropsOverlay.tsx";
 import { PropsSection } from "./PropsSection.tsx";
 import { SpawnDetails } from "./SpawnDetails.tsx";
-import { RegionPicker, regionColor } from "./RegionPicker.tsx";
+import { RegionPicker } from "./RegionPicker.tsx";
+import { Section } from "./worlds/Section.tsx";
+import { ART_STATE_TEXT, regionColor, roomArt } from "./worlds/scenery.ts";
+import { WorldMap } from "./rooms/WorldMap.tsx";
+import { ArtDot, RoomList } from "./rooms/RoomList.tsx";
+import { RoomScenery, type OpenScenery } from "./rooms/RoomScenery.tsx";
+import "./worlds-rooms.css";
 
 /**
  * Rooms mode: the game world's rooms. The runtime shows the selected room
  * (stage "room"); a painter over it paints tiles (one stroke = one edit) or
  * drops the spot that "Set start here", "+ Enemy here" and "Play from here"
  * use; the Prop tool hands the pointer to the props overlay. The sidebar
- * lists rooms on a small world map, with doors, enemies, props, the start
- * and the room's handlers (the game's rules are in the Game tab).
+ * shows the world map and the rooms by region, then the selected room: its
+ * scenery (art made in the Scenery tab), doors, enemies, props, handlers and
+ * the start (the game's rules are in the Game tab).
  */
 
 export type RoomTool = TileKind | "spot" | "prop";
@@ -46,15 +53,15 @@ export interface RoomsUi {
 
 export const initialRoomsUi: RoomsUi = { roomId: null, tool: "solid", spot: null, abilities: [], propId: null };
 
-const TOOLS: { tool: RoomTool; label: string }[] = [
-  { tool: "empty", label: "Empty" },
-  { tool: "solid", label: "Solid" },
-  { tool: "ledge", label: "Ledge" },
-  { tool: "oneway", label: "One-way" },
-  { tool: "hazard", label: "Hazard" },
-  { tool: "breakable", label: "Breakable" },
-  { tool: "spot", label: "📍 Spot" },
-  { tool: "prop", label: "▭ Prop" },
+const TOOLS: { tool: RoomTool; label: string; title: string }[] = [
+  { tool: "empty", label: "Empty", title: "Erase: open air" },
+  { tool: "solid", label: "Solid", title: "Solid ground and walls" },
+  { tool: "ledge", label: "Ledge", title: "A thin solid platform (the top of its tile)" },
+  { tool: "oneway", label: "One-way", title: "A thin platform you can jump up through and land on" },
+  { tool: "hazard", label: "Hazard", title: "A solid tile that hurts on touch" },
+  { tool: "breakable", label: "Breakable", title: "A solid tile a ground pound smashes (with every breakable tile touching it)" },
+  { tool: "spot", label: "📍 Spot", title: "Drop the spot: where ▶ Play from here, + Enemy at spot and Set start here act" },
+  { tool: "prop", label: "▭ Prop", title: "Draw, select and move props (things that can be seen, stood on, touched, used and struck)" },
 ];
 const isTile = (tool: RoomTool): tool is TileKind => tool !== "spot" && tool !== "prop";
 
@@ -101,7 +108,43 @@ interface BenchProps {
   onPlay: (start: WorldStart) => void;
 }
 
-/** Main-area bar: the painter's tools and the play controls. */
+function ToolButton({ tool, label, title, ui, setUi }: { tool: RoomTool; label: string; title: string; ui: RoomsUi; setUi: (ui: RoomsUi) => void }) {
+  return (
+    <button
+      type="button"
+      className={`tool-button${ui.tool === tool ? " selected" : ""}`}
+      aria-pressed={ui.tool === tool}
+      data-testid={`tool-${tool}`}
+      title={title}
+      onClick={() => setUi({ ...ui, tool })}
+    >
+      {isTile(tool) && <span className="swatch" style={{ background: TILE_COLOR[tool] }} />}
+      {label}
+    </button>
+  );
+}
+
+/** The room's region and scenery, beside its name. */
+function RoomChips({ project, room }: { project: ProjectSpec; room: WorldRoom }) {
+  const region = project.progression.regions.find((r) => r.id === room.regionId);
+  const art = roomArt(project, room);
+  return (
+    <>
+      {region && (
+        <span className="chip" title="Progression region">
+          <span className="region-swatch" style={{ background: regionColor(project, region.id) }} />
+          {region.name}
+        </span>
+      )}
+      <span className={`chip art-${art.state}`} title={ART_STATE_TEXT[art.state]} data-testid="room-art-chip">
+        <ArtDot state={art.state} />
+        {art.state === "plain" ? "plain tiles" : `scenery: ${art.dressing?.name ?? "?"}${art.state === "stale" ? " (needs recompose)" : ""}`}
+      </span>
+    </>
+  );
+}
+
+/** Main-area bar: the room, the painter's tools and the play controls, each group labelled. */
 export function RoomsBench({ project, session, ui, setUi, playing, ready, onPlay }: BenchProps) {
   const room = currentRoom(project, ui);
   useEffect(() => {
@@ -117,50 +160,52 @@ export function RoomsBench({ project, session, ui, setUi, playing, ready, onPlay
       <div className="bench-top rooms-top">
         <div className="world-title">
           <strong>{room ? room.name : "Rooms"}</strong>
-          {room && <span className="muted"> · {gridCols(room.grid)}×{gridRows(room.grid)} tiles</span>}
+          {room && <span className="muted">{gridCols(room.grid)}×{gridRows(room.grid)} tiles</span>}
+          {room && <RoomChips project={project} room={room} />}
         </div>
         {room && (
-          <div className="stage-tools" role="toolbar" aria-label="Paint">
-            {TOOLS.map(({ tool, label }) => (
-              <button
-                key={tool}
-                type="button"
-                className={`tool-button${ui.tool === tool ? " selected" : ""}`}
-                aria-pressed={ui.tool === tool}
-                data-testid={`tool-${tool}`}
-                onClick={() => setUi({ ...ui, tool })}
-              >
-                {isTile(tool) && <span className="swatch" style={{ background: TILE_COLOR[tool] }} />}
-                {label}
+          <div className="tool-groups">
+            <div className="tool-group" role="toolbar" aria-label="Paint tiles">
+              <span className="tool-group-label">Paint tiles</span>
+              {TOOLS.filter((t) => isTile(t.tool)).map(({ tool, label, title }) => (
+                <ToolButton key={tool} tool={tool} label={label} title={title} ui={ui} setUi={setUi} />
+              ))}
+            </div>
+            <div className="tool-group" role="toolbar" aria-label="Place">
+              <span className="tool-group-label">Place</span>
+              {TOOLS.filter((t) => !isTile(t.tool)).map(({ tool, label, title }) => (
+                <ToolButton key={tool} tool={tool} label={label} title={title} ui={ui} setUi={setUi} />
+              ))}
+            </div>
+            <div className="tool-group" role="group" aria-label="Play">
+              <span className="tool-group-label" title="Abilities the player has when you play from here (as if already collected)">
+                Play with
+              </span>
+              {(Object.keys(MOVEMENT_ABILITIES) as MovementAbility[]).map((a) => (
+                <label key={a} title={MOVEMENT_ABILITIES[a]} className="ability-toggle">
+                  <input
+                    type="checkbox"
+                    checked={ui.abilities.includes(a)}
+                    onChange={(e) => setUi({ ...ui, abilities: e.target.checked ? [...ui.abilities, a] : ui.abilities.filter((x) => x !== a) })}
+                  />
+                  {a.replace("_", " ")}
+                </label>
+              ))}
+              <span className="tool-sep" />
+              <button type="button" disabled={playing || !ready} title="Play this room from the 📍 spot (or the start / the floor in the middle)" onClick={() => play({ room: room.id, ...roomSpot(project, room, ui) })}>
+                ▶ Play from here
               </button>
-            ))}
-          </div>
-        )}
-        {room && (
-          <div className="stage-tools" aria-label="Play">
-            {(Object.keys(MOVEMENT_ABILITIES) as MovementAbility[]).map((a) => (
-              <label key={a} title={MOVEMENT_ABILITIES[a]}>
-                <input
-                  type="checkbox"
-                  checked={ui.abilities.includes(a)}
-                  onChange={(e) => setUi({ ...ui, abilities: e.target.checked ? [...ui.abilities, a] : ui.abilities.filter((x) => x !== a) })}
-                />
-                {a.replace("_", " ")}
-              </label>
-            ))}
-            <button type="button" disabled={playing || !ready} onClick={() => play({ room: room.id, ...roomSpot(project, room, ui) })}>
-              ▶ Play from here
-            </button>
-            {start && (
-              <button type="button" disabled={playing || !ready} onClick={() => play(start)}>
-                ▶ From start
-              </button>
-            )}
-            {start && hasSave(project) && (
-              <button type="button" disabled={playing || !ready} onClick={() => play(start, true)} title="Resume the run saved in this browser">
-                Continue
-              </button>
-            )}
+              {start && (
+                <button type="button" disabled={playing || !ready} title="Play from the game's start" onClick={() => play(start)}>
+                  ▶ From start
+                </button>
+              )}
+              {start && hasSave(project) && (
+                <button type="button" disabled={playing || !ready} onClick={() => play(start, true)} title="Resume the run saved in this browser">
+                  Continue
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -325,15 +370,21 @@ interface PanelProps {
   locked: boolean;
   /** The live rooms (built from the progression in the background). */
   live?: LiveState;
+  /** Open the Scenery tab to dress or recompose a room. */
+  onOpenScenery?: OpenScenery;
 }
 
-/** Sidebar: rooms and the world map, the selected room's doors, enemies and start, and the rules. */
-export function RoomsPanel({ project, session, ui, setUi, locked, live }: PanelProps) {
+/**
+ * Sidebar: the world map and the rooms by region, then the selected room in
+ * sections (room, scenery, doors, enemies, props, handlers, start), each collapsible.
+ */
+export function RoomsPanel({ project, session, ui, setUi, locked, live, onOpenScenery }: PanelProps) {
   const room = currentRoom(project, ui);
   const [name, setName] = useState("");
   const [door, setDoor] = useState<{ side: DoorSide; offset: number; size: number }>({ side: "right", offset: 1, size: 3 });
   const enemies = project.characters.filter((c) => c.kind === "enemy");
   const [enemy, setEnemy] = useState(enemies[0]?.id ?? "");
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const report = (result: ChangeResult) => {
     if (!result.ok) session.reportProblem(result.error.message);
     return result.ok;
@@ -341,6 +392,8 @@ export function RoomsPanel({ project, session, ui, setUi, locked, live }: PanelP
   const edit = async (op: string, input: unknown) => report(await session.applyOperation(op, input));
   const select = (roomId: string) => setUi({ ...ui, roomId, spot: null });
   const spot = room ? roomSpot(project, room, ui) : null;
+  const startRoom = project.world.rooms.find((r) => r.id === project.world.start?.room);
+  const testRoom = project.world.rooms.find((r) => r.id === project.world.playtest?.room);
 
   const addRoom = async () => {
     const before = new Set(project.world.rooms.map((r) => r.id));
@@ -353,155 +406,179 @@ export function RoomsPanel({ project, session, ui, setUi, locked, live }: PanelP
 
   return (
     <section className="rooms-panel" data-testid="rooms-panel">
-      <h2>Rooms</h2>
-      {live && <RoomsLive live={live} />}
-      <WorldMap project={project} selected={room?.id ?? null} onSelect={select} />
-      <ul className="character-list">
-        {project.world.rooms.map((r) => (
-          <li key={r.id}>
-            <button type="button" data-testid={`room-${r.id}`} className={r.id === room?.id ? "selected" : ""} onClick={() => select(r.id)}>
-              {r.name}
-              {project.world.start?.room === r.id && <span className="tag">start</span>}
-              {project.world.playtest?.room === r.id && <span className="tag">playtest</span>}
-              <span className="kind">
-                {gridCols(r.grid)}×{gridRows(r.grid)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="list-actions">
-        <input className="art-text" aria-label="new room name" placeholder="New room name" value={name} disabled={locked} onChange={(e) => setName(e.target.value)} />
-        <button type="button" onClick={() => void addRoom()} disabled={locked}>
-          + Room
-        </button>
-      </div>
+      <Section id="rooms:list" title="Rooms" top note={project.world.rooms.length}>
+        {live && <RoomsLive live={live} />}
+        <WorldMap project={project} selected={room?.id ?? null} onSelect={select} />
+        <RoomList project={project} selected={room?.id ?? null} onSelect={select} />
+        <div className="list-actions">
+          <input
+            className="art-text"
+            aria-label="new room name"
+            placeholder="New room name"
+            value={name}
+            disabled={locked}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void addRoom()}
+          />
+          <button type="button" onClick={() => void addRoom()} disabled={locked}>
+            + Room
+          </button>
+        </div>
+      </Section>
 
       {room && (
         <>
-          <h3>Room</h3>
-          <div className="field">
-            <label htmlFor="room-name">Name</label>
-            <input
-              id="room-name"
-              key={`${room.id}:${room.name}`}
-              defaultValue={room.name}
-              disabled={locked}
-              onKeyDown={(e) => e.key === "Enter" && void edit("updateWorldRoom", { roomId: room.id, changes: { name: e.currentTarget.value } })}
-            />
-          </div>
-          <SizeEditor key={`${room.id}:${gridCols(room.grid)}x${gridRows(room.grid)}`} room={room} locked={locked} onResize={(cols, rows) => void edit("resizeWorldRoom", { roomId: room.id, cols, rows })} />
-          <RegionPicker project={project} session={session} room={room} locked={locked} />
-
-          <h3>Doors</h3>
-          {room.doors.map((d) => {
-            const targets = project.world.rooms.flatMap((r) =>
-              r.id === room.id ? [] : r.doors.filter((t) => t.side === OPPOSITE[d.side]).map((t) => ({ value: `${r.id}/${t.id}`, label: `${r.name} · ${t.id}` })),
-            );
-            return (
-              <div key={d.id} className="spawn" data-testid={`door-${d.id}`}>
-                <span className="spawn-id">
-                  {d.id} · {d.side} {d.offset}+{d.size}
-                </span>
-                <select
-                  aria-label={`${d.id} leads to`}
-                  value={d.to ? `${d.to.room}/${d.to.door}` : ""}
-                  disabled={locked}
-                  onChange={(e) => {
-                    const [roomId, doorId] = e.target.value.split("/");
-                    void edit("connectDoors", { from: { roomId: room.id, doorId: d.id }, to: roomId ? { roomId, doorId } : null });
-                  }}
-                >
-                  <option value="">— not connected —</option>
-                  {targets.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-                <button type="button" className="icon-button" aria-label={`remove ${d.id}`} disabled={locked} onClick={() => void edit("removeDoor", { roomId: room.id, doorId: d.id })}>
-                  ✕
-                </button>
-              </div>
-            );
-          })}
-          <div className="spawn">
-            <select aria-label="door side" value={door.side} disabled={locked} onChange={(e) => setDoor({ ...door, side: e.target.value as DoorSide })}>
-              {(["left", "right", "top", "bottom"] as const).map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-            <NumberBox label="door offset" value={door.offset} onChange={(offset) => setDoor({ ...door, offset })} />
-            <NumberBox label="door size" value={door.size} onChange={(size) => setDoor({ ...door, size })} />
-            <button type="button" disabled={locked} onClick={() => void edit("setDoor", { roomId: room.id, door })}>
-              + Door
-            </button>
-          </div>
-          <p className="hint">Offset: tiles from the top (left/right doors) or the left (top/bottom).</p>
-
-          <h3>Enemies</h3>
-          {room.spawns.map((s) => (
-            <div key={s.id}>
-              <div className="spawn">
-                <span className="spawn-id">
-                  {s.id} ({Math.round(s.x)}, {Math.round(s.y)})
-                </span>
-                <button type="button" className="icon-button" aria-label={`remove ${s.id}`} disabled={locked} onClick={() => void edit("removeRoomSpawn", { roomId: room.id, spawnId: s.id })}>
-                  ✕
-                </button>
-              </div>
-              <SpawnDetails project={project} session={session} room={room} spawn={s} locked={locked} />
+          <Section id="rooms:room" title={`Room: ${room.name}`}>
+            <div className="field">
+              <label htmlFor="room-name">Name</label>
+              <input
+                id="room-name"
+                key={`${room.id}:${room.name}`}
+                defaultValue={room.name}
+                disabled={locked}
+                title="Press Enter to rename"
+                onKeyDown={(e) => e.key === "Enter" && void edit("updateWorldRoom", { roomId: room.id, changes: { name: e.currentTarget.value } })}
+              />
             </div>
-          ))}
-          <div className="spawn">
-            <select aria-label="enemy" value={enemy} disabled={locked} onChange={(e) => setEnemy(e.target.value)}>
-              {enemies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <button type="button" disabled={locked || !enemy || !spot} onClick={() => void edit("addRoomSpawn", { roomId: room.id, characterId: enemy, ...spot })}>
-              + Enemy at spot
-            </button>
-          </div>
+            <SizeEditor key={`${room.id}:${gridCols(room.grid)}x${gridRows(room.grid)}`} room={room} locked={locked} onResize={(cols, rows) => void edit("resizeWorldRoom", { roomId: room.id, cols, rows })} />
+            <RegionPicker project={project} session={session} room={room} locked={locked} />
+            <div className="list-actions rooms-row confirm-row">
+              {confirmDelete === room.id ? (
+                <>
+                  <span className="hint">Delete {room.name}? Undo can restore it.</span>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={locked}
+                    onClick={() => void edit("deleteWorldRoom", { roomId: room.id }).then((ok) => ok && setUi({ ...ui, roomId: null, spot: null }))}
+                  >
+                    Delete
+                  </button>
+                  <button type="button" onClick={() => setConfirmDelete(null)}>
+                    Keep
+                  </button>
+                </>
+              ) : (
+                <button type="button" disabled={locked} onClick={() => setConfirmDelete(room.id)}>
+                  Delete room…
+                </button>
+              )}
+            </div>
+          </Section>
 
-          <PropsSection project={project} session={session} room={room} ui={ui} setUi={setUi} locked={locked} />
+          <Section id="rooms:scenery" title="Scenery" note={<ArtDot state={roomArt(project, room).state} />}>
+            <RoomScenery project={project} session={session} room={room} locked={locked} onOpenScenery={onOpenScenery} />
+          </Section>
 
-          <h3>Room handlers</h3>
-          <HandlerEditor
-            handlers={room.handlers}
-            scope="room"
-            project={project}
-            room={room}
-            locked={locked}
-            label={`room ${room.id}`}
-            onChange={(handlers) => void edit("setHandlers", { roomId: room.id, handlers })}
-          />
+          <Section id="rooms:doors" title="Doors" note={room.doors.length}>
+            {room.doors.map((d) => {
+              const targets = project.world.rooms.flatMap((r) =>
+                r.id === room.id ? [] : r.doors.filter((t) => t.side === OPPOSITE[d.side]).map((t) => ({ value: `${r.id}/${t.id}`, label: `${r.name} · ${t.id}` })),
+              );
+              return (
+                <div key={d.id} className="spawn" data-testid={`door-${d.id}`}>
+                  <span className="spawn-id">
+                    {d.id} · {d.side} {d.offset}+{d.size}
+                  </span>
+                  <select
+                    aria-label={`${d.id} leads to`}
+                    value={d.to ? `${d.to.room}/${d.to.door}` : ""}
+                    disabled={locked}
+                    onChange={(e) => {
+                      const [roomId, doorId] = e.target.value.split("/");
+                      void edit("connectDoors", { from: { roomId: room.id, doorId: d.id }, to: roomId ? { roomId, doorId } : null });
+                    }}
+                  >
+                    <option value="">— not connected —</option>
+                    {targets.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="icon-button" aria-label={`remove ${d.id}`} disabled={locked} onClick={() => void edit("removeDoor", { roomId: room.id, doorId: d.id })}>
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+            <div className="spawn">
+              <select aria-label="door side" value={door.side} disabled={locked} onChange={(e) => setDoor({ ...door, side: e.target.value as DoorSide })}>
+                {(["left", "right", "top", "bottom"] as const).map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+              <NumberBox label="door offset" value={door.offset} onChange={(offset) => setDoor({ ...door, offset })} />
+              <NumberBox label="door size" value={door.size} onChange={(size) => setDoor({ ...door, size })} />
+              <button type="button" disabled={locked} onClick={() => void edit("setDoor", { roomId: room.id, door })}>
+                + Door
+              </button>
+            </div>
+            <p className="hint">Side, offset and size in tiles; the offset counts from the top (left/right doors) or the left (top/bottom).</p>
+          </Section>
 
-          <h3>Start</h3>
-          <p className="hint">
-            {project.world.start ? `The game starts in ${project.world.start.room} at (${Math.round(project.world.start.x)}, ${Math.round(project.world.start.y)}).` : "No start yet."} Drop the
-            spot with 📍, then:
-          </p>
-          <div className="list-actions rooms-row">
-            <button type="button" disabled={locked || !spot} onClick={() => void edit("setWorldStart", { roomId: room.id, ...spot })}>
-              Set start here
-            </button>
-            <button type="button" disabled={locked || !spot} title="Where ▶ Play in the Playtest tab starts" onClick={() => void edit("setPlaytest", { roomId: room.id, ...spot })}>
-              Playtest here
-            </button>
-            <button
-              type="button"
-              disabled={locked}
-              onClick={() => window.confirm(`Delete ${room.name}? (Undo can restore it.)`) && void edit("deleteWorldRoom", { roomId: room.id }).then((ok) => ok && setUi({ ...ui, roomId: null, spot: null }))}
-            >
-              Delete room
-            </button>
-          </div>
+          <Section id="rooms:enemies" title="Enemies" note={room.spawns.length}>
+            {room.spawns.map((s) => (
+              <div key={s.id}>
+                <div className="spawn">
+                  <span className="spawn-id">
+                    {s.id} ({Math.round(s.x)}, {Math.round(s.y)})
+                  </span>
+                  <button type="button" className="icon-button" aria-label={`remove ${s.id}`} disabled={locked} onClick={() => void edit("removeRoomSpawn", { roomId: room.id, spawnId: s.id })}>
+                    ✕
+                  </button>
+                </div>
+                <SpawnDetails project={project} session={session} room={room} spawn={s} locked={locked} />
+              </div>
+            ))}
+            <div className="spawn">
+              <select aria-label="enemy" value={enemy} disabled={locked} onChange={(e) => setEnemy(e.target.value)}>
+                {enemies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <button type="button" disabled={locked || !enemy || !spot} title="Add the enemy at the 📍 spot" onClick={() => void edit("addRoomSpawn", { roomId: room.id, characterId: enemy, ...spot })}>
+                + Enemy at spot
+              </button>
+            </div>
+          </Section>
+
+          <Section id="rooms:props" title="Props" note={room.props.length}>
+            <PropsSection project={project} session={session} room={room} ui={ui} setUi={setUi} locked={locked} heading={false} />
+          </Section>
+
+          <Section id="rooms:handlers" title="Room handlers" note={room.handlers.length}>
+            <HandlerEditor
+              handlers={room.handlers}
+              scope="room"
+              project={project}
+              room={room}
+              locked={locked}
+              label={`room ${room.id}`}
+              onChange={(handlers) => void edit("setHandlers", { roomId: room.id, handlers })}
+            />
+          </Section>
+
+          <Section id="rooms:start" title="Start and playtest">
+            <p className="hint">
+              {startRoom && project.world.start
+                ? `The game starts in ${startRoom.name} at (${Math.round(project.world.start.x)}, ${Math.round(project.world.start.y)}).`
+                : "No start yet."}{" "}
+              {testRoom ? `▶ Play in the Playtest tab starts in ${testRoom.name}.` : ""} Drop the spot with 📍, then:
+            </p>
+            <div className="list-actions rooms-row">
+              <button type="button" disabled={locked || !spot} title="Where the game starts" onClick={() => void edit("setWorldStart", { roomId: room.id, ...spot })}>
+                Set start here
+              </button>
+              <button type="button" disabled={locked || !spot} title="Where ▶ Play in the Playtest tab starts" onClick={() => void edit("setPlaytest", { roomId: room.id, ...spot })}>
+                Playtest here
+              </button>
+            </div>
+          </Section>
         </>
       )}
-
     </section>
   );
 }
@@ -533,51 +610,5 @@ function SizeEditor({ room, locked, onResize }: { room: WorldRoom; locked: boole
         Resize
       </button>
     </div>
-  );
-}
-
-/** Rooms where they sit on the world map (`at`, in tiles), colored by region, with lines for connected doors. */
-function WorldMap({ project, selected, onSelect }: { project: ProjectSpec; selected: string | null; onSelect: (id: string) => void }) {
-  const rooms = project.world.rooms;
-  if (rooms.length === 0) return null;
-  const box = (r: WorldRoom) => ({ x: r.at.x, y: r.at.y, w: gridCols(r.grid), h: gridRows(r.grid) });
-  const minX = Math.min(...rooms.map((r) => r.at.x));
-  const minY = Math.min(...rooms.map((r) => r.at.y));
-  const maxX = Math.max(...rooms.map((r) => r.at.x + gridCols(r.grid)));
-  const maxY = Math.max(...rooms.map((r) => r.at.y + gridRows(r.grid)));
-  const doorPoint = (r: WorldRoom, side: DoorSide, offset: number, size: number) => {
-    const b = box(r);
-    const mid = offset + size / 2;
-    return side === "left" ? [b.x, b.y + mid] : side === "right" ? [b.x + b.w, b.y + mid] : side === "top" ? [b.x + mid, b.y] : [b.x + mid, b.y + b.h];
-  };
-  const links = rooms.flatMap((r) =>
-    r.doors.flatMap((d) => {
-      const other = d.to && rooms.find((o) => o.id === d.to!.room);
-      const target = other?.doors.find((t) => t.id === d.to!.door);
-      if (!other || !target || `${r.id}/${d.id}` > `${other.id}/${target.id}`) return [];
-      return [[doorPoint(r, d.side, d.offset, d.size), doorPoint(other, target.side, target.offset, target.size)]];
-    }),
-  );
-  const pad = 4;
-  return (
-    <svg className="world-map" viewBox={`${minX - pad} ${minY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`} aria-label="World map">
-      {rooms.map((r) => {
-        const b = box(r);
-        const fill = regionColor(project, r.regionId);
-        const region = project.progression.regions.find((g) => g.id === r.regionId);
-        return (
-          <g key={r.id} onClick={() => onSelect(r.id)} className={r.id === selected ? "selected" : ""} data-testid={`map-room-${r.id}`} data-region={r.regionId ?? ""}>
-            <title>{region ? `${r.name} · ${region.name}` : r.name}</title>
-            <rect x={b.x} y={b.y} width={b.w} height={b.h} style={fill ? { fill } : undefined} />
-            <text x={b.x + 1.5} y={b.y + 5}>
-              {r.name}
-            </text>
-          </g>
-        );
-      })}
-      {links.map(([a, b], i) => (
-        <line key={i} x1={a![0]} y1={a![1]} x2={b![0]} y2={b![1]} />
-      ))}
-    </svg>
   );
 }
