@@ -126,3 +126,18 @@ describe("updateCharacter", () => {
     expect(project.revision).toBe(3);
   });
 });
+
+describe("large batches", () => {
+  it("an AI turn that builds several rooms (hundreds of operations) saves as one batch; an oversized one says why", async () => {
+    const { applyBatch, createDefaultProject, MAX_BATCH_SIZE } = await import("../src/index.ts");
+    const project = createDefaultProject();
+    const rooms = Array.from({ length: 40 }, (_, i) => ({ name: "createWorldRoom", input: { name: `Room ${i}`, id: `room_${i}`, cols: 30, rows: 14 } }));
+    const tiles = rooms.flatMap((_, i) => Array.from({ length: 4 }, (_, j) => ({ name: "paintTiles", input: { roomId: `room_${i}`, kind: "ledge", area: { col: 4 + j * 5, row: 9, cols: 3, rows: 1 } } })));
+    const result = applyBatch(project, [...rooms, ...tiles]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.project.revision).toBe(project.revision + 1);
+    const tooMany = applyBatch(project, Array.from({ length: MAX_BATCH_SIZE + 1 }, () => rooms[0]));
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.error.message).toContain(`at most ${MAX_BATCH_SIZE} operations (this one has ${MAX_BATCH_SIZE + 1})`);
+  });
+});

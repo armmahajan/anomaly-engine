@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addRoomSpawn,
   applyBatch,
+  MAX_BATCH_SIZE,
   createCharacter,
   createDefaultProject,
   deleteCharacter,
@@ -128,7 +129,7 @@ describe("applyBatch", () => {
     expect(applyBatch(base, [])).toMatchObject({ ok: false });
     expect(applyBatch(base, "createCharacter")).toMatchObject({ ok: false });
     const move = { name: "moveRoomSpawn", input: { roomId: "arena", spawnId: "charger_1", x: 600 } };
-    expect(applyBatch(base, Array.from({ length: 51 }, () => move))).toMatchObject({ ok: false });
+    expect(applyBatch(base, Array.from({ length: MAX_BATCH_SIZE + 1 }, () => move))).toMatchObject({ ok: false });
     expect(applyBatch(base, [{ name: "applyBatch", input: [] }])).toMatchObject({ ok: false });
   });
 });

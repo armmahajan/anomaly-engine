@@ -408,7 +408,8 @@ export function applyOperation(project: ProjectSpec, name: string, input: unknow
 export const OperationCall = z.strictObject({ name: z.string(), input: z.unknown() });
 export type OperationCall = z.infer<typeof OperationCall>;
 
-export const MAX_BATCH_SIZE = 50;
+/** One batch is one undo step; an AI turn that builds several rooms easily stages hundreds of operations. */
+export const MAX_BATCH_SIZE = 2000;
 
 /**
  * Apply several operations as one change: all succeed or nothing does, and
@@ -416,7 +417,11 @@ export const MAX_BATCH_SIZE = 50;
  * Each step is validated against the result of the previous one.
  */
 export function applyBatch(project: ProjectSpec, calls: unknown): OperationResult {
-  const parsed = z.array(OperationCall).min(1).max(MAX_BATCH_SIZE).safeParse(calls);
+  if (Array.isArray(calls) && calls.length > MAX_BATCH_SIZE) {
+    return fail("invalid_input", `a batch holds at most ${MAX_BATCH_SIZE} operations (this one has ${calls.length}); save in smaller steps`);
+  }
+  if (Array.isArray(calls) && calls.length === 0) return fail("invalid_input", "a batch needs at least one operation");
+  const parsed = z.array(OperationCall).safeParse(calls);
   if (!parsed.success) return fail("invalid_input", "batch must be a list of { name, input }", toIssues(parsed.error));
   let current = project;
   for (const [i, call] of parsed.data.entries()) {
