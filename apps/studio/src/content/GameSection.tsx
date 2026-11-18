@@ -15,7 +15,8 @@ function readClosed(): Set<string> {
  * (so a folded section still says what it holds). Folding is remembered in
  * this browser.
  */
-export function GameSection({ id, title, summary, children }: { id: string; title: string; summary?: ReactNode; children: ReactNode }) {
+/** `wide`: spans the settings grid (an editor with room to breathe). */
+export function GameSection({ id, title, summary, children, wide }: { id: string; title: string; summary?: ReactNode; children: ReactNode; wide?: boolean }) {
   const [open, setOpen] = useState(() => !readClosed().has(id));
   const toggle = () => {
     const next = !open;
@@ -30,7 +31,7 @@ export function GameSection({ id, title, summary, children }: { id: string; titl
     }
   };
   return (
-    <section className={`game-section${open ? " open" : ""}`} data-testid={`game-section-${id}`}>
+    <section className={`game-section${open ? " open" : ""}${wide ? " wide" : ""}`} data-testid={`game-section-${id}`}>
       <h3 className="game-section-head">
         <button type="button" aria-expanded={open} onClick={toggle}>
           <span className="game-section-caret caret" aria-hidden />

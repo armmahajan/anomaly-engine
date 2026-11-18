@@ -7,7 +7,7 @@ import { gridCols, gridRows, TILE } from "../../world/tiles.ts";
 import { Prop, type Door, type Item, type Modal, type RoomSpawn, type World, type WorldRoom } from "../../world/world.ts";
 import { linkDoorId, roomLinks, type RoomContent, type RoomPlan } from "../plan.ts";
 import { stageRooms, type StageIssue, type StageOptions, type StageOutcome } from "../stages.ts";
-import { abilityName, ENDING_MODAL, endingModal, grantEffect, grantItem, grantScreens, isItemGrant, isMovement, messageModalId, safeId, withMissing } from "./grants.ts";
+import { abilityName, ENDING_MODAL, endingModal, grantEffect, grantItem, grantScreens, hasCondition, isHeldGrant, isItemGrant, isMovement, messageModalId, safeId, withMissing } from "./grants.ts";
 import { roomSpots, type RoomSpots } from "./spots.ts";
 
 /**
@@ -27,11 +27,11 @@ import { roomSpots, type RoomSpots } from "./spots.ts";
  *   and continuing all come back through roomEntered with the spawns rebuilt, so
  *   the fight is always there to win and winning always opens the doors.
  * - pickup: a small prop, visible until taken (`got_<id>` flag); touching it gives
- *   the ability or key with its message.
+ *   the ability, key or weapon (giveWeapon) with its message.
  * - save: a prop whose interact sets the checkpoint, heals and saves the run.
  * - start: the world start and the playtest spot.
  * - ending: a prop whose touch runs endGame with the ending modal.
- * - links needing keys (non-movement abilities): a barrier prop over the link's
+ * - links needing keys or weapons (not movement abilities): a barrier prop over the link's
  *   door in its `a` room, solid and visible while the player lacks any of them.
  *   (Movement gates are geometry's.)
  *
@@ -208,15 +208,15 @@ function populateRoom(ctx: Context, plan: RoomPlan, room: WorldRoom): Built {
   // Key gates: links leaving this room (its `a` end) that need keys.
   for (const { link, here } of roomLinks(project.architect, room.id)) {
     if (here !== "a") continue;
-    const keys = link.requires.filter((id) => isItemGrant(project, id));
+    const keys = link.requires.filter((id) => isHeldGrant(project, id));
     if (!keys.length) continue;
     const door = room.doors.find((d) => d.id === linkDoorId(link.id, "a"));
     if (!door) {
       issue("missing-door", `no door "${linkDoorId(link.id, "a")}" for the link ${link.id}, so its key gate isn't built`, "geometry");
       continue;
     }
-    keys.forEach((k) => ctx.keys.add(k));
-    const lacking = anyOf(keys.map((k) => ({ type: "not", of: { type: "item", item: k, atLeast: 1 } }) as GameCondition));
+    keys.filter((k) => isItemGrant(project, k)).forEach((k) => ctx.keys.add(k));
+    const lacking = anyOf(keys.map((k) => ({ type: "not", of: hasCondition(project, k) }) as GameCondition));
     const names = keys.map((k) => abilityName(project, k)).join(" and ");
     prop({ id: unique(safeId("gate", link.id)), name: `Lock (${names})`.slice(0, 80), ...doorRect(door, room), color: GATE_COLOR, solid: lacking, visible: lacking });
     counts.gates++;

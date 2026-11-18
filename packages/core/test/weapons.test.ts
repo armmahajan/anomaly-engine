@@ -78,6 +78,6 @@ describe("weapons (contracts)", () => {
 
   it("rigs may say where weapons are held", () => {
     const p = createDefaultProject();
-    expect(applyOperation(p, "moveBonePivot", { assetId: "x", bone: "y", pivot: [0, 0] }).ok).toBe(false); // the bone editor isn't built yet
+    expect(applyOperation(p, "moveBonePivot", { assetId: "x", bone: "y", pivot: [0, 0] }).ok).toBe(false); // no such asset
   });
 });

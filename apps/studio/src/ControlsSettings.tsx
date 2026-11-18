@@ -17,6 +17,15 @@ const STUDIO_SHORTCUTS: readonly [keys: string, does: string][] = [
 
 const same = (a: readonly string[], b: readonly string[]) => a.join() === b.join();
 
+/** The weapon actions show only when the loadout uses them (a slot on alt/special attack, cycling on). */
+function shownActions(project: ProjectSpec) {
+  const { slots, cycle } = project.weapons.loadout;
+  const used = new Set<string>(slots.map((s) => s.action));
+  if (cycle) used.add("weapon_cycle");
+  const optional = new Set(["alt_attack", "special_attack", "weapon_cycle"]);
+  return CONTROL_ACTIONS.filter((a) => !optional.has(a.id) || used.has(a.id));
+}
+
 /**
  * Game tab: the game's keys per action (project.controls; setControlKeys / resetControls, undoable).
  * Change (or + Key), then press a key; a key another action already uses is refused here with why.
@@ -60,12 +69,13 @@ export function ControlsSettings({ project, session, locked }: { project: Projec
     };
   }, [listening, bindings]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const actions = shownActions(project);
   const changed = CONTROL_ACTIONS.some((a) => !same(bindings[a.id], DEFAULT_BINDINGS[a.id]));
   return (
     <div className="controls-settings" data-testid="controls-settings">
       <p className="hint">The game's keys, in playtests and exported games (players can change them there: ? ▸ Change keys). Change, then press a key; Escape cancels.</p>
       <ul className="controls-list" aria-label="Game controls">
-        {CONTROL_ACTIONS.map((a) => {
+        {actions.map((a) => {
           const waiting = listening?.action === a.id;
           const keys = bindings[a.id];
           return (

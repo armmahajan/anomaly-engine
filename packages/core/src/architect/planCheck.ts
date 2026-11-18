@@ -46,6 +46,9 @@ export function planIssues(project: ProjectSpec): { issues: StageIssue[]; toCast
       for (const id of ids) granted.set(id, [...(granted.get(id) ?? []), room.id]);
     }
   }
+  for (const [id, rooms] of granted) {
+    if (rooms.length > 1 && !p.abilities.some((a) => a.id === id)) issue("granted-twice", `"${id}" is given in ${rooms.length} rooms: ${rooms.join(", ")}`, rooms[1]);
+  }
   for (const ability of p.abilities) {
     const rooms = granted.get(ability.id) ?? [];
     if (ability.obtainedIn && rooms.length === 0) issue("ungranted", `nothing gives "${ability.id}" (the progression puts it in "${ability.obtainedIn.regionId}")`);
@@ -87,6 +90,9 @@ export function planIssues(project: ProjectSpec): { issues: StageIssue[]; toCast
   for (const g of unguardedGrants(project)) {
     issue("unguarded-grant", `"${g.ability}" is given in room "${g.roomId}", which can be reached without ${g.requires.join(" + ")}; the progression says getting it needs them: put it in a room reached only through a link that requires them`, g.roomId);
   }
+
+  // Weapons the plan gives and gates with (the progression doesn't place them, so the plan alone must be right).
+  for (const w of weaponGrantIssues(project)) issue(w.code, w.message, w.roomId);
 
   const characters = new Set(project.characters.map((c) => c.id));
   const toCast = [...new Set(plan.rooms.flatMap((r) => r.contents.flatMap((c) => (c.kind === "enemy" && !characters.has(c.characterId) ? [c.characterId] : []))))];
@@ -140,7 +146,8 @@ export function planReach(project: ProjectSpec, lacking: ReadonlySet<string>): S
   const plan = project.architect;
   const start = plan.rooms.find((r) => r.contents.some((c) => c.kind === "start"));
   const seen = new Set<string>(start ? [start.id] : []);
-  const have = new Set<string>();
+  // The loadout's starting weapons are held from the start.
+  const have = new Set<string>(startingWeapons(project).filter((w) => !lacking.has(w)));
   const byId = new Map(plan.rooms.map((r) => [r.id, r]));
   for (let grew = true; grew; ) {
     grew = false;
@@ -173,6 +180,55 @@ export function unguardedGrants(project: ProjectSpec): { ability: string; roomId
     if (requires.length === 0) continue;
     const room = project.architect.rooms.find((r) => r.contents.some((c) => (c.kind === "pickup" && c.grants === a.id) || (c.kind === "enemy" && c.grants.includes(a.id))));
     if (room && planReach(project, new Set(requires)).has(room.id)) out.push({ ability: a.id, roomId: room.id, requires });
+  }
+  return out;
+}
+
+/** Weapon ids the loadout starts with. */
+export const startingWeapons = (project: ProjectSpec): string[] => project.weapons.loadout.slots.flatMap((s) => (s.start ? [s.start] : []));
+
+const grantsOf = (c: RoomContent): string[] => (c.kind === "pickup" ? [c.grants] : c.kind === "enemy" ? c.grants : []);
+
+/**
+ * Weapons in the plan (grants and link requirements that are game weapons, not progression abilities;
+ * the progression doesn't place weapons, so the plan alone must get them right):
+ * - weapon-unreachable: given in a room the player can never reach;
+ * - weapon-ungranted: a link needs it but nothing gives it (and the loadout doesn't start with it);
+ * - weapon-behind-gate: a link needs it but it is only given past that need (unreachable without it);
+ * - weapon-gate-bypass: the room behind a link that needs it is reachable without it (the gate holds nothing back).
+ */
+export function weaponGrantIssues(project: ProjectSpec): { code: string; message: string; roomId?: string }[] {
+  const plan = project.architect;
+  const abilities = new Set(project.progression.abilities.map((a) => a.id));
+  const weapons = new Set(project.weapons.list.map((w) => w.id).filter((id) => !abilities.has(id)));
+  if (weapons.size === 0) return [];
+  const out: { code: string; message: string; roomId?: string }[] = [];
+  const starting = new Set(startingWeapons(project));
+  const givenIn = new Map<string, string[]>();
+  for (const room of plan.rooms) {
+    for (const id of room.contents.flatMap(grantsOf)) if (weapons.has(id)) givenIn.set(id, [...(givenIn.get(id) ?? []), room.id]);
+  }
+  const all = planReach(project, new Set());
+  for (const [id, rooms] of givenIn) {
+    for (const roomId of rooms) if (!all.has(roomId)) out.push({ code: "weapon-unreachable", message: `the weapon "${id}" is given in room "${roomId}", which the player can't reach`, roomId });
+  }
+  const needed = new Set(plan.links.flatMap((l) => l.requires.filter((r) => weapons.has(r))));
+  for (const id of needed) {
+    if (starting.has(id)) continue;
+    const gates = plan.links.filter((l) => l.requires.includes(id));
+    const names = gates.map((l) => l.id).join(", ");
+    const rooms = givenIn.get(id) ?? [];
+    if (rooms.length === 0) {
+      out.push({ code: "weapon-ungranted", message: `${names} need${gates.length > 1 ? "" : "s"} the weapon "${id}", but nothing gives it (a pickup or a guardian's grants) and the loadout doesn't start with it`, roomId: gates[0]!.a.room });
+      continue;
+    }
+    const without = planReach(project, new Set([id]));
+    if (!rooms.some((r) => without.has(r))) {
+      out.push({ code: "weapon-behind-gate", message: `the weapon "${id}" is needed to pass ${names} but is only given in ${rooms.join(", ")}, which can't be reached without it: give it on the way there`, roomId: rooms[0] });
+    }
+    for (const l of gates) {
+      if (without.has(l.b.room)) out.push({ code: "weapon-gate-bypass", message: `room "${l.b.room}" behind link "${l.id}" (it needs the weapon "${id}") can be reached without it, so the gate holds nothing back`, roomId: l.a.room });
+    }
   }
   return out;
 }

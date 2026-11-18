@@ -10,6 +10,7 @@ const fieldsText = (page: WikiPage) =>
 function pageLine(page: WikiPage): string {
   const parts = [`- [${page.id}] "${page.title}" (${page.status})`];
   if (page.characterId) parts.push(`in-game: ${page.characterId}`);
+  if (page.weaponId) parts.push(`weapon: ${page.weaponId}`);
   if (page.summary) parts.push(page.summary);
   const fields = fieldsText(page);
   if (fields) parts.push(`{${fields}}`);
@@ -37,5 +38,8 @@ export function summarizeWiki(project: ProjectSpec): string {
     "Game cast (characters designed in the studio; ids are what characterId refers to):",
     ...project.characters.map((c) => `- ${c.id} "${c.name}" (${c.kind})`),
   );
+  if (project.weapons.list.length) {
+    lines.push("Game weapons (ids are what weaponId refers to):", ...project.weapons.list.map((w) => `- ${w.id} "${w.name}" (${w.attacks.length} attack(s))`));
+  }
   return lines.filter(Boolean).join("\n");
 }

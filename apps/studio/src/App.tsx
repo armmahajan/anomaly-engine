@@ -357,7 +357,7 @@ export function App({ session }: { session: Session }) {
       )}
       {tab === "characters" &&
         (selected ? (
-          <CharacterBench key={`${selected.id}:${state.runtimeStatus}`} character={selected} project={project} art={state.art} session={session} />
+          <CharacterBench key={`${selected.id}:${state.runtimeStatus}`} character={selected} project={project} art={state.art} session={session} locked={locked} />
         ) : (
           <NoCharacterBench />
         ))}

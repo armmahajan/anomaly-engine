@@ -55,6 +55,7 @@ export const WikiPageChanges = z.strictObject({
   body: z.string().optional().describe("Replaces the whole body."),
   fields: z.record(z.string(), z.string()).optional().describe("Replaces all fields (include the ones to keep)."),
   characterId: Id.nullable().optional().describe("Link to an in-game character; null unlinks."),
+  weaponId: Id.nullable().optional().describe("Link to a game weapon; null unlinks."),
   status: PageStatus.optional(),
 });
 
@@ -65,11 +66,12 @@ export function updateWikiPage(project: ProjectSpec, input: unknown): OperationR
   if (!parsed.success) return fail("invalid_input", "updateWikiPage input is malformed", issuesOf(parsed.error));
   const found = findPage(project, parsed.data.pageId);
   if (!found.ok) return found;
-  const { characterId, ...changes } = parsed.data.changes;
+  const { characterId, weaponId, ...changes } = parsed.data.changes;
   if (Object.keys(parsed.data.changes).length === 0) return fail("invalid_input", "nothing to change");
-  const { characterId: currentCharacter, ...rest } = found.page;
+  const { characterId: currentCharacter, weaponId: currentWeapon, ...rest } = found.page;
   const linked = characterId === undefined ? currentCharacter : (characterId ?? undefined);
-  const candidate = { ...rest, ...changes, ...(linked !== undefined && { characterId: linked }) };
+  const weapon = weaponId === undefined ? currentWeapon : (weaponId ?? undefined);
+  const candidate = { ...rest, ...changes, ...(linked !== undefined && { characterId: linked }), ...(weapon !== undefined && { weaponId: weapon }) };
   const page = WikiPage.safeParse(candidate);
   if (!page.success) return fail("invalid_input", `page "${found.page.id}" would be invalid`, issuesOf(page.error, "changes."));
   const pages = project.wiki.pages.slice();

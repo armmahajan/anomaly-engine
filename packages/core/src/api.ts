@@ -346,7 +346,7 @@ export type ArchitectEvent = z.infer<typeof ArchitectEvent>;
 // AI revisions onto the project as it is then (waiting while a playtest or an AI turn runs).
 
 export const LiveSettings = z.object({
-  /** Wiki pages of game characters become characters (linked, with a behavior and art). */
+  /** Wiki pages of game characters become characters (linked, with a behavior and art), weapon pages weapons (linked, with attacks). */
   cast: z.boolean(),
   /** The progression's regions become rooms (the Architect's code stages, no model, no art). */
   rooms: z.boolean(),
@@ -358,7 +358,7 @@ export const LiveSettingsRequest = LiveSettings.partial().strict();
 export const LiveState = z.object({
   settings: LiveSettings,
   cast: z.object({
-    /** Characters being made or given a behavior now. */
+    /** Characters (and weapons) being made or given a behavior (attacks) now. */
     working: z.array(z.string()),
     /** What the live cast is doing (empty when idle). */
     message: z.string(),

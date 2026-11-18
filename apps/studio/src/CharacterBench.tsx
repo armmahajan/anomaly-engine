@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ArtState, Character, CharacterAsset, ProjectSpec } from "@anomaly/core";
 import { fileBase64, fileUrl } from "./api.ts";
 import type { Session } from "./session.ts";
+import { AnimationList } from "./characters/AnimationList.tsx";
+import { BoneEditor } from "./characters/BoneEditor.tsx";
 
 /**
  * Characters mode workbench (main area). Big visuals here; inputs and actions
@@ -20,6 +22,8 @@ interface Props {
   project: ProjectSpec;
   art: ArtState;
   session: Session;
+  /** A playtest or an AI turn holds the project. */
+  locked: boolean;
 }
 
 export function characterAsset(project: ProjectSpec, character: Character): CharacterAsset | null {
@@ -33,7 +37,7 @@ function defaultStep(asset: CharacterAsset | null): Step {
   return "concepts";
 }
 
-export function CharacterBench({ character, project, art, session }: Props) {
+export function CharacterBench({ character, project, art, session, locked }: Props) {
   const asset = characterAsset(project, character);
   const [step, setStep] = useState<Step>(() => defaultStep(asset));
   const [sheet, setSheet] = useState<number | null>(null); // null = latest
@@ -44,6 +48,10 @@ export function CharacterBench({ character, project, art, session }: Props) {
   const [flip, setFlip] = useState(false);
   const [bones, setBones] = useState(false);
   const [onion, setOnion] = useState(0.5);
+  // The bone editor (Rig step): handles over the stage, which holds the rest pose facing right meanwhile.
+  const [editBones, setEditBones] = useState(false);
+  const [pose, setPose] = useState<Record<string, number> | null>(null);
+  const editing = editBones && step === "rig" && Boolean(asset?.rig);
   const busy = art.running !== null && art.running.characterId === character.id;
 
   const clipIds = asset ? Object.keys(asset.clips) : [];
@@ -101,14 +109,14 @@ export function CharacterBench({ character, project, art, session }: Props) {
     session.setStage({
       mode: "character",
       characterId: character.id,
-      clip: currentClip,
+      clip: editing ? null : currentClip,
       time: step === "animation" && !playing ? time : null,
       speed,
-      flip,
-      bones,
+      flip: editing ? false : flip,
+      bones: editing ? false : bones,
       onion: { image, alpha: step === "rig" ? onion : 0 },
     });
-  }, [session, character.id, currentClip, step, playing, step === "animation" && !playing ? time : -1, speed, flip, bones, onion, designRef, designData, project.revision]);
+  }, [session, character.id, currentClip, step, playing, step === "animation" && !playing ? time : -1, speed, flip, bones, onion, designRef, designData, project.revision, editing]);
 
   const sheets = asset?.concepts ?? [];
   const sheetIndex = sheet ?? sheets.length - 1;
@@ -123,7 +131,7 @@ export function CharacterBench({ character, project, art, session }: Props) {
       id: "rig",
       label: "② Rig",
       status: asset?.preview?.match ? `${percent(asset.preview.match.silhouette)} match` : asset?.preview?.score !== undefined ? `${asset.preview.score}/10` : asset?.rig ? "built" : "none yet",
-      ready: Boolean(asset?.chosen),
+      ready: Boolean(asset?.chosen || asset?.rig),
     },
     { id: "animation", label: "③ Animation", status: clipIds.length ? `${clipIds.length} clips` : "none yet", ready: Boolean(asset?.rig) },
   ];
@@ -153,12 +161,21 @@ export function CharacterBench({ character, project, art, session }: Props) {
               <input type="range" min={0} max={1} step={0.05} value={onion} onChange={(e) => setOnion(Number(e.target.value))} aria-label="onion skin" />
             </label>
           )}
-          <label>
-            <input type="checkbox" checked={bones} onChange={(e) => setBones(e.target.checked)} /> Bones
-          </label>
-          <label>
-            <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} /> Face left
-          </label>
+          {step === "rig" && asset?.rig && (
+            <label title="Fix the rig by hand before animating: move joints, turn and scale bones, reassign parts, place grips">
+              <input type="checkbox" checked={editBones} onChange={(e) => (setEditBones(e.target.checked), setPose(null))} /> Edit bones
+            </label>
+          )}
+          {!editing && (
+            <>
+              <label>
+                <input type="checkbox" checked={bones} onChange={(e) => setBones(e.target.checked)} /> Bones
+              </label>
+              <label>
+                <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} /> Face left
+              </label>
+            </>
+          )}
         </div>
       </div>
 
@@ -215,7 +232,10 @@ export function CharacterBench({ character, project, art, session }: Props) {
             </Empty>
           ))}
 
-        {step === "rig" &&
+        {editing && asset?.rig && (
+          <BoneEditor asset={{ ...asset, rig: asset.rig }} direction={project.art.direction} session={session} locked={locked} pose={pose} setPose={setPose} />
+        )}
+        {step === "rig" && !editing &&
           (asset?.chosen ? (
             <figure className="bench-figure">
               <img src={fileUrl(asset.chosen.file)} alt="chosen design" />
@@ -239,27 +259,20 @@ export function CharacterBench({ character, project, art, session }: Props) {
 
         {step === "animation" &&
           (clipIds.length > 0 && asset ? (
-            <ul className="bench-clips">
-              {clipIds.map((id) => (
-                <li key={id} data-testid={`clip-${id}`} className={id === currentClip ? "selected" : ""}>
-                  <button
-                    type="button"
-                    aria-pressed={id === currentClip}
-                    onClick={() => {
-                      setClip(id);
-                      setTime(0);
-                      setPlaying(true);
-                    }}
-                  >
-                    {id === currentClip ? "■" : "▶"} {id}
-                    <small>
-                      {asset.clips[id]!.duration}s{asset.clips[id]!.loop ? " loop" : ""}
-                    </small>
-                  </button>
-                  {asset.clipPreviews[id] && <img src={fileUrl(asset.clipPreviews[id]!)} alt={`${id} filmstrip`} />}
-                </li>
-              ))}
-            </ul>
+            <AnimationList
+              character={character}
+              asset={asset}
+              project={project}
+              art={art}
+              session={session}
+              current={currentClip}
+              locked={locked}
+              onPlay={(id) => {
+                setClip(id);
+                setTime(0);
+                setPlaying(true);
+              }}
+            />
           ) : (
             <Empty>{asset?.rig ? "Animate the rig from the sidebar." : "Build the rig first."}</Empty>
           ))}

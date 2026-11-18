@@ -44,17 +44,30 @@ const behaviors: TurnRunner = (request) => {
   return runAgentTurn({ ...request, model: new FakeModel([callTools(...ids.map((characterId) => toolCall("setBehavior", { characterId, behavior: PROWL }))), say("Done.")]) });
 };
 
+const SWING = { id: "swing", name: "Swing", shape: { type: "arc", radius: 70, from: -60, to: 60 }, damage: 2 };
+const THRUST = { id: "thrust", name: "Thrust", trigger: { aim: "up" }, shape: { type: "thrust", length: 120 } };
+
+/** The build assistant writes two attacks for every weapon the live cast asks about (after `attacksGate`, if set). */
+let attacksGate: Promise<void> | null = null;
+const attacks: TurnRunner = async (request) => {
+  await attacksGate;
+  const list = /their attacks: (.+?)\. They were/.exec(request.userMessage)?.[1] ?? "";
+  const ids = list.split(", ").map((s) => s.split(" ")[0]!);
+  return runAgentTurn({ ...request, model: new FakeModel([callTools(...ids.flatMap((weaponId) => [toolCall("setWeaponAttack", { weaponId, attack: SWING }), toolCall("setWeaponAttack", { weaponId, attack: THRUST })])), say("Done.")]) });
+};
+
 let builderCalls: string[] = [];
 const runner: TurnRunner = (request) => {
   if (request.agent?.id === "narrative") return draftCast(request);
   builderCalls.push(request.userMessage);
-  return behaviors(request);
+  return request.userMessage.startsWith("Give these new weapons") ? attacks(request) : behaviors(request);
 };
 
 async function open(options: { cast?: boolean; rooms?: boolean; worker?: boolean; debounceMs?: number } = {}) {
   dir = await mkdtemp(join(tmpdir(), "anomaly-live-"));
   vision = new FakeVisionModel();
   builderCalls = [];
+  attacksGate = null;
   server = await createProjectServer(dir, {
     token: "t",
     runner,
@@ -140,6 +153,46 @@ describe("the live cast", () => {
     expect(project().characters.filter((c) => c.id.startsWith("crawler")).map((c) => c.id)).toEqual(["crawler"]);
     expect(builderCalls).toEqual([]); // nothing new to write a behavior for
     expect(art!.getState().jobs.map((j) => [j.stage, j.characterId, j.outcome])).toEqual([["auto", "crawler", "committed"]]);
+  });
+
+  it("makes a weapon from a weapon page: linked, named and briefed from the page, its attacks written in one private turn; handled once", async () => {
+    const { live } = await open({ cast: true });
+    await ok(op("createWikiPage", { page: { id: "ember_blade", kind: "weapon", title: "Ember Blade", summary: "A sickle that never cools.", fields: { in_game: "weapon", appearance: "a red-hot sickle" }, status: "draft" } }));
+    await live.idle();
+    const weapon = project().weapons.list.find((w) => w.id === "ember_blade");
+    expect(weapon).toMatchObject({ name: "Ember Blade", description: "A sickle that never cools.", art: { brief: "a red-hot sickle" } });
+    expect(weapon!.attacks.map((a) => a.id)).toEqual(["swing", "thrust"]);
+    expect(project().wiki.pages.find((p) => p.id === "ember_blade")!.weaponId).toBe("ember_blade");
+    expect(builderCalls).toHaveLength(1);
+    expect(builderCalls[0]).toContain("ember_blade (wiki page ember_blade)");
+    expect(live.getState().cast).toMatchObject({ working: [], message: "made the weapon(s) ember_blade", error: null });
+    // No characters came of it.
+    expect(project().characters.some((c) => c.id === "ember_blade")).toBe(false);
+
+    // Renaming the weapon keeps the link; deleting it doesn't bring it back.
+    await ok(op("updateWeapon", { weaponId: "ember_blade", name: "Cinder Sickle" }));
+    await ok(op("updateWikiPage", { pageId: "ember_blade", changes: { title: "The Ember Blade" } }));
+    await ok(op("deleteWeapon", { weaponId: "ember_blade" }));
+    const revision = project().revision;
+    await live.idle();
+    expect(project().revision).toBe(revision);
+    expect(project().weapons.list).toEqual([]);
+    expect(builderCalls).toHaveLength(1);
+  });
+
+  it("never overwrites a weapon the creator edited while its attacks were being written", async () => {
+    const { live } = await open({ cast: true });
+    let release!: () => void;
+    attacksGate = new Promise<void>((resolve) => (release = resolve));
+    await ok(op("createWikiPage", { page: { id: "old_bow", kind: "weapon", title: "Old Bow", fields: { in_game: "weapon" }, status: "canon" } }));
+    await ok(op("createWikiPage", { page: { id: "spear", kind: "weapon", title: "Spear", fields: { in_game: "weapon" }, status: "canon" } }));
+    await until(() => live.getState().cast.working.includes("old_bow"));
+    // The creator gives the bow their own attack meanwhile.
+    await ok(op("setWeaponAttack", { weaponId: "old_bow", attack: { id: "loose", name: "Loose", shape: { type: "projectile" } } }));
+    release();
+    await live.idle();
+    expect(project().weapons.list.find((w) => w.id === "old_bow")!.attacks.map((a) => a.id)).toEqual(["loose"]);
+    expect(project().weapons.list.find((w) => w.id === "spear")!.attacks.map((a) => a.id)).toEqual(["swing", "thrust"]);
   });
 });
 
