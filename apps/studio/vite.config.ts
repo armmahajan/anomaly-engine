@@ -30,7 +30,7 @@ function projectApi(mode: string): Plugin {
     const env = { ...loadEnv(mode, repoRoot, ["OPENROUTER_", "STUDIO_"]), ...process.env };
     const art = artOptionsFromEnv(env, gameDir);
     // STUDIO_LIVE (default on): wiki characters become game characters and the progression becomes rooms as the creator designs.
-    const { handler } = await createProjectServer(dataDir, { token, runner: await chatRunner(), art, live: liveSettingsFromEnv(env) });
+    const { handler } = await createProjectServer(dataDir, { token, runner: await chatRunner(), art, live: liveSettingsFromEnv(env), runtimeDir: gameDir });
     server.middlewares.use(handler);
     server.httpServer?.on("close", () => void art.renderer.close());
 

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { createDefaultProject } from "@anomaly/core";
 import { architectAgent, buildAgent, narrativeAgent, type TurnRunner } from "@anomaly/agent";
 import { createAuthMiddleware } from "./auth.ts";
@@ -9,6 +10,7 @@ import { ProjectStore } from "./projectStore.ts";
 import { ArchitectService, defaultStageRunners, type StageRunners } from "./architect/service.ts";
 import { modelStageRunners } from "./architect/modelStages.ts";
 import { LiveService } from "./live/service.ts";
+import { GameExporter } from "./export/gameExport.ts";
 import type { LiveSettings } from "@anomaly/core";
 
 export { ProjectStore } from "./projectStore.ts";
@@ -19,6 +21,8 @@ export { FileStore } from "./art/files.ts";
 export { modelStageRunners } from "./architect/modelStages.ts";
 export { LiveService, behaviorMessage, type LiveServiceOptions } from "./live/service.ts";
 export { privateTurn } from "./agentTurn.ts";
+export { buildGameExport, GameExporter, type GameExportOptions } from "./export/gameExport.ts";
+export { zipFiles, type ZipEntry } from "./export/zip.ts";
 export { ArchitectService, defaultStageRunners, clearSides, repairFor, reseed, withStatus, type StageRunContext, type StageRunner, type StageRunners, type StageRunResult } from "./architect/service.ts";
 export { BrowserRenderer, type Renderer } from "./art/renderer.ts";
 export { createAuthMiddleware, generateToken, loadOrCreateToken, TOKEN_COOKIE, TOKEN_HEADER } from "./auth.ts";
@@ -36,6 +40,8 @@ export async function createProjectServer(
     architectStages?: Partial<StageRunners>;
     /** Live cast and live rooms for a project that has no settings yet (default: both off; the studio sets them from STUDIO_LIVE), and their debounce. */
     live?: Partial<LiveSettings> & { debounceMs?: number; worker?: boolean };
+    /** The Godot web export the studio plays (apps/studio/public/game): turns on game export (POST /api/export), written to <dir>/exports/. */
+    runtimeDir?: string;
   },
 ): Promise<{
   store: ProjectStore;
@@ -65,7 +71,8 @@ export async function createProjectServer(
   // The studio fills in as the creator designs: game characters from the wiki, rooms from the progression.
   const { debounceMs, worker, ...settings } = options.live ?? {};
   const live = await LiveService.open(store, { runner: options.runner, art, defaults: { cast: false, rooms: false, ...settings }, debounceMs, worker });
-  const api = createApiHandler(store, chats, art ? { service: art, files } : undefined, architect, live);
+  const exporter = options.runtimeDir ? new GameExporter(() => store.getState().project, { runtimeDir: options.runtimeDir, outDir: join(dir, "exports"), files }) : undefined;
+  const api = createApiHandler(store, chats, art ? { service: art, files } : undefined, architect, live, exporter);
   return { store, chat: chats.build, chats, art, architect, live, handler: (req, res, next) => auth(req, res, () => api(req, res, next)) };
 }
 export {

@@ -186,6 +186,16 @@ runtime control: `studio.updateCharacter(...)`, `studio.applyOperation(name, inp
 `studio.applyBatch([...])`, `studio.undo()`,
 `studio.play()`, `studio.stop()`, `await studio.getRuntimeState()`.
 
+Exporting the game (see *Exporting a game*): `POST /api/export` with `{}` builds it and answers
+`{ ok, export: { name, title, zip, zipBytes, folderBytes, files: [{ path, bytes, kind }], revision } }`
+(`invalid_input` without a start, `unavailable` if the runtime isn't built); `GET /api/export/<zip>`
+downloads the zip:
+
+```sh
+curl -s -H "$H" -X POST localhost:5173/api/export -H 'content-type: application/json' -d '{}' | jq .export.zip
+curl -s -H "$H" -o game.zip localhost:5173/api/export/descent-slice.zip
+```
+
 ## Chat
 
 The chat panel (right) follows the tab: on **Playtest** it is the build
@@ -484,6 +494,38 @@ end with how to get stuck. Tests: `packages/core/test/logic.test.ts` (the slice 
 game beatable with no dead states, six mutations each caught with a readable counterexample, gate
 checks, determinism and speed: the slice in well under a second, a 30-room game in about one),
 `game/test/logic.test.ts` (the mirror) and `e2e/check.spec.ts`.
+
+## Exporting a game
+
+Project menu ▸ **Export game…** turns the project into a standalone web game anyone can play in a
+browser, with no studio, server or editor. It runs **Check the game** first: a game that isn't proven
+beatable (no ending, dead ends, a partial check) is said so in the page, with the reasons, and
+exports only on **Export anyway**. The server then builds the export and the browser downloads its
+zip; the dialog shows its size and what's in it.
+
+- **What's in it** (`<project>/exports/<name>/` and `<name>.zip`, `<name>` a safe file name from the
+  game's name): `index.html` (the boot page; the game's name is its title), `game.json` (the runtime
+  project: `toRuntimeProject` without the Architect's plan and with only the art the game draws,
+  stripped of concepts, briefs and previews; the start; the images; the controls), `files/<ref>` for
+  every image the runtime is sent (`runtimeImageRefs`, the same set the studio sends) and nothing
+  else, `runtime/index.*` (the Godot web runtime as built by `npm run build:game`) and `README.txt`.
+  No wiki, progression, chats, history, plan, unused art, backups, `.env` or tokens. About 40 MB
+  unzipped (the runtime's wasm), about 10 MB zipped; the same project gives the same zip, byte for byte.
+- **Playing:** every URL is relative, so the folder works from any static host or subfolder (itch.io,
+  GitHub Pages, `python3 -m http.server`), not from `file://`. The boot page
+  (`packages/core/src/export/bootPage.ts`) hosts the unchanged runtime full window in an iframe and
+  speaks the studio's side of the protocol: on `ready` it sends the images and the game, on `loaded`
+  it plays from the world's start with no abilities (as *Play the game from its start*), resuming the
+  run saved in this browser if there is one. The game's own rules decide death and saving; saves are
+  the runtime's localStorage save, keyed `anomaly-save:<name>`. The controls show for a few seconds
+  (and again from the corner **?**, with **Start over** when a save exists). For tests and embedders,
+  `await window.game.state()` returns the runtime's `state`; `<body data-status>` is
+  `loading | playing | error` and `data-room` the player's room.
+- **Code:** `packages/core/src/export/` (the plan and boot page, pure), `packages/server/src/export/`
+  (folder + zip builder, a dependency-free zip writer), `apps/studio/src/shell/ExportGame.tsx`.
+  Tests: `packages/core/test/gameExport.test.ts`, `packages/server/test/gameExport.test.ts`,
+  `e2e/export.spec.ts` (exports the example, serves the unzipped folder from a plain static server at
+  the root and in a subfolder, and plays it).
 
 ## Props and items
 

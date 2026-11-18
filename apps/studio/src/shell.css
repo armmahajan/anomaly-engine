@@ -889,3 +889,89 @@ body.resizing .side-resize {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* --- Export game (shell/ExportGame.tsx) -------------------------------------- */
+
+.export-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.export-dialog p {
+  margin: 0 0 8px;
+}
+
+.export-progress::after {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-left: 0.6em;
+  vertical-align: -0.1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: export-spin 0.8s linear infinite;
+}
+
+@keyframes export-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.export-warning,
+.export-error {
+  color: #ffd7de;
+}
+
+.export-reasons {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.export-contents {
+  width: 100%;
+  margin: 4px 0 8px;
+  border-collapse: collapse;
+  color: var(--text);
+}
+
+.export-contents td {
+  padding: 2px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.export-contents td:not(:first-child) {
+  text-align: right;
+  padding-left: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-files {
+  max-height: 160px;
+  overflow: auto;
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.export-done details > summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
+.confirm-actions .button-link {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #232733;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.confirm-actions .button-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

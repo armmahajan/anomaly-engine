@@ -1,12 +1,13 @@
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { AgentId, fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
+import { AgentId, ExportRequest, fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
 import type { ArtService } from "./art/service.ts";
 import type { ArchitectService } from "./architect/service.ts";
 import type { LiveService } from "./live/service.ts";
 import { FILE_MEDIA_TYPES, type FileStore } from "./art/files.ts";
 import type { ChatService } from "./chat.ts";
 import type { ProjectStore } from "./projectStore.ts";
+import type { GameExporter } from "./export/gameExport.ts";
 
 export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
 
@@ -35,11 +36,18 @@ export interface ArtApi {
   files: FileStore;
 }
 
-export function createApiHandler(store: ProjectStore, chats: Chats = {}, art?: ArtApi, architect?: ArchitectService, live?: LiveService): Middleware {
+export function createApiHandler(
+  store: ProjectStore,
+  chats: Chats = {},
+  art?: ArtApi,
+  architect?: ArchitectService,
+  live?: LiveService,
+  exporter?: GameExporter,
+): Middleware {
   return (req, res, next) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) return next();
-    route(store, chats, art, architect, live, req, res, url).catch((error: unknown) => {
+    route(store, chats, art, architect, live, exporter, req, res, url).catch((error: unknown) => {
       console.error("[project-server]", error);
       if (!res.headersSent) sendJson(res, 500, { ok: false, error: { code: "internal", message: String(error), issues: [] } });
       else res.end();
@@ -53,6 +61,7 @@ async function route(
   art: ArtApi | undefined,
   architect: ArchitectService | undefined,
   live: LiveService | undefined,
+  exporter: GameExporter | undefined,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -112,6 +121,27 @@ async function route(
         return respond(res, await withBody(req, (body) => architect.start(body)));
       case "POST /api/architect/cancel":
         return respond(res, architect.cancel());
+    }
+  }
+  if (exporter) {
+    if (key === "POST /api/export") {
+      return respond(
+        res,
+        await withBody(req, async (body) => {
+          const request = ExportRequest.safeParse(body);
+          return request.success ? exporter.build() : fail("invalid_request", "the export request takes no options: send {}");
+        }),
+      );
+    }
+    if (req.method === "GET" && url.pathname.startsWith("/api/export/")) {
+      const file = url.pathname.slice("/api/export/".length);
+      const zip = await exporter.zip(file);
+      if (!zip) return sendJson(res, 404, fail("not_found", `no export "${file}": build one with POST /api/export`));
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/zip");
+      res.setHeader("content-disposition", `attachment; filename="${file}"`);
+      res.setHeader("cache-control", "no-store");
+      return void res.end(zip);
     }
   }
   if (art) {
