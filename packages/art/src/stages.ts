@@ -1,6 +1,13 @@
 import { detailLook } from "./dress.ts";
+import { attackTiming, checkWeaponClip, fitWeaponClip, gripBones, heldLength, weaponClipBrief, withHandGrip } from "./weapons.ts";
 import { z } from "zod";
 import {
+  attackClipName,
+  CLIP_SLOTS,
+  wantedWeaponClips,
+  type Grip,
+  type Weapon,
+  type WeaponAttack,
   wantedClipSlots,
   Clip,
   Id,
@@ -45,6 +52,7 @@ import {
   rigCritiquePrompt,
   rigSystemPrompt,
   isRigReadySheet,
+  weaponAnimPrompt,
 } from "./prompts.ts";
 
 /**
@@ -655,6 +663,13 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
       ctx.log({ text: `details skipped (${error instanceof Error ? error.message : String(error)})` });
     }
   }
+  // Where it holds a weapon: the front hand (placed from the rig before its detail shapes; optional, never fails the build).
+  const gripped = withHandGrip(best.rig);
+  const hand = gripped.grips?.find((g) => g.id === "hand");
+  if (hand) {
+    rig = { ...rig, grips: gripped.grips };
+    ctx.log({ text: `holds weapons in ${hand.bone} at [${hand.at.join(", ")}]` });
+  }
 
   const preview = await ctx.files.put((await renderRest(ctx, rig)).png, "png");
   operations.push({
@@ -975,8 +990,16 @@ async function puppetAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
 export interface AnimateInput {
   characterId: string;
   feedback?: string;
-  /** Only these clips (default: every slot the character's characters use). */
+  /** Only these clips (default: every slot the character's characters use, and their weapons' attack clips). */
   slots?: ClipSlot[];
+  /**
+   * Only these clips, by name: clip slots, weapon attack clips, or any other name (written from its
+   * direction). Redoes them; `feedback` is kept as each one's direction (else a clip's stored
+   * direction is used again).
+   */
+  clips?: string[];
+  /** Only this weapon's attack clips (one per attack). */
+  weaponId?: string;
   /** The rig has elbows and knees: ask for them to bend. Default: on for vector rigs (built with them). */
   limbJoints?: boolean;
   /** Rigs cut from the drawing: limit each joint by the overlap around the joint only (motionLimits `joint`). */
@@ -989,12 +1012,18 @@ export const slotsFor = wantedClipSlots;
 const ClipsReply = z.object({ clips: z.record(Id, Clip) });
 const AnimCritique = z.object({ score: z.number().min(0).max(10), issues: z.array(z.string()).default([]), clips: z.unknown() });
 
-async function filmstrips(ctx: ArtContext, rig: Rig, clips: Record<string, Clip>, ids: string[]): Promise<Buffer> {
+/** A weapon held in renders: the weapon, the attack whose phases follow the clip time, its sprite. */
+interface Held {
+  weapon: Weapon;
+  attack?: string;
+}
+
+async function filmstrips(ctx: ArtContext, rig: Rig, clips: Record<string, Clip>, ids: string[], held?: Held): Promise<Buffer> {
   checkAbort(ctx);
   const frames = ids.flatMap((id) =>
     Array.from({ length: FILMSTRIP_FRAMES }, (_, i) => ({ clip: id, time: (clips[id]!.duration * i) / FILMSTRIP_FRAMES })),
   );
-  const images = await rigImages(ctx, rig);
+  const images = { ...(await rigImages(ctx, rig)), ...(held ? await weaponImages(ctx, held.weapon) : {}) };
   const image = await ctx.renderer.renderRig({
     rig,
     direction: ctx.project().art.direction,
@@ -1004,13 +1033,28 @@ async function filmstrips(ctx: ArtContext, rig: Rig, clips: Record<string, Clip>
     cellHeight: 128,
     columns: FILMSTRIP_FRAMES,
     background: BACKGROUND,
-    ...(images ? { images } : {}),
+    ...(Object.keys(images).length ? { images } : {}),
+    ...(held ? { weapon: { weapon: held.weapon, attack: held.attack ?? null } } : {}),
   });
   return image.png;
 }
 
-/** Only the wanted slots. */
-const pick = (clips: Record<string, Clip>, slots: readonly string[]) => Object.fromEntries(Object.entries(clips).filter(([id]) => slots.includes(id)));
+/** A weapon's sprite for the renderer (base64 by file ref), if it has one. */
+async function weaponImages(ctx: Pick<ArtContext, "files">, weapon: Weapon): Promise<Record<string, string>> {
+  return weapon.art.sprite ? { [weapon.art.sprite]: (await ctx.files.get(weapon.art.sprite)).toString("base64") } : {};
+}
+
+/** Only the wanted clips. */
+const pick = (clips: Record<string, Clip>, names: readonly string[]) => Object.fromEntries(Object.entries(clips).filter(([id]) => names.includes(id)));
+
+const isSlot = (name: string): name is ClipSlot => Object.hasOwn(CLIP_SLOTS, name);
+
+/** A weapon attack clip to write. */
+interface WeaponJob {
+  clip: string;
+  weapon: Weapon;
+  attack: WeaponAttack;
+}
 
 export async function animate(ctx: ArtContext, input: AnimateInput): Promise<StageResult> {
   const project = ctx.project();
@@ -1018,14 +1062,53 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
   const asset = requireAsset(project, character);
   if (!asset.rig) throw new StageError(`build "${character.name}"'s rig first`);
   const rig = asset.rig;
-  const slots = input.slots ?? slotsFor(project, asset.id);
+
+  // What to write: slots, weapon attack clips and clips by any other name.
+  const attackOf = (weaponId: string, attackId: string): WeaponJob | null => {
+    const weapon = project.weapons.list.find((w) => w.id === weaponId);
+    const attack = weapon?.attacks.find((a) => a.id === attackId);
+    return weapon && attack ? { clip: attackClipName(weapon, attack), weapon, attack } : null;
+  };
+  const allAttackClips = project.weapons.list.flatMap((w) => w.attacks.map((a) => attackOf(w.id, a.id)!));
+  const explicit = Boolean(input.clips || input.slots || input.weaponId);
+  let slots: ClipSlot[];
+  const jobs = new Map<string, WeaponJob>();
+  const custom: string[] = [];
+  if (!explicit) {
+    slots = slotsFor(project, asset.id);
+    for (const w of wantedWeaponClips(project, asset.id)) {
+      const job = attackOf(w.weaponId, w.attackId);
+      if (job) jobs.set(job.clip, job);
+    }
+  } else {
+    slots = [...new Set([...(input.slots ?? []), ...(input.clips ?? []).filter(isSlot)])];
+    if (input.weaponId) {
+      const weapon = project.weapons.list.find((w) => w.id === input.weaponId);
+      if (!weapon) throw new StageError(`no weapon "${input.weaponId}"`);
+      if (weapon.attacks.length === 0) throw new StageError(`${weapon.name} has no attacks to animate yet`);
+      for (const a of weapon.attacks) jobs.set(attackClipName(weapon, a), attackOf(weapon.id, a.id)!);
+    }
+    for (const name of input.clips ?? []) {
+      if (isSlot(name) || jobs.has(name)) continue;
+      const job = allAttackClips.find((j) => j.clip === name);
+      if (job) jobs.set(name, job);
+      else custom.push(name);
+    }
+  }
+  // The creator's direction for each clip written: the new one for clips named here, else the clip's own.
+  const direction = (name: string): string | undefined =>
+    ((explicit && input.feedback?.trim()) || asset.clips[name]?.direction || undefined)?.slice(0, 600);
+  const wanted = [...slots, ...custom];
+
   const rest = asset.preview ? await ctx.files.get(asset.preview.file) : (await renderRest(ctx, rig)).png;
   const system = animSystemPrompt();
+  const limbJoints = input.limbJoints ?? (rig.mode ?? "vector") === "vector";
   // Rigs cut from the drawing come apart past their joints' overlap: their clips are fitted to per-bone limits.
   const limits = rig.mode === "cutout" || rig.mode === "traced" ? motionLimits(rig, { joint: input.jointLimits }) : null;
   const fit = (clips: Record<string, Clip>) => (limits ? fitClips(clips, limits) : clips);
   const limitsLine = limits && limits.size > 0 ? limitsText(limits) : undefined;
-  const write = async (wanted: ClipSlot[], label: string) =>
+  const directions = Object.fromEntries(slots.flatMap((s) => (direction(s) && direction(s) !== input.feedback?.trim() ? [[s, direction(s)!]] : [])));
+  const write = async (names: string[], label: string) =>
     fit(
       pick(
         (
@@ -1036,30 +1119,74 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
               system,
               content: [
                 image(rest),
-                text(animPrompt({ character, brief: asset.brief, rig, slots: wanted, feedback: input.feedback, limits: limitsLine, limbJoints: input.limbJoints ?? (rig.mode ?? "vector") === "vector" })),
+                text(
+                  animPrompt({
+                    character,
+                    brief: asset.brief,
+                    rig,
+                    slots: names.filter(isSlot),
+                    custom: names.filter((n) => !isSlot(n)).map((name) => ({ name, direction: direction(name) ?? "" })),
+                    directions,
+                    feedback: input.feedback,
+                    limits: limitsLine,
+                    limbJoints,
+                  }),
+                ),
               ],
               maxTokens: 10000,
             },
             label,
           )
         ).clips,
-        wanted,
+        names,
       ),
     );
 
-  let clips = await write(slots, `writing ${slots.join(", ")}`);
-  // Exactly the wanted slots: one more call for any the model skipped.
-  const missing = slots.filter((s) => !clips[s]);
-  if (missing.length > 0 && Object.keys(clips).length > 0) {
-    clips = { ...clips, ...(await write(missing, `writing the missing ${missing.join(", ")}`)) };
-    const still = slots.filter((s) => !clips[s]);
-    if (still.length > 0) ctx.log({ text: `no clip for ${still.join(", ")} (they fall back to other clips)` });
+  let clips: Record<string, Clip> = {};
+  if (wanted.length > 0) {
+    clips = await write(wanted, `writing ${wanted.join(", ")}`);
+    // Exactly the wanted clips: one more call for any the model skipped.
+    const missing = wanted.filter((s) => !clips[s]);
+    if (missing.length > 0 && Object.keys(clips).length > 0) {
+      clips = { ...clips, ...(await write(missing, `writing the missing ${missing.join(", ")}`)) };
+      const still = wanted.filter((s) => !clips[s]);
+      if (still.length > 0) ctx.log({ text: `no clip for ${still.join(", ")} (they fall back to other clips)` });
+    }
+  }
+
+  // Weapon attack clips: written with the attack's shape and timing, then held to them.
+  const grip = rig.grips?.find((g) => g.id === "hand") ?? null;
+  const settle = (raw: Record<string, Clip>) => settleWeaponClips(ctx, rig, grip, [...jobs.values()], raw, fit);
+  if (jobs.size > 0) {
+    const briefs = [...jobs.values()].map((j) => weaponClipBrief(j.weapon, j.attack, j.clip, grip?.angle ?? 0, direction(j.clip)));
+    let written: Record<string, Clip> = {};
+    try {
+      written = (
+        await askJson(
+          ctx,
+          ClipsReply,
+          {
+            system,
+            content: [
+              image(rest),
+              text(weaponAnimPrompt({ brief: asset.brief, rig, grip: grip ? { ...grip, at: [grip.at[0], grip.at[1]], path: gripBones(rig, grip) } : null, clips: briefs, limits: limitsLine, limbJoints })),
+            ],
+            maxTokens: 10000,
+          },
+          `writing ${[...jobs.keys()].join(", ")}`,
+        )
+      ).clips;
+    } catch (error) {
+      if (error instanceof BudgetExceeded || ctx.signal?.aborted) throw error;
+      ctx.log({ text: `the attack clips came back invalid (${error instanceof Error ? error.message : String(error)}); moving the weapon by its attack alone` });
+    }
+    clips = { ...clips, ...settle(written) };
   }
   let ids = Object.keys(clips);
   if (ids.length === 0) throw new StageError("the model wrote no clips");
 
   for (let round = 0; round < (ctx.animRounds ?? 1); round++) {
-    const sheet = await filmstrips(ctx, rig, clips, ids);
+    const sheet = await filmstrips(ctx, rig, clips, ids, heldFor(project, [...jobs.values()]));
     const file = await ctx.files.put(sheet, "png");
     ctx.log({ text: `filmstrips ${round + 1}`, file });
     if (ctx.remaining() < CRITIQUE_RESERVE) break;
@@ -1080,15 +1207,70 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
       ctx.log({ text: "the revision was invalid; keeping the clips as written" });
       break;
     }
-    // A revision that drops a clip keeps the written one.
-    clips = { ...clips, ...fit(pick(revised.data, ids)) };
+    // A revision that drops a clip keeps the written one; revised attack clips are held to their attacks again.
+    const picked = pick(revised.data, ids);
+    const weaponRevised = Object.fromEntries(Object.entries(picked).filter(([id]) => jobs.has(id)));
+    clips = { ...clips, ...fit(Object.fromEntries(Object.entries(picked).filter(([id]) => !jobs.has(id)))), ...settle(weaponRevised) };
+    ids = Object.keys(clips);
   }
 
   const operations: OperationCall[] = [];
   for (const id of ids) {
-    const strip = await filmstrips(ctx, rig, clips, [id]);
+    const job = jobs.get(id);
+    const strip = await filmstrips(ctx, rig, clips, [id], job ? { weapon: job.weapon, attack: job.attack.id } : undefined);
     const file = await ctx.files.put(strip, "png");
-    operations.push({ name: "setClip", input: { assetId: asset.id, clipId: id, clip: clips[id], preview: file } });
+    const said = direction(id);
+    const clip: Clip = { ...clips[id]! };
+    delete clip.direction;
+    operations.push({ name: "setClip", input: { assetId: asset.id, clipId: id, clip: { ...clip, ...(said ? { direction: said } : {}) }, preview: file } });
+  }
+  // An attack without a named clip is pointed at the one written for it (the runtime plays it during the attack).
+  for (const job of jobs.values()) {
+    if (job.attack.clip === null && clips[job.clip]) operations.push({ name: "setWeaponAttack", input: { weaponId: job.weapon.id, attack: { ...job.attack, clip: job.clip } } });
   }
   return { operations, summary: `animated ${character.name} (${ids.join(", ")})` };
+}
+
+/** The weapon to show in a filmstrip of several clips: the one weapon all the attack clips use, if they share one. */
+function heldFor(project: ProjectSpec, jobs: WeaponJob[]): Held | undefined {
+  const weapons = [...new Set(jobs.map((j) => j.weapon.id))];
+  return weapons.length === 1 ? { weapon: project.weapons.list.find((w) => w.id === weapons[0])! } : undefined;
+}
+
+/**
+ * Attack clips held to their attacks: each plays once over the attack's windup, active and recovery
+ * (its duration), and on a rig with a hand the held weapon must move fastest inside the active
+ * window and point where the attack does (checkWeaponClip); a clip that misses has its arm turned
+ * to the attack (fitWeaponClip). A clip the model did not write is made from the attack alone.
+ */
+function settleWeaponClips(
+  ctx: ArtContext,
+  rig: Rig,
+  grip: Grip | null,
+  jobs: WeaponJob[],
+  written: Record<string, Clip>,
+  fit: (clips: Record<string, Clip>) => Record<string, Clip>,
+): Record<string, Clip> {
+  const out: Record<string, Clip> = {};
+  for (const job of jobs) {
+    const raw = written[job.clip];
+    if (!raw && !grip) continue;
+    const { duration } = attackTiming(job.attack);
+    let clip: Clip = fit({ c: Clip.parse({ ...(raw ?? { tracks: [], motions: [] }), duration, loop: false }) }).c!;
+    if (!grip) {
+      out[job.clip] = clip;
+      continue;
+    }
+    const length = heldLength(job.weapon);
+    const before = raw ? checkWeaponClip(rig, grip, job.attack, clip, length) : null;
+    if (!before?.ok) {
+      clip = fitWeaponClip(rig, grip, job.attack, clip);
+      const after = checkWeaponClip(rig, grip, job.attack, clip, length);
+      ctx.log({
+        text: `${job.clip}: ${raw ? `${before!.problems.join("; ")}: turned the arm to the attack` : "made from the attack's shape and timing"}${after.ok ? "" : ` (still: ${after.problems.join("; ")})`}`,
+      });
+    }
+    out[job.clip] = clip;
+  }
+  return out;
 }

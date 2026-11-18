@@ -68,6 +68,7 @@ function mapRig(rig: Rig, k: number, t: readonly [number, number]): Rig {
       const rect = r && ([r2(r[0] * k + t[0]), r2(r[1] * k + t[1]), Math.max(0.01, r2(r[2] * k)), Math.max(0.01, r2(r[3] * k))] as [number, number, number, number]);
       return { ...part, shape, ...(part.texture && rect ? { texture: { ...part.texture, rect } } : {}) };
     }),
+    ...(rig.grips ? { grips: rig.grips.map((g) => ({ ...g, at: point(g.at) })) } : {}),
   };
 }
 

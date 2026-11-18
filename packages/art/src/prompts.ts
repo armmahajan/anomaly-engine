@@ -355,11 +355,18 @@ export function animPrompt(input: {
   brief: string;
   rig: Rig;
   slots: ClipSlot[];
+  /** Clips by any other name, each with what it should be (the creator's direction). */
+  custom?: { name: string; direction: string }[];
+  /** The creator's direction for single clips, by name. */
+  directions?: Record<string, string>;
   feedback?: string;
   limits?: string;
   limbJoints?: boolean;
 }): string {
   const { character, rig, slots } = input;
+  const custom = input.custom ?? [];
+  const named = [...slots.map((s) => `"${s}" (${CLIP_SLOTS[s]})`), ...custom.map((c) => `"${c.name}" (${c.direction || c.name.replace(/_/g, " ")})`)];
+  const directions = Object.entries(input.directions ?? {}).filter(([name, d]) => d && !custom.some((c) => c.name === name));
   const behavior =
     character.kind === "enemy"
       ? `Its behavior states: ${Object.entries(character.behavior.states)
@@ -370,7 +377,8 @@ export function animPrompt(input: {
     `The image shows the rig at rest. Character: ${input.brief}. A ${roleOf(character)}, ${character.size.width}x${character.size.height}px.`,
     behavior,
     rigSummary(rig),
-    `Write exactly these clips, named by slot: ${slots.map((s) => `"${s}" (${CLIP_SLOTS[s]})`).join("; ")}.`,
+    `Write exactly these clips, named by ${custom.length ? "name" : "slot"}: ${named.join("; ")}.`,
+    ...directions.map(([name, d]) => `Creator's direction for "${name}": ${d}`),
     slots.some((s) => PHASE_SLOTS.has(s))
       ? "An attack plays its clips in a row: windup (anticipation, held as it loops), then the hit itself (strike / shoot / leap / slam / cast: short, fast, loop false, ending in the extended pose), then recover (loop false, from that pose back to rest). Make each clip start where the one before it ends."
       : "",
@@ -476,6 +484,85 @@ export function paintOverPrompt(brief: string, strict = false): string {
     strict
       ? "This is a texture-painting job on a fixed template, not a new drawing: the output is laid back over the first image pixel for pixel. Treat the first image as a colouring page: only paint inside each piece's outline. A piece that moves, grows, merges with its neighbour or is redrawn in another pose is wasted, and so is any piece painted where the first image has background."
       : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// --- weapons: the held sprite, its grip and tip, attack clips ------------------------------------
+
+/** One held object for a 2D side-view game, pointing right, in the project's look (weaponArtStage). */
+export function weaponSpritePrompt(input: { name: string; description: string; brief: string; direction: ArtDirection; game: string; feedback?: string }): string {
+  const d = input.direction;
+  const what = [input.brief.trim(), input.description.trim()].filter(Boolean).join(". ") || input.name;
+  return [
+    `A single held object for the 2D side-view game "${input.game}": ${input.name}. ${what}.`,
+    "Draw only the object, whole, lying horizontally and pointing to the right: the end a hand holds on the left, the far end (the end that hits or fires) on the right. Side view, centred, with empty space all around it, on a fully transparent background.",
+    "Design it for this game's own look and world, with its own shape language and details (not a generic stock item): a bold, readable silhouette at small size, with clear contrast against both dark and light backgrounds.",
+    `Style: ${d.style} Preferred palette: ${d.palette.join(", ")}. Clean shapes with a consistent dark outline (${d.ink}).`,
+    "No hands, no character, no motion lines, effects, text, labels, shadows, ground or frame.",
+    input.feedback?.trim() ? `Creator's direction: ${input.feedback.trim()}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export const WEAPON_POINTS_SYSTEM = "You are a 2D game artist placing a held object in a character's hand. You look carefully at the image and give exact pixel positions.";
+
+/** Where a hand holds the object and where its far end is, in the image's pixels (shown on a labelled grid). */
+export function weaponPointsPrompt(input: { name: string; width: number; height: number; scale: number }): string {
+  const px = (n: number) => Math.round(n * input.scale);
+  return [
+    `The image shows one held object (${input.name}) on a transparent background, drawn over a labelled pixel grid. The image is ${px(input.width)}x${px(input.height)} px; give positions in these px (x right, y down).`,
+    "Find where a hand holds it: the middle of its handle, grip or stock (where fingers would close around it). Then find its far end: the tip, blade end, muzzle or head that points away from the hand, the end that hits or fires.",
+    "Both points must be on the object itself, not on the transparent background.",
+    'Reply with JSON only: {"grip": [x, y], "tip": [x, y], "notes": "<one sentence>"}',
+  ].join("\n");
+}
+
+/** One weapon attack clip to write, as data for the prompt. */
+export interface WeaponClipBrief {
+  clip: string;
+  weapon: string;
+  attack: string;
+  /** Shape and timing in words. */
+  shape: string;
+  duration: number;
+  /** Normalized times the active window (the hit) starts and ends. */
+  activeFrom: number;
+  activeTo: number;
+  /** [t, degrees] the held weapon should point at (0 = forward, 90 = down, -90 = up). */
+  angles: [number, number][];
+  direction?: string;
+}
+
+/** Weapon attack clips: the hand that holds the weapon, how its angle follows the bones, and each attack's timing. */
+export function weaponAnimPrompt(input: {
+  brief: string;
+  rig: Rig;
+  grip: { bone: string; at: [number, number]; angle: number; path: string[] } | null;
+  clips: WeaponClipBrief[];
+  limits?: string;
+  limbJoints?: boolean;
+}): string {
+  const g = input.grip;
+  return [
+    `The image shows the rig at rest. Character: ${input.brief}. It holds a weapon (the character faces right).`,
+    rigSummary(input.rig),
+    g
+      ? `The weapon is held in the hand at [${g.at.join(", ")}] on bone ${g.bone}; at rest it points at ${Math.round(g.angle)}° (0 = forward, 90 = down, -90 = up). Its angle is ${Math.round(g.angle)}° plus the sum of the rotations of bones ${g.path.join(", ")} (rotate is clockwise degrees): swing the weapon mostly with ${g.path[g.path.length - 2] ?? g.path[0]} (the shoulder) and the forearm, and let the body lean into it.`
+      : "The weapon is held in front of the body (the rig has no hand): show the attack with the whole body (lean, lunge, squash and stretch).",
+    `Write exactly these clips (loop false, each starting and ending at rest: the attack plays once, then the character goes back to its other clips):`,
+    ...input.clips.map(
+      (c) =>
+        `- "${c.clip}": ${c.weapon}, attack "${c.attack}": ${c.shape}. duration ${c.duration.toFixed(2)} s. The hit (active window) is t ${c.activeFrom.toFixed(2)}-${c.activeTo.toFixed(2)}: before it a readable wind-up (anticipation, away from the hit), the fastest motion inside it, then the recovery back to rest.${
+          g ? ` The weapon should point at: ${c.angles.map(([t, a]) => `${Math.round(a)}° at t ${t.toFixed(2)}`).join(", ")}.` : ""
+        }${c.direction ? ` Creator's direction: ${c.direction}` : ""}`,
+    ),
+    input.limbJoints ? BEND_LIMBS : "",
+    input.limits ? piecesText(input.limits) : "",
+    "Only animate bones listed above.",
+    'Reply with JSON only: {"clips": {"<name>": <clip>, ...}, "notes": "<one sentence>"}',
   ]
     .filter(Boolean)
     .join("\n");

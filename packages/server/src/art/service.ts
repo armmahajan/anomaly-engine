@@ -24,6 +24,7 @@ import {
   modalArtStage,
   itemArtStage,
   artDirectionStage,
+  weaponArtStage,
   StageError,
   type ArtContext,
   type ArtRenderer,
@@ -185,9 +186,12 @@ export class ArtService {
       return fail("unavailable", this.options.unavailableReason ?? "art generation is not configured (no model API key)");
     }
     const project = this.store.getState().project;
-    const { characterId, biomeId } = parsed.data;
+    const { characterId, biomeId, weaponId } = parsed.data;
     if (characterId !== undefined && !project.characters.some((c) => c.id === characterId)) {
       return fail("not_found", `no character "${characterId}"`);
+    }
+    if (weaponId !== undefined && !project.weapons.list.some((w) => w.id === weaponId)) {
+      return fail("not_found", `no weapon "${weaponId}"`);
     }
     if (biomeId !== undefined && !project.art.assets.some((a) => a.id === biomeId && a.kind === "biome")) {
       return fail("not_found", `no biome "${biomeId}"`);
@@ -357,7 +361,10 @@ export class ArtService {
           break;
         }
         case "animate":
-          add("animate", () => animate(ctx, { characterId: r.characterId!, ...(r.slots ? { slots: r.slots } : {}) }), true);
+          add("animate", () => animate(ctx, { characterId: r.characterId!, ...(r.slots ? { slots: r.slots } : {}), ...(r.clips ? { clips: r.clips } : {}) }), true);
+          break;
+        case "weaponArt":
+          add("weaponArt", () => weaponArtStage(ctx, { weaponId: r.weaponId! }), true);
           break;
         case "worldKit":
           add(
@@ -490,6 +497,9 @@ export class ArtService {
         break;
       case "itemArt":
         stages.push({ stage: "itemArt", run: () => itemArtStage(ctx) });
+        break;
+      case "weaponArt":
+        stages.push({ stage: "weaponArt", run: () => weaponArtStage(ctx, { weaponId: request.weaponId!, feedback: request.feedback }) });
         break;
       case "gameArt":
         stages.push(...this.gameArtSteps(ctx, running));

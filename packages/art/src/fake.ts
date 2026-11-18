@@ -121,6 +121,8 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("Build the rig")) reply = { rig: exampleRig(), notes: "beetle" };
     else if (prompt.includes("Score how well the render matches")) reply = { score: 8, issues: ["horn a bit small"], rig: exampleRig() };
     else if (prompt.includes("Write these clips")) reply = { clips: exampleClips(), notes: "ok" };
+    else if (prompt.includes("Find where a hand holds it")) reply = fakeWeaponPoints(prompt);
+    else if (prompt.includes("It holds a weapon")) reply = fakeWeaponClips(prompt);
     else if (prompt.includes("Score the animation")) reply = { score: 8, issues: [], clips: exampleClips() };
     else if (prompt.includes("Add detail shapes so the rig reads like the design")) reply = { details: fakeDetails(prompt), notes: "a highlight" };
     else if (prompt.includes("Score how well the detailed rig reads like the design")) reply = { score: 8, issues: [], details: fakeDetails(prompt) };
@@ -163,6 +165,21 @@ export class FakeVisionModel implements VisionModel {
     else reply = fakeGameReply(prompt) ?? { error: "fake model got an unexpected prompt" };
     return { text: "```json\n" + JSON.stringify(reply) + "\n```", usage, model: this.id };
   }
+}
+
+/** A held object's grip near its left end and tip at its right end, in the shown image's px. */
+function fakeWeaponPoints(prompt: string): unknown {
+  const m = prompt.match(/The image is (\d+)x(\d+) px/);
+  const [w, h] = m ? [Number(m[1]), Number(m[2])] : [100, 40];
+  return { grip: [Math.round(w * 0.15), Math.round(h / 2)], tip: [Math.round(w * 0.97), Math.round(h / 2)], notes: "handle on the left" };
+}
+
+/** Each asked attack clip as a lazy swing of the first bone, peaking in the wind-up (the pipeline holds it to the attack). */
+function fakeWeaponClips(prompt: string): unknown {
+  const bone = prompt.match(/^- ([a-z0-9_]+) \(parent/m)?.[1] ?? "root";
+  const names = [...prompt.matchAll(/^- "([a-z0-9_]+)":/gm)].map((m) => m[1]!);
+  const clip = { duration: 0.4, loop: false, tracks: [{ bone, property: "rotate", keys: [[0, 0], [0.15, -12], [1, 0]], ease: "smooth" }], motions: [] };
+  return { clips: Object.fromEntries(names.map((n) => [n, clip])), notes: "a swing" };
 }
 
 /** One highlight inside the first listed part ("- id (bone b, ...): x a-b, y c-d"), so the detail pass has something to keep. */

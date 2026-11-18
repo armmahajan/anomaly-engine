@@ -1,3 +1,4 @@
+import type { Rig } from "@anomaly/core";
 import type { CutoutPlan } from "./cutout.ts";
 import type { Pixels } from "./match.ts";
 
@@ -90,4 +91,37 @@ export function drawCreatureSheet(size: number, tint = 0): Pixels {
     for (let y = y0; y < y0 + half; y++) sheet.data.set(one.data.subarray((y * size + x0) * 4, (y * size + x0 + half) * 4), (y * size + x0) * 4);
   }
   return sheet;
+}
+
+/**
+ * A small humanoid vector rig (tests): body, head, two two-bone arms (the near one in front, with a
+ * hand) and two legs, 44 px tall, facing right.
+ */
+export function humanoidRig(): Rig {
+  const part = (id: string, bone: string, z: number, shape: Rig["parts"][number]["shape"], fill: string) => ({ id, bone, z, shape, fill, ink: 1, glow: false, opacity: 1 });
+  const stroke = (points: [number, number][], width: number) => ({ type: "stroke" as const, points, width, widthEnd: width * 0.8, smooth: 1 });
+  return {
+    bones: [
+      { id: "root", parent: null, pivot: [0, 0] },
+      { id: "body", parent: "root", pivot: [0, -20] },
+      { id: "head", parent: "body", pivot: [0, -32] },
+      { id: "arm_far_upper", parent: "body", pivot: [3, -30] },
+      { id: "arm_far_lower", parent: "arm_far_upper", pivot: [4, -22] },
+      { id: "arm_near_upper", parent: "body", pivot: [-3, -30] },
+      { id: "arm_near_lower", parent: "arm_near_upper", pivot: [-2, -22] },
+      { id: "leg_back", parent: "body", pivot: [-3, -19] },
+      { id: "leg_front", parent: "body", pivot: [3, -19] },
+    ],
+    parts: [
+      part("arm_far_upper", "arm_far_upper", -3, stroke([[3, -30], [4, -22]], 4), "#3a3a48"),
+      part("arm_far_lower", "arm_far_lower", -3, stroke([[4, -22], [5, -15]], 3.5), "#3a3a48"),
+      part("leg_back", "leg_back", -2, stroke([[-3, -19], [-4, 0]], 5), "#2a2a33"),
+      part("leg_front", "leg_front", -1, stroke([[3, -19], [4, 0]], 5), "#2a2a33"),
+      part("torso", "body", 0, { type: "blob", points: [[-6, -32], [6, -32], [7, -18], [-7, -18]], smooth: 0.4, sharp: [] }, "#4a5470"),
+      part("head", "head", 1, { type: "ellipse", center: [1, -38], rx: 6, ry: 6.5, rotation: 0 }, "#e8d8c0"),
+      part("arm_near_upper", "arm_near_upper", 3, stroke([[-3, -30], [-2, -22]], 4), "#5a6480"),
+      part("arm_near_lower", "arm_near_lower", 4, stroke([[-2, -22], [-1, -15]], 3.5), "#5a6480"),
+      part("hand_near", "arm_near_lower", 5, { type: "ellipse", center: [-1, -14], rx: 2.2, ry: 2.2, rotation: 0 }, "#e8d8c0"),
+    ],
+  };
 }

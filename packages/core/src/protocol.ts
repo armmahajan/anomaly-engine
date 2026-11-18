@@ -3,6 +3,7 @@ import { ProjectSpec } from "./schema.ts";
 import type { ArtDirection } from "./art/asset.ts";
 import type { Clip } from "./art/clip.ts";
 import type { Rig } from "./art/rig.ts";
+import type { Weapon } from "./combat/weapon.ts";
 import type { WorldLayer, WorldScene } from "./art/world.ts";
 import type { RuntimeProject } from "./world/runtime.ts";
 import type { ControlOverrides } from "./controls/controls.ts";
@@ -86,6 +87,13 @@ export type Stage =
        * image: base64 PNG to load, "" to clear, null to keep the current one (send it once, not with every frame).
        */
       onion: { image: string | null; alpha: number };
+      /**
+       * A weapon of the project to show held at the rig's `hand` grip (weapon_view.gd), absent or
+       * null = none. With `attack`, the clip's time drives that attack's phases (the trail shows
+       * during its active window), as when the attack's clip plays in the game. Its sprite must
+       * have been sent with `images`.
+       */
+      weapon?: { id: string; attack?: string | null } | null;
     }
   | StageWorld
   /** One game-world room, frozen, for editing (Rooms mode). */
@@ -123,6 +131,12 @@ export interface RenderRigRequest {
   fit?: boolean;
   /** Images the rig draws (a cutout rig's source), base64 by file ref. */
   images?: Record<string, string>;
+  /**
+   * A weapon held at the rig's `hand` grip in every frame (weapon_view.gd); its sprite goes in
+   * `images`. With `attack`, a frame of a clip shows that attack's phase at the frame's time
+   * (the trail behind the tip during its active window).
+   */
+  weapon?: { weapon: Weapon; attack?: string | null };
 }
 
 const EntityState = z.object({

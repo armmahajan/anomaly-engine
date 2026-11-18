@@ -88,9 +88,10 @@ export function exportFileName(name: string): string {
 
 /**
  * Every image the runtime is sent for this project (sorted, once each): the kits of biomes that dress
- * rooms or draw props, modal images, item icons, cutout rigs' images and rig part textures. The studio sends the same set.
+ * rooms or draw props, modal images, item icons, cutout rigs' images, rig part textures, and weapon
+ * and projectile sprites. The studio sends the same set.
  */
-export function runtimeImageRefs(project: Pick<ProjectSpec, "world" | "art">): FileRef[] {
+export function runtimeImageRefs(project: Pick<ProjectSpec, "world" | "art"> & Partial<Pick<ProjectSpec, "weapons">>): FileRef[] {
   const biomes = usedBiomeIds(project);
   return [
     ...new Set([
@@ -98,8 +99,17 @@ export function runtimeImageRefs(project: Pick<ProjectSpec, "world" | "art">): F
       ...project.world.modals.flatMap((m) => (m.image ? [m.image] : [])),
       ...project.world.items.flatMap((i) => (i.icon ? [i.icon] : [])),
       ...project.art.assets.flatMap((a) => (a.kind === "character" && a.rig ? rigFiles(a.rig) : [])),
+      ...(project.weapons?.list ?? []).flatMap(weaponFiles),
     ]),
   ].sort();
+}
+
+/** The images a weapon draws: its held sprite and its attacks' projectile sprites. */
+export function weaponFiles(weapon: ProjectSpec["weapons"]["list"][number]): FileRef[] {
+  return [
+    ...(weapon.art.sprite ? [weapon.art.sprite] : []),
+    ...weapon.attacks.flatMap((a) => (a.shape.type === "projectile" && a.shape.projectile.sprite ? [a.shape.projectile.sprite] : [])),
+  ];
 }
 
 function usedBiomeIds(project: Pick<ProjectSpec, "world">): Set<string> {

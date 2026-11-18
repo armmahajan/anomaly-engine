@@ -143,8 +143,10 @@ export type ChatEvent = z.infer<typeof ChatEvent>;
  * concepts: new 2x2 concept sheet (creates the character's art asset if needed)
  * choose:   pick a design from a sheet (default: latest sheet, AI's recommendation)
  * rig:      build (or, with feedback, revise) the rig from the chosen design
- * animate:  write the clips the character needs
- * auto:     all of the above in order, taking the AI's recommendations
+ * animate:  write the clips the character needs (its slots and its weapons' attack clips); `clips` redoes
+ *           only those clips by name (`feedback` is kept as each one's direction), `weaponId` only that
+ *           weapon's attack clips
+ * auto:    all of the above in order, taking the AI's recommendations
  */
 export const ArtStage = z.enum([
   "concepts",
@@ -160,6 +162,7 @@ export const ArtStage = z.enum([
   "itemArt",
   "gameArt",
   "artDirection",
+  "weaponArt",
 ]);
 export type ArtStage = z.infer<typeof ArtStage>;
 
@@ -177,6 +180,7 @@ export const CHARACTER_STAGES: readonly ArtStage[] = ["concepts", "choose", "rig
  *   propArt:  draw the props of world room `worldRoomId` with its biome's kit (picking or painting pieces)
  *   modalArt: illustrate modal `modalId`
  *   itemArt:  draw icons for the items that have none
+ *   weaponArt: draw weapon `weaponId`'s held sprite (one image) and find its grip and tip; `feedback` steers a redraw
  *   gameArt:  everything the game still needs (core gameArtPlan), step by step; `steps` limits it to those step ids
  *   artDirection: write the art direction (style, palette, outlines) from the wiki; only while it is a default
  */
@@ -196,6 +200,10 @@ export const ArtJobRequest = z
     roomId: Id.optional(),
     worldRoomId: Id.optional(),
     modalId: Id.optional(),
+    /** weaponArt: the weapon to draw. animate: only this weapon's attack clips. */
+    weaponId: Id.optional(),
+    /** animate: only these clips, by name (clip slots or weapon attack clips); `feedback` is kept as their direction. */
+    clips: z.array(Id).min(1).max(64).optional(),
     /** gameArt: only these plan steps. */
     steps: z.array(z.string().max(120)).max(500).optional(),
     /** rig: vector, cutout or traced (default: the art direction's rigMode, else the backend's). */
@@ -211,6 +219,7 @@ export const ArtJobRequest = z
     const world = WORLD_STAGES.includes(r.stage);
     if (CHARACTER_STAGES.includes(r.stage) && !r.characterId) ctx.addIssue({ code: "custom", path: ["characterId"], message: `${r.stage} needs a characterId` });
     if (r.stage === "propArt" && !r.worldRoomId) ctx.addIssue({ code: "custom", path: ["worldRoomId"], message: "propArt needs a worldRoomId" });
+    if (r.stage === "weaponArt" && !r.weaponId) ctx.addIssue({ code: "custom", path: ["weaponId"], message: "weaponArt needs a weaponId" });
     if (r.stage === "modalArt" && !r.modalId) ctx.addIssue({ code: "custom", path: ["modalId"], message: "modalArt needs a modalId" });
     if (world && r.stage !== "worldKit" && !r.biomeId) ctx.addIssue({ code: "custom", path: ["biomeId"], message: `${r.stage} needs a biomeId` });
     if (r.stage === "worldKit" && !r.biomeId && !r.brief) ctx.addIssue({ code: "custom", path: ["brief"], message: "a new biome needs a brief (its theme)" });
