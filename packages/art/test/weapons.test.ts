@@ -234,10 +234,20 @@ describe("weapon-aware clips", () => {
   const grip = rig.grips![0]!;
   const empty = (attack: WeaponAttack) => Clip.parse({ duration: attackTiming(attack).duration, loop: false });
 
+  it("projectiles are fired from the held weapon: on the aim when it fires, steady while firing, never above the aim line", () => {
+    const clip = fitWeaponClip(rig, grip, shot, empty(shot));
+    const check = checkWeaponClip(rig, grip, shot, clip, heldLength({ attacks: [shot] }));
+    const { activeFrom, activeTo } = attackTiming(shot);
+    expect(check.problems).toEqual([]);
+    expect(Math.abs(gripAt(rig, grip, clip, activeFrom).angle)).toBeLessThan(10); // level with a forward aim
+    for (let t = 0; t <= 1; t += 0.02) expect(gripAt(rig, grip, clip, t).angle).toBeGreaterThan(-12); // never raised above the aim (only the recoil kick)
+    for (let t = activeFrom; t <= activeTo; t += 0.02) expect(Math.abs(gripAt(rig, grip, clip, t).angle)).toBeLessThan(18);
+    expect(gripAt(rig, grip, clip, 1).angle).toBeCloseTo(grip.angle, 0); // lowered back to rest
+  });
+
   it.each([
     ["an arc", swing],
     ["a thrust", thrust],
-    ["projectiles", shot],
   ])("%s: the held weapon moves fastest inside the active window and points where the attack does", (_, attack) => {
     const clip = fitWeaponClip(rig, grip, attack, empty(attack));
     const check = checkWeaponClip(rig, grip, attack, clip, heldLength({ attacks: [attack] }));

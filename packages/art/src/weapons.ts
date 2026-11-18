@@ -371,14 +371,20 @@ function windupStart(rest: number, cocked: number, windupSeconds: number, hitSpe
   return Math.abs(gap) <= allowed ? rest : cocked - Math.sign(gap) * allowed;
 }
 
+/** How far the muzzle kicks up when a held weapon fires, degrees. */
+const RECOIL_DEGREES = 8;
+/** A fired weapon must point within this of the aim when it fires, and stay within this plus the recoil while firing. */
+const AIM_TOLERANCE = 10;
+
 /**
  * How the held weapon moves through an attack, from its shape and timing ([t, degrees] keys):
  *  - `angles`: where the weapon points. An arc is cocked back past its start in the windup, sweeps
- *    from -> to over the active window and follows through; a thrust or box points along the aim,
- *    projectiles are raised above it and released down onto it early in the active window.
- *  - `reach` (thrust, box, projectile): which way the upper arm points (world degrees): pulled back
- *    (a thrust) or raised (projectiles) in the windup, driven along the aim in the active window (the
- *    hand travels forward with it).
+ *    from -> to over the active window and follows through; a thrust or box points along the aim.
+ *    A projectile is fired from the held weapon: it is brought up onto the aim line in the windup (from
+ *    below, never above it), held steady on the aim while it fires with a short recoil kick, then lowered.
+ *  - `reach` (thrust, box, projectile): which way the upper arm points (world degrees): pulled back in
+ *    the windup and driven along the aim in the active window (a thrust: the hand travels forward with
+ *    it), or extended onto the aim and held there while firing (projectiles).
  * Thrusts and projectiles snap into their anticipation pose as they start; everything ends at rest
  * (`rest` = the grip's angle, `restUpper` = the upper arm's rest direction).
  */
@@ -398,13 +404,19 @@ export function attackMotion(attack: Pick<WeaponAttack, "shape" | "timing" | "tr
     angles.push([0, windupStart(rest, cocked, windupSeconds, Math.abs(to - from) / activeSeconds)]);
     if (a > 0.02) angles.push([a * 0.6, cocked]);
     angles.push([a, from], [b, to], [b + (1 - b) * 0.35, to - back * 8], [1, rest]);
+  } else if (s.type === "projectile") {
+    // Aim and fire: up onto the aim line during the windup, steady on it while firing (a short recoil
+    // kick of the muzzle, up, then back), lowered in the recovery.
+    const kick = a + (b - a) * 0.3;
+    const settle = a + (b - a) * 0.75;
+    angles.push([0, rest], [a * 0.8, aim], [a, aim], [kick, aim - RECOIL_DEGREES], [settle, aim], [b, aim], [1, rest]);
+    reach = cleanKeys([[0, restUpper], [a * 0.8, aim], [a, aim], [kick, aim - RECOIL_DEGREES / 2], [settle, aim], [b, aim], [1, restUpper]]);
   } else {
-    const projectile = s.type === "projectile";
-    const raised = projectile ? aim - 30 : aim - 12;
-    angles.push([0, raised], [a, raised + 4], [a + (b - a) * (projectile ? 0.4 : 0.6), projectile ? aim + 4 : aim], [b, aim], [1, rest]);
-    // The upper arm: pulled back by the body (a thrust) or raised (projectiles), then driven along the aim.
-    const back = projectile ? aim - 60 : aim + 110;
-    reach = cleanKeys([[0, back], [a, back + (projectile ? 5 : -5)], [a + (b - a) * 0.6, aim], [b, aim], [1, restUpper]]);
+    const raised = aim - 12;
+    angles.push([0, raised], [a, raised + 4], [a + (b - a) * 0.6, aim], [b, aim], [1, rest]);
+    // The upper arm: pulled back by the body, then driven along the aim.
+    const back = aim + 110;
+    reach = cleanKeys([[0, back], [a, back - 5], [a + (b - a) * 0.6, aim], [b, aim], [1, restUpper]]);
   }
   return { angles: cleanKeys(angles), reach };
 }
@@ -421,7 +433,7 @@ export function attackShapeText(attack: Pick<WeaponAttack, "shape" | "trigger">)
   if (s.type === "arc") return `a swing through an arc from ${s.from}° to ${s.to}° (radius ${s.radius} px)${aim}`;
   if (s.type === "thrust") return `a straight thrust ${s.length} px along the aim${aim}: pull the arm back, then drive the hand and weapon forward, arm extended`;
   if (s.type === "box") return `a short strike into a ${s.width}x${s.height} px area in front${aim}: pull back, then drive the weapon forward`;
-  return `fires ${s.projectile.count > 1 ? `${s.projectile.count} projectiles` : "a projectile"} along the aim${aim}: raise the arm and point the weapon, then a sharp release (a small recoil)`;
+  return `fires ${s.projectile.count > 1 ? `${s.projectile.count} projectiles` : "a projectile"} from the held weapon along the aim${aim}: during the windup bring the weapon up onto the aim line (level with the target, never above it) with the arm extended, hold it steady on the aim while it fires with a short recoil kick, then lower it`;
 }
 
 export function weaponClipBrief(weapon: Pick<Weapon, "name">, attack: WeaponAttack, clip: string, rest: number, direction?: string): WeaponClipBrief {
@@ -467,7 +479,17 @@ export function checkWeaponClip(rig: Rig, grip: Grip, attack: WeaponAttack, clip
   }
   const slack = 0.5 / SAMPLES + 0.01;
   const problems: string[] = [];
-  if (peak < activeFrom - slack || peak > activeTo + slack) problems.push(`the weapon moves fastest at t ${peak.toFixed(2)}, outside the hit (t ${activeFrom.toFixed(2)}-${activeTo.toFixed(2)})`);
+  if (attack.shape.type === "projectile") {
+    // Fired from the held weapon: on the aim when it fires, and steady (within the recoil) while firing.
+    const aimDeg = AIM_ANGLE[attack.trigger.aim];
+    const off = (t: number) => Math.abs(normAngle(gripAt(rig, grip, clip, t).angle - aimDeg));
+    if (off(activeFrom) > AIM_TOLERANCE) problems.push(`the weapon is ${Math.round(off(activeFrom))}° off the aim when it fires`);
+    let drift = 0;
+    for (let i = 0; i <= 10; i++) drift = Math.max(drift, off(activeFrom + ((activeTo - activeFrom) * i) / 10));
+    if (drift > AIM_TOLERANCE + RECOIL_DEGREES) problems.push(`the weapon swings ${Math.round(drift)}° off the aim while firing`);
+  } else if (peak < activeFrom - slack || peak > activeTo + slack) {
+    problems.push(`the weapon moves fastest at t ${peak.toFixed(2)}, outside the hit (t ${activeFrom.toFixed(2)}-${activeTo.toFixed(2)})`);
+  }
   if (angleError > 25) problems.push(`the weapon is ${Math.round(angleError)}° off where the attack points`);
   return { ok: problems.length === 0, peak, angleError, problems };
 }
