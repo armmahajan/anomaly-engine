@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ARCHITECT_STAGES, STAGE_DESCRIPTIONS, type ArchitectRunRequest, type ArchitectStage, type ArchitectState, type ProjectSpec } from "@anomaly/core";
 import type { Session } from "../session.ts";
 import { runReported, showRoom, startRun, stopRun, useRunControl } from "./ui.ts";
@@ -56,6 +56,7 @@ export function RunPanel({ project, architect, session, locked }: Props) {
   const action = runAction(project, architect);
   const busyElsewhere = !underway && (locked || session.aiBusy());
   const roomName = (id: string) => plan.rooms.find((r) => r.id === id)?.name ?? id;
+  const [details, setDetails] = useState(false);
 
   const start = (request: ArchitectRunRequest) => void startRun(session, request);
   const onPrimary = () => start(action === "rebuild" ? { from: "plan" } : {});
@@ -89,8 +90,13 @@ export function RunPanel({ project, architect, session, locked }: Props) {
         </div>
       )}
 
-      <h3>Stages</h3>
-      <ol className="arch-stages">
+      <div className="arch-stages-head">
+        <h3>Stages</h3>
+        <button type="button" className="arch-mini" aria-pressed={details} onClick={() => setDetails(!details)} title="Show what each stage does">
+          {details ? "Hide details" : "What each does"}
+        </button>
+      </div>
+      <ol className={`arch-stages${details ? " with-details" : ""}`}>
         {ARCHITECT_STAGES.map((stage, i) => {
           const chip = stageChip(project, architect, stage);
           const record = plan.stages[stage];
@@ -103,7 +109,9 @@ export function RunPanel({ project, architect, session, locked }: Props) {
                 <span className={`arch-chip chip-${chip}`} data-testid={`stage-chip-${stage}`}>
                   {chip}
                 </span>
-                <span className="arch-stage-name">{stageLabel(stage)}</span>
+                <span className="arch-stage-name" title={STAGE_DESCRIPTIONS[stage]}>
+                  {stageLabel(stage)}
+                </span>
                 {!isLast && (
                   <label className={`arch-pause${paused ? " on" : ""}`} title={`Stop for your review when ${stage} finishes`}>
                     <input
@@ -130,7 +138,7 @@ export function RunPanel({ project, architect, session, locked }: Props) {
                 )}
               </div>
               {record?.summary && <p className="arch-stage-summary">{record.summary}</p>}
-              <p className="arch-stage-desc">{STAGE_DESCRIPTIONS[stage]}</p>
+              {details && <p className="arch-stage-desc">{STAGE_DESCRIPTIONS[stage]}</p>}
               {paused && !isLast && <div className="arch-pause-line">⏸ pauses here for review</div>}
             </li>
           );

@@ -46,6 +46,25 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
 
   const start = (request: Omit<ArtJobRequest, "characterId">) => void session.startArtJob({ characterId: character.id, ...request });
 
+  // Where each step stands, and the one thing to do next.
+  const sheets = asset?.concepts.length ?? 0;
+  const clips = asset ? Object.keys(asset.clips).length : 0;
+  const conceptState: StepState = asset?.chosen ? "done" : "next";
+  const conceptStatus = asset?.chosen ? "design chosen" : sheets ? `${sheets} sheet${sheets > 1 ? "s" : ""}, none chosen` : "not started";
+  const rigState: StepState = !asset?.chosen ? "waiting" : asset.rig ? "done" : "next";
+  const rigStatus = !asset?.chosen ? "after a design is chosen" : asset.rig ? `built${asset.preview?.match ? `, ${Math.round(asset.preview.match.silhouette * 100)}% match` : ""}` : "not built";
+  const animState: StepState = !asset?.rig ? "waiting" : clips ? "done" : "next";
+  const animStatus = !asset?.rig ? "after the rig" : clips ? `${clips} clip${clips > 1 ? "s" : ""}` : "not animated";
+  const next = !asset?.chosen
+    ? sheets
+      ? "Click a design in the workbench to build from it, or generate more."
+      : `Describe ${character.name} and generate concepts (or tick Auto to do every step).`
+    : !asset.rig
+      ? "Build the rig from the chosen design."
+      : !clips
+        ? "Animate the rig."
+        : null;
+
   return (
     <section className="art-panel" data-testid="art-panel">
       <h2>{character.name}</h2>
@@ -59,7 +78,13 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         )}
       </div>
 
-      <h3>① Concepts</h3>
+      {next && (
+        <p className="art-next" data-testid="art-next">
+          <span>Next</span> {next}
+        </p>
+      )}
+
+      <StepHead n="①" title="Concepts" state={conceptState} status={conceptStatus} />
       <label className="art-label" htmlFor="art-brief">
         What should {character.name} look like?
       </label>
@@ -103,7 +128,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         </label>
       </div>
 
-      <h3>② Rig</h3>
+      <StepHead n="②" title="Rig" state={rigState} status={rigStatus} />
       {!asset?.chosen ? (
         <p className="hint">Click a design in the workbench to choose it.</p>
       ) : (
@@ -136,7 +161,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         </>
       )}
 
-      <h3>③ Animation</h3>
+      <StepHead n="③" title="Animation" state={animState} status={animStatus} />
       {!asset?.rig ? (
         <p className="hint">Build the rig first.</p>
       ) : (
@@ -160,6 +185,21 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
       <JobLog art={art} mine={mine} lastJob={lastJob} onCancel={() => void session.cancelArtJob()} onZoom={setZoom} subject={character.name} />
       {zoom && <Zoom file={zoom} onClose={() => setZoom(null)} />}
     </section>
+  );
+}
+
+type StepState = "done" | "next" | "waiting";
+
+/** A step's heading with where it stands: done, the next to do, or waiting on an earlier one. */
+function StepHead({ n, title, state, status }: { n: string; title: string; state: StepState; status: string }) {
+  return (
+    <h3 className={`art-step art-step-${state}`}>
+      <span className="art-step-n" aria-hidden>
+        {state === "done" ? "✓" : n}
+      </span>
+      {title}
+      <span className="art-step-status">{status}</span>
+    </h3>
   );
 }
 

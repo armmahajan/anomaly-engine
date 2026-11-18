@@ -16,7 +16,6 @@ async function synced(page: Page) {
 test("create, duplicate, place, move, remove and delete characters", async ({ page }) => {
   const request = page.request; // shares the page's auth cookie
   const consoleErrors = collectConsoleErrors(page);
-  page.on("dialog", (dialog) => void dialog.accept()); // confirm deletions
   const r0 = await openStudio(page);
   const before = await characterIds(page);
 
@@ -60,6 +59,7 @@ test("create, duplicate, place, move, remove and delete characters", async ({ pa
   // Delete the original Charger: gone from the project and the running game.
   await page.getByTestId("character-charger").click();
   await page.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("button", { name: "Delete Charger" }).click();
   await expect(page.getByTestId("character-charger")).toHaveCount(0);
   await synced(page);
   expect((await runtimeState(page)).entities.some((e) => e.characterId === "charger")).toBe(false);

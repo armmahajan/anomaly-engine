@@ -11,7 +11,11 @@ test("the director drafts the progression; the creator reviews it, the studio ch
   const panel = page.getByTestId("progression-panel");
   const checks = page.getByTestId("progression-issues");
   const node = (id: string) => page.getByTestId(`region-node-${id}`);
-  const column = async (id: string) => (await node(id).boundingBox())!.x;
+  // Spheres run across (columns) or down (rows), whichever fits the pane: where along that axis a node sits.
+  const column = async (id: string) => {
+    const box = (await node(id).boundingBox())!;
+    return (await graph.getAttribute("data-orientation")) === "down" ? Math.round(box.y + box.height / 2) : Math.round(box.x + box.width / 2);
+  };
 
   await tab.click();
   await expect(page.getByTestId("chat-narrative").getByRole("heading")).toHaveText("Director");
@@ -79,6 +83,22 @@ test("the director drafts the progression; the creator reviews it, the studio ch
   await panel.getByRole("button", { name: "Save as canon" }).click();
   await expect(page.getByTestId("progression-status")).toContainText("Not finishable");
   await expect(checks).toContainText("The ending, The Deep, can't be reached");
+
+  // The graph zooms and fits; the item panel closes.
+  const level = page.locator(".pan-zoom-level");
+  const fitted = await level.textContent();
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(level).not.toHaveText(fitted!);
+  await page.getByRole("button", { name: "Fit" }).click();
+  await expect(level).toHaveText(fitted!);
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(panel).toHaveCount(0);
+
+  // Accept all asks in the page, then makes every draft canon.
+  await page.getByTestId("progression-review-bar").getByRole("button", { name: "Accept all…" }).click();
+  await page.getByRole("button", { name: /^Accept \d+$/ }).click();
+  await expect(page.getByTestId("progression-review-bar")).toHaveCount(0);
+  await expect(tab).not.toContainText(/\d/);
 
   expect(consoleErrors).toEqual([]);
 });

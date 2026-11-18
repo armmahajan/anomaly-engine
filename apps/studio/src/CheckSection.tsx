@@ -24,7 +24,6 @@ export function CheckSection({ project }: { project: ProjectSpec }) {
   const result = checked?.result;
   return (
     <div className="check-section" data-testid="check-section">
-      <h3>Check the game</h3>
       <p className="hint">Proves the game can be finished from its start, with no dead ends (resumed saves included), by its real rules and physics.</p>
       <div className="check-run">
         <button onClick={() => void run()} disabled={running}>

@@ -38,7 +38,6 @@ export function ModalsPanel({ project, session, locked }: { project: ProjectSpec
 
   return (
     <div className="modals-panel" data-testid="modals-panel">
-      <h3>Modals</h3>
       <p className="hint">Screens over the game (title, text, image, buttons). Gameplay pauses while one is open. Show one with showModal, or endGame to end the run after it.</p>
       <div className="modal-list" role="list">
         {modals.map((m) => (

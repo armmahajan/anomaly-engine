@@ -132,26 +132,40 @@ export function Inspector({ character, roomId, spawns, defaultSpawn, session, lo
         )}
       </h2>
       {locked && lockHint && <p className="hint">{lockHint}</p>}
-      <h3>Stats</h3>
-      {Object.entries(character.kind === "enemy" ? { ...character.stats, armor: character.stats.armor ?? 0 } : character.stats).map(([stat, value]) => (
-        <NumberField
-          // Remount when the committed value changes so the draft resyncs.
-          key={`${stat}:${value}`}
-          id={`${character.id}-stat-${stat}`}
-          label={meta(stat).label}
-          unit={meta(stat).unit}
-          value={value}
-          disabled={locked}
-          onCommit={(v) => session.updateCharacter({ characterId: character.id, changes: { stats: { [stat]: v } } })}
-        />
-      ))}
-      {character.kind === "player" && playtest && <AbilityPanel player={character} inArena={playtest.abilities} session={session} locked={locked} />}
-      {character.kind === "player" ? (
-        playtest && <PlaytestSpot playtest={playtest} session={session} locked={locked} />
-      ) : (
-        <SpawnList character={character} roomId={roomId} spawns={spawns} defaultSpawn={defaultSpawn} session={session} locked={locked} />
-      )}
-      {character.kind === "enemy" && <BehaviorEditor character={character} session={session} locked={locked} />}
+      <div className="inspector-blocks">
+        <div className="inspector-block">
+          <h3>Stats</h3>
+          {Object.entries(character.kind === "enemy" ? { ...character.stats, armor: character.stats.armor ?? 0 } : character.stats).map(([stat, value]) => (
+            <NumberField
+              // Remount when the committed value changes so the draft resyncs.
+              key={`${stat}:${value}`}
+              id={`${character.id}-stat-${stat}`}
+              label={meta(stat).label}
+              unit={meta(stat).unit}
+              value={value}
+              disabled={locked}
+              onCommit={(v) => session.updateCharacter({ characterId: character.id, changes: { stats: { [stat]: v } } })}
+            />
+          ))}
+        </div>
+        {character.kind === "player" && playtest && (
+          <div className="inspector-block">
+            <AbilityPanel player={character} inArena={playtest.abilities} session={session} locked={locked} />
+          </div>
+        )}
+        <div className="inspector-block">
+          {character.kind === "player" ? (
+            playtest && <PlaytestSpot playtest={playtest} session={session} locked={locked} />
+          ) : (
+            <SpawnList character={character} roomId={roomId} spawns={spawns} defaultSpawn={defaultSpawn} session={session} locked={locked} />
+          )}
+        </div>
+        {character.kind === "enemy" && (
+          <div className="inspector-block inspector-behavior">
+            <BehaviorEditor character={character} session={session} locked={locked} />
+          </div>
+        )}
+      </div>
     </section>
   );
 }

@@ -63,6 +63,23 @@ test("the narrative director drafts the wiki; the creator reviews, edits and ext
   await page.getByRole("button", { name: "↶ Undo" }).click();
   await expect(sidebarPage("the_tide")).toBeVisible();
 
+  // Accept all asks in the page first, then makes every draft canon in one undo step.
+  await expect(review).toHaveText("Needs review (2)");
+  await page.getByRole("button", { name: "Accept all…" }).click();
+  await page.getByRole("group", { name: "Confirm" }).getByRole("button", { name: "Cancel" }).click();
+  await expect(review).toHaveText("Needs review (2)");
+  await page.getByRole("button", { name: "Accept all…" }).click();
+  await page.getByRole("button", { name: "Accept 2" }).click();
+  await expect(page.getByTestId("wiki-review-bar")).toHaveCount(0);
+  await page.getByRole("button", { name: "↶ Undo" }).click();
+  await expect(review).toHaveText("Needs review (2)");
+
+  // The filter narrows the list.
+  await page.getByLabel("Filter pages").fill("tide");
+  await expect(sidebarPage("the_tide")).toBeVisible();
+  await expect(sidebarPage("drowned_city")).toHaveCount(0);
+  await page.getByLabel("Filter pages").fill("");
+
   // A gap turns into a pre-filled page for the in-game character.
   await page.getByTestId("wiki-gaps").getByRole("listitem").filter({ hasText: "Crawler" }).getByRole("button", { name: "Write page" }).click();
   await expect(page.getByLabel("Title")).toHaveValue("Crawler");

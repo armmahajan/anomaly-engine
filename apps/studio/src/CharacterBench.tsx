@@ -195,7 +195,24 @@ export function CharacterBench({ character, project, art, session }: Props) {
               </p>
             </div>
           ) : (
-            <Empty>Describe {character.name} in the sidebar and generate concepts: four designs for about a quarter of a cent.</Empty>
+            <Empty>
+              <div className="bench-howto" data-testid="bench-howto">
+                <h3>{character.name}'s art, in three steps</h3>
+                <ol>
+                  <li>
+                    <b>Concepts.</b> Describe {character.name} in the sidebar and generate: four designs, for about a quarter of a cent. Click one to
+                    build from it.
+                  </li>
+                  <li>
+                    <b>Rig.</b> The chosen design is cut into parts on bones; the live rig shows on the right.
+                  </li>
+                  <li>
+                    <b>Animation.</b> Idle, run, jump, fall, attack and hurt clips, played here with a timeline.
+                  </li>
+                </ol>
+                <p className="hint">Tick Auto in the sidebar to run every step, taking the AI's picks.</p>
+              </div>
+            </Empty>
           ))}
 
         {step === "rig" &&
@@ -297,4 +314,15 @@ const percent = (n: number) => `${Math.round(n * 100)}%`;
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="bench-empty">{children}</div>;
+}
+
+/** Characters mode with no character at all: what to do first. */
+export function NoCharacterBench() {
+  return (
+    <div className="bench">
+      <div className="bench-design bench-design-full">
+        <Empty>No characters yet. Add an enemy from the sidebar, or ask the build assistant for one.</Empty>
+      </div>
+    </div>
+  );
 }

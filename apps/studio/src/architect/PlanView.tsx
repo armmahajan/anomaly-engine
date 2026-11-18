@@ -1,4 +1,7 @@
-import { regionOrder, RoomPlan, uniqueId, type ArchitectState, type ProjectSpec } from "@anomaly/core";
+import { useEffect, useState } from "react";
+import { ARCHITECT_STAGES, regionOrder, RoomPlan, STAGE_DESCRIPTIONS, uniqueId, type ArchitectState, type ProjectSpec } from "@anomaly/core";
+import { ConfirmButton } from "../content/ListSection.tsx";
+import { stageChip, stageLabel } from "./RunPanel.tsx";
 import type { Session } from "../session.ts";
 import { DraftText, NumberInput } from "./fields.tsx";
 import { RoomCard, screens, screensText, type Run } from "./RoomCard.tsx";
@@ -30,10 +33,21 @@ export function PlanView({ project, architect, session, locked, onOpenRoom }: Pr
     return result.ok;
   };
 
-  const seed = async () => {
-    if (plan.rooms.some((r) => !r.pinned) && !window.confirm("Start the plan again from the progression? Unpinned rooms and links are replaced (Undo restores them); pinned rooms stay.")) return;
-    await run("seedArchitectPlan", {});
-  };
+  const seed = () => void run("seedArchitectPlan", {});
+  const unpinned = plan.rooms.filter((r) => !r.pinned).length;
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  // A room asked for (an issue's Show room, a link) opens its region if it was folded.
+  const focusRegion = plan.rooms.find((r) => r.id === ui.focus?.roomId)?.regionId;
+  useEffect(() => {
+    if (focusRegion && folded.has(focusRegion)) setFolded(new Set([...folded].filter((id) => id !== focusRegion)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ui.focus?.nonce]);
+  const fold = (regionId: string) =>
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(regionId)) next.add(regionId);
+      return next;
+    });
 
   const addRoom = async (regionId: string) => {
     const region = progression.regions.find((r) => r.id === regionId);
@@ -73,6 +87,7 @@ export function PlanView({ project, architect, session, locked, onOpenRoom }: Pr
 
   return (
     <div className="architect-main" data-testid="architect-main">
+      {plan.rooms.length > 0 && <RunStrip project={project} architect={architect} />}
       <header className="architect-head">
         <h1>Build the game</h1>
         <p className="hint">
@@ -122,11 +137,31 @@ export function PlanView({ project, architect, session, locked, onOpenRoom }: Pr
         </div>
         {plan.rooms.length > 0 && (
           <div className="architect-game-row">
-            <button type="button" disabled={editLocked || progression.regions.length === 0} onClick={() => void seed()} title="Replace the unpinned rooms with a plan derived from the progression">
-              Start again from the progression
+            {unpinned > 0 ? (
+              <ConfirmButton
+                label="Start again from the progression"
+                question={`Replace the ${unpinned} unpinned room${unpinned === 1 ? "" : "s"} and their links with a new plan? Pinned rooms stay; Undo restores the rest.`}
+                confirmLabel="Replace the plan"
+                disabled={editLocked || progression.regions.length === 0}
+                title="Replace the unpinned rooms with a plan derived from the progression"
+                onConfirm={seed}
+              />
+            ) : (
+              <button type="button" disabled={editLocked || progression.regions.length === 0} onClick={seed} title="Replace the unpinned rooms with a plan derived from the progression">
+                Start again from the progression
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setFolded(new Set());
+                setExpanded(allOpen ? [] : plan.rooms.map((r) => r.id));
+              }}
+            >
+              {allOpen ? "Collapse all rooms" : "Expand all rooms"}
             </button>
-            <button type="button" onClick={() => setExpanded(allOpen ? [] : plan.rooms.map((r) => r.id))}>
-              {allOpen ? "Collapse all" : "Expand all"}
+            <button type="button" onClick={() => setFolded(folded.size === order.length ? new Set() : new Set(order))}>
+              {folded.size === order.length ? "Unfold all regions" : "Fold all regions"}
             </button>
           </div>
         )}
@@ -160,8 +195,17 @@ export function PlanView({ project, architect, session, locked, onOpenRoom }: Pr
             const size = rooms.reduce((n, r) => n + screens(r.cols, r.rows), 0);
             const tags = [progression.start === regionId && "start", progression.ending === regionId && "ending"].filter(Boolean);
             return (
-              <section key={regionId} className="architect-region" data-testid={`architect-region-${regionId}`}>
+              <section key={regionId} className={`architect-region${folded.has(regionId) ? " folded" : ""}`} data-testid={`architect-region-${regionId}`}>
                 <div className="architect-region-head">
+                  <button
+                    type="button"
+                    className="region-fold"
+                    aria-expanded={!folded.has(regionId)}
+                    aria-label={`${folded.has(regionId) ? "Unfold" : "Fold"} ${region.name}`}
+                    onClick={() => fold(regionId)}
+                  >
+                    <span className="caret" aria-hidden />
+                  </button>
                   <h2>{region.name}</h2>
                   {tags.map((t) => (
                     <span key={String(t)} className="tag">
@@ -176,18 +220,20 @@ export function PlanView({ project, architect, session, locked, onOpenRoom }: Pr
                     + Room
                   </button>
                 </div>
-                <DraftText
-                  multiline
-                  rows={2}
-                  label={`Notes for ${region.name}`}
-                  value={notesOf(regionId)}
-                  disabled={editLocked}
-                  maxLength={2000}
-                  placeholder={`Notes for ${region.name}: its mood, what it teaches, how it should feel…`}
-                  onCommit={(notes) => run("setArchitectGuidance", { region: { regionId, notes } })}
-                  className="region-notes"
-                />
-                {rooms.length > 0 ? cards(rooms) : <p className="hint">No rooms planned here.</p>}
+                {!folded.has(regionId) && (
+                  <DraftText
+                    multiline
+                    rows={2}
+                    label={`Notes for ${region.name}`}
+                    value={notesOf(regionId)}
+                    disabled={editLocked}
+                    maxLength={2000}
+                    placeholder={`Notes for ${region.name}: its mood, what it teaches, how it should feel…`}
+                    onCommit={(notes) => run("setArchitectGuidance", { region: { regionId, notes } })}
+                    className="region-notes"
+                  />
+                )}
+                {!folded.has(regionId) && (rooms.length > 0 ? cards(rooms) : <p className="hint">No rooms planned here.</p>)}
               </section>
             );
           })}
@@ -203,5 +249,34 @@ export function PlanView({ project, architect, session, locked, onOpenRoom }: Pr
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The run at a glance, above the plan (it stays in view while the plan scrolls):
+ * every stage in order with its state, so the plan and the run read together.
+ * The controls are in the sidebar.
+ */
+function RunStrip({ project, architect }: { project: ProjectSpec; architect: ArchitectState }) {
+  const paused = new Set(project.architect.pauseAfter);
+  return (
+    <nav className="arch-strip" aria-label="Build stages" data-testid="architect-strip">
+      <ol>
+        {ARCHITECT_STAGES.map((stage) => {
+          const chip = stageChip(project, architect, stage);
+          return (
+            <li key={stage} className={`arch-strip-stage chip-${chip}`} title={`${stageLabel(stage)}: ${chip}. ${STAGE_DESCRIPTIONS[stage]}`}>
+              <span className={`arch-strip-dot chip-${chip}`} aria-hidden />
+              {stageLabel(stage)}
+              {paused.has(stage) && (
+                <span className="arch-strip-pause" aria-label="pauses after">
+                  ⏸
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
