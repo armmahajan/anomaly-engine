@@ -71,7 +71,7 @@ export function LiveStatus({ project, art, live, session }: { project: ProjectSp
             <p className="menu-note">Nothing running.</p>
           )}
           {live.waiting && <p className="menu-note">Saves wait while {live.waiting}.</p>}
-          {live.cast.message && !live.cast.working.length && <p className="menu-note">Characters: {live.cast.message}</p>}
+          {live.cast.message && !live.cast.working.length && <p className="menu-note">From the wiki: {live.cast.message}</p>}
           {live.rooms.message && live.rooms.status === "idle" && <p className="menu-note">Rooms: {live.rooms.message}</p>}
           {problem && <p className="field-error">{problem}</p>}
         </div>
