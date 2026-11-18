@@ -75,9 +75,9 @@ export function summarizeProject(project: ProjectSpec): string {
 /** Biomes and their rooms, so the agent can refer to them (world rooms list their dressing). */
 function artSummary(project: ProjectSpec): string[] {
   const biomes = project.art.assets.filter((a) => a.kind === "biome");
-  if (biomes.length === 0) return ["Worlds: none yet (generateWorld makes one)."];
+  if (biomes.length === 0) return ["Worlds: none yet (generateWorld makes one). The studio's Scenery tab calls a biome a look and a biome room a dressing."];
   return [
-    "Worlds (biomes):",
+    "Worlds (biomes; the studio's Scenery tab calls a biome a look and a biome room a dressing, drawn over the world room it dresses):",
     ...biomes.map((b) =>
       b.kind === "biome"
         ? `- ${b.id} "${b.name}": ${b.kit ? `${b.kit.quality} kit, ${b.kit.pieces.length} pieces (${b.kit.pieces.map((p) => p.id).join(", ")})` : "no kit yet"}; rooms: ${

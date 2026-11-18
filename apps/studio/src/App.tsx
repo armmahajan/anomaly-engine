@@ -18,7 +18,7 @@ import { characterWork, LiveStatus } from "./LiveStatus.tsx";
 
 /** Studio modes. Each puts its own workbench in the main area; the game runtime stays mounted throughout. */
 type Tab = "playtest" | "characters" | "worlds" | "rooms" | "game" | "wiki" | "progression" | "architect";
-const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Worlds", rooms: "Rooms", game: "Game", wiki: "Wiki", progression: "Progression", architect: "Architect" };
+const TAB_LABEL: Record<Tab, string> = { playtest: "Playtest", characters: "Characters", worlds: "Scenery", rooms: "Rooms", game: "Game", wiki: "Wiki", progression: "Progression", architect: "Architect" };
 /** Design documents (the director's tabs): the game is hidden and the chat is the director's. */
 const DESIGN_TABS: readonly Tab[] = ["wiki", "progression"];
 /** Tabs that show a document instead of the game. */
@@ -147,6 +147,16 @@ export function App({ session }: { session: Session }) {
   const openWikiPage = (pageId: string) => {
     setWikiNav({ pageId, editing: null });
     openTab("wiki");
+  };
+
+  /** Scenery <-> Rooms: a game room in Rooms, or a look and dressing (and the room to dress) in Scenery. */
+  const openGameRoom = (roomId: string) => {
+    setRoomsUi((ui) => ({ ...ui, roomId, spot: null, propId: null }));
+    openTab("rooms");
+  };
+  const openScenery = ({ lookId, dressingId, room }: { lookId: string | null; dressingId: string | null; room: string }) => {
+    setWorldUi((ui) => ({ ...ui, biomeId: lookId, roomId: dressingId, previewLayout: false, target: room }));
+    openTab("worlds");
   };
 
   const openCharacter = (characterId: string) => {
@@ -297,6 +307,7 @@ export function App({ session }: { session: Session }) {
           selected={worldSelected}
           locked={locked}
           onPlacePiece={(pieceId) => void placePiece(pieceId)}
+          onOpenRoom={openGameRoom}
         />
       )}
       {tab === "rooms" && (
@@ -366,13 +377,14 @@ export function App({ session }: { session: Session }) {
             selected={worldSelected}
             setSelected={setWorldSelected}
             locked={locked}
+            onOpenRoom={openGameRoom}
           />
           {problem}
         </aside>
       ) : tab === "rooms" ? (
         <aside className="sidebar">
           <div className="side-resize" onPointerDown={startResize} title="Drag to resize" />
-          <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} live={state.live} />
+          <RoomsPanel project={project} session={session} ui={roomsUi} setUi={setRoomsUi} locked={locked} live={state.live} onOpenScenery={openScenery} />
           {problem}
         </aside>
       ) : tab === "game" ? (

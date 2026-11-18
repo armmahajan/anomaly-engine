@@ -373,7 +373,7 @@ function queue(draft: Draft, job: ArtJobRequest, note: string): unknown {
   const parsed = ArtJobRequest.safeParse(job);
   if (!parsed.success) return { ok: false, error: { code: "invalid_input", message: parsed.error.issues.map((i) => i.message).join("; ") } };
   draft.jobs.push(job);
-  return { ok: true, note: `Queued: ${note}. It starts when you finish this turn and shows in the Characters/Worlds workbench; it is not done yet, so say so.` };
+  return { ok: true, note: `Queued: ${note}. It starts when you finish this turn and shows in the Characters/Scenery tab; it is not done yet, so say so.` };
 }
 
 const artTools: ToolSpec[] = [
