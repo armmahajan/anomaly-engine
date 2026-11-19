@@ -976,7 +976,10 @@ its picks all the way):
 One generic GDScript renderer (`game/scripts/art/rig_view.gd`) draws every
 rig: ink outlines, shading, glow, hand-drawn line boil, bending between
 bones; cutout parts are the source image drawn through their polygon (no
-outline, fill or boil). The runtime gets the source like other images (the
+outline, fill or boil). Every polygon is triangulated once at rest and drawn
+from those triangles over the posed vertices (mesh parts bring their own), so a
+pose that folds or collapses a part never fails triangulation
+(`game/test/rigMesh.test.ts`, probe `game/tests/rig_pose_probe.gd`). The runtime gets the source like other images (the
 studio's `images` message; `renderRig` carries it in `images`). The art
 direction (style words, palette, outline) is project-wide.
 

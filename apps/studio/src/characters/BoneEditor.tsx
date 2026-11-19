@@ -353,14 +353,13 @@ function BoneOverlay({
             <rect className="pose-backdrop" x={0} y={0} width="100%" height="100%" />
             <g transform={`matrix(${map.matrix.join(" ")})`} data-testid="pose-preview">
               <defs>
-                {source &&
-                  parts.map((p) =>
-                    p.shape.type === "image" ? (
-                      <clipPath key={p.id} id={`pose-clip-${p.id}`}>
-                        <path d={blobPath(p.shape.points, 0)} />
-                      </clipPath>
-                    ) : null,
-                  )}
+                {parts.map((p) =>
+                  (p.shape.type === "image" && source) || p.shape.type === "mesh" ? (
+                    <clipPath key={p.id} id={`pose-clip-${p.id}`}>
+                      <path d={blobPath(p.shape.points, 0)} />
+                    </clipPath>
+                  ) : null,
+                )}
               </defs>
               {parts.map((p) => (
                 <g key={p.id} transform={`matrix(${(posed.get(p.bone) ?? ([1, 0, 0, 1, 0, 0] as Mat)).join(" ")})`} opacity={p.opacity}>
@@ -467,18 +466,51 @@ function PartShape({ part, direction, source }: { part: Rig["parts"][number]; di
       ) : (
         <path d={blobPath(s.points, 0)} fill={part.fill} />
       );
+    case "mesh":
+      // The rest pose only (no bending), so the texture's rect mapping places the layer exactly enough.
+      return part.texture ? <MeshLayer clip={`pose-clip-${part.id}`} texture={part.texture} /> : null;
   }
+}
+
+/** An image's natural size once it has loaded (null until then). */
+function useImageSize(href: string): { w: number; h: number } | null {
+  const [size, setSize] = useState<{ href: string; w: number; h: number } | null>(null);
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setSize({ href, w: img.naturalWidth, h: img.naturalHeight });
+    img.src = href;
+  }, [href]);
+  return size?.href === href ? size : null;
 }
 
 /** The cutout source, placed in rig space (rig = (image px - anchor) * scale), shown through a part's polygon. */
 function SourceImage({ clip, source }: { clip: string; source: NonNullable<Rig["source"]> }) {
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const href = fileUrl(source.file);
-  useEffect(() => {
-    const img = new Image();
-    img.onload = () => setSize({ w: img.naturalWidth, h: img.naturalHeight });
-    img.src = href;
-  }, [href]);
+  const size = useImageSize(href);
   if (!size) return null;
   return <image href={href} x={-source.anchor[0] * source.scale} y={-source.anchor[1] * source.scale} width={size.w * source.scale} height={size.h * source.scale} clipPath={`url(#${clip})`} />;
+}
+
+/** A mesh part's painted layer: its texture region (`uv`) stretched over its rest rect, inside the mesh outline. */
+function MeshLayer({ clip, texture }: { clip: string; texture: NonNullable<Rig["parts"][number]["texture"]> }) {
+  const href = fileUrl(texture.file);
+  const size = useImageSize(href);
+  if (!size) return null;
+  const [x, y, w, h] = texture.rect;
+  const [u, v, uw, vh] = texture.uv;
+  const sx = w / uw;
+  const sy = h / vh;
+  return (
+    <image
+      href={href}
+      data-testid="pose-mesh"
+      x={x - u * sx}
+      y={y - v * sy}
+      width={size.w * sx}
+      height={size.h * sy}
+      preserveAspectRatio="none"
+      opacity={texture.opacity}
+      clipPath={`url(#${clip})`}
+    />
+  );
 }
