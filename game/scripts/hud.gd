@@ -1,5 +1,5 @@
 extends Node2D
-## Play-mode HUD: the player's health as a row of pips, the items they hold (icon or color, and count) under it,
+## Play-mode HUD: the player's health as rows of pips (left of the boss bars), the items they hold (icon or color, and count) under it,
 ## the weapons in their loadout slots (with ammo counts) under those, and a titled health
 ## bar for every enemy alive in the current room whose spawn asks for one
 ## (spawn.healthBar), stacked in spawn order from the top.
@@ -19,6 +19,18 @@ const ITEM_SIZE := 22.0
 const WEAPON_TOP := 86.0
 
 
+const PIP_ROW := 24.0
+
+## How far the rows of health pips push the items and weapons down.
+var _pip_extra := 0.0
+
+
+## Health pips in one row: as many as fit left of the centred boss bars, 5 to 10.
+static func pips_per_row(viewport_width: float) -> int:
+	var room := (viewport_width - BAR_WIDTH) / 2.0 - 40.0
+	return clampi(int(room / 26.0), 5, 10)
+
+
 func _process(_delta: float) -> void:
 	queue_redraw()
 
@@ -26,8 +38,11 @@ func _process(_delta: float) -> void:
 func _draw() -> void:
 	if player == null:
 		return
+	# The pips wrap into rows that stay left of the centred boss bars (a big health pool used to run under them).
+	var per_row := pips_per_row(get_viewport_rect().size.x)
+	_pip_extra = (ceili(float(player.max_health) / per_row) - 1) * PIP_ROW
 	for i in player.max_health:
-		var at := Vector2(28.0 + i * 26.0, 28.0)
+		var at := Vector2(28.0 + (i % per_row) * 26.0, 28.0 + floori(float(i) / per_row) * PIP_ROW)
 		if i < player.health:
 			draw_circle(at, 9.0, Color("#e8e3d3"))
 		else:
@@ -96,7 +111,7 @@ func _draw_items(font: Font) -> void:
 	var x := 18.0
 	for held in held_items():
 		var item: Dictionary = items[held.id]
-		var box := Rect2(x, ITEM_TOP, ITEM_SIZE, ITEM_SIZE)
+		var box := Rect2(x, ITEM_TOP + _pip_extra, ITEM_SIZE, ITEM_SIZE)
 		var icon := _icon(item)
 		if icon != null:
 			var size := Vector2(icon.get_width(), icon.get_height()) * (ITEM_SIZE / maxf(icon.get_width(), icon.get_height()))
@@ -105,7 +120,7 @@ func _draw_items(font: Font) -> void:
 			draw_rect(box.grow(-3.0), Color(str(item.get("color", "#e8c547"))))
 			draw_rect(box.grow(-3.0), Color("#e8e3d3", 0.6), false, 1.0)
 		var label := "×%d" % held.count
-		var at := Vector2(x + ITEM_SIZE + 3.0, ITEM_TOP + ITEM_SIZE - 6.0)
+		var at := Vector2(x + ITEM_SIZE + 3.0, ITEM_TOP + _pip_extra + ITEM_SIZE - 6.0)
 		draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 3, Color(0, 0, 0, 0.7))
 		draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#e8e3d3"))
 		x += ITEM_SIZE + 12.0 + font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
@@ -115,7 +130,7 @@ func _draw_items(font: Font) -> void:
 func _draw_weapons(font: Font) -> void:
 	if player == null or not "arsenal" in player or player.arsenal == null:
 		return
-	var y := WEAPON_TOP
+	var y := WEAPON_TOP + _pip_extra
 	for row in player.arsenal.hud_rows():
 		var text := "%s: %s" % [row.label, row.name]
 		for item in row.ammo:
