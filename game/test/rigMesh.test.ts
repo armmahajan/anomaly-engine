@@ -115,6 +115,39 @@ describe.skipIf(!hasGodot)("rig renderer geometry (headless Godot)", () => {
     expect(projected!.poses[0]!.layer![0]!.points).toEqual([[30, 10], [70, 10], [50, 50], [10, 50], [50, 30]]);
   }, 90_000);
 
+  it("bends a part by turning it about the joint (the outside of a 90° bend keeps its distance from the joint)", () => {
+    // A bar along x on bone `fore` (pivot at the joint, x 20), bending toward its parent `upper`: weight 0.5 at the joint's column.
+    const rig = Rig.parse({
+      mode: "layered",
+      bones: [
+        { id: "upper", parent: null, pivot: [0, 0] },
+        { id: "fore", parent: "upper", pivot: [20, 0] },
+      ],
+      parts: [
+        {
+          id: "bar",
+          bone: "fore",
+          bendTo: "upper",
+          z: 0,
+          fill: "#888888",
+          texture: { file: FILE, rect: [10, -5, 30, 10], uv: [0, 0, 64, 64] },
+          shape: { type: "mesh", points: [[10, -5], [20, -5], [40, -5], [40, 5], [20, 5], [10, 5]], inner: [], triangles: [0, 1, 4, 0, 4, 5, 1, 2, 3, 1, 3, 4], uv: [[0, 0], [21, 0], [64, 0], [64, 64], [21, 64], [0, 64]], weights: [1, 0.5, 0, 0, 0.5, 1] },
+        },
+      ],
+    });
+    const bend = Clip.parse({ duration: 1, loop: false, tracks: [{ bone: "fore", property: "rotate", keys: [[0, 90], [1, 90]], ease: "linear" }] });
+    const { cases, errors } = probe([{ rig, clips: { bend }, textures: { [FILE]: [64, 64] }, poses: [{ clip: "bend", time: 0 }] }]);
+    expect(errors).toEqual([]);
+    const points = cases[0]!.poses[0]!.bar![0]!.points;
+    // The joint's column (weight 0.5) turns 45°: both its edge points stay 5 px from the joint (a blend of positions would pull them to 3.5).
+    for (const i of [1, 4]) expect(Math.hypot(points[i]![0] - 20, points[i]![1]) / 5).toBeCloseTo(1, 1);
+    expect(Math.abs(Math.hypot(points[1]![0] - 20, points[1]![1]) - 5)).toBeLessThan(0.1);
+    // Weight 0 follows `fore` turned 90° (clockwise on screen) about the joint; weight 1 stays with `upper`.
+    expect(points[2]![0]).toBeCloseTo(25, 3);
+    expect(points[2]![1]).toBeCloseTo(20, 3);
+    expect(points[0]).toEqual([10, -5]);
+  }, 90_000);
+
   it("draws folded and collapsed vector parts with no triangulation errors, from their rest triangles", () => {
     const rig = Rig.parse({
       bones: [

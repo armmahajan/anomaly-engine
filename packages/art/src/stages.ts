@@ -29,7 +29,7 @@ import { CutoutPlan, cutCharacter, cutoutRig, isolateFigure, jointPivots, labelP
 import { assemblePuppet, drawnParts, partAnchors, piecesView, PieceMatch, PieceNudge, PuppetPlan, sheetPieces } from "./puppet.ts";
 import { fitClips, limitsText, motionLimits } from "./motionLimits.ts";
 import { tracedRig } from "./traced.ts";
-import { buildLayered, nativeDesign, paintHidden, softenEdge, type LayeredBuild, type PaintLookup } from "./layered.ts";
+import { buildLayered, cleanCutout, nativeDesign, paintHidden, softenEdge, type LayeredBuild, type PaintLookup } from "./layered.ts";
 import { findObject, heardMarkers, objectClipBriefs, objectClipModes, ObjectClips, ObjectClipsReply, settleObjectClips } from "./objects.ts";
 import { fitBounds, fitFrame, frameForCanvas, pngSize, toCanvasSpace, toRigSpace, type Frame } from "./frame.ts";
 import { parseReply } from "./json.ts";
@@ -561,6 +561,8 @@ export interface RigInput extends SubjectRef {
   puppet?: boolean;
   /** Puppet: image quality of the parts sheet (default the model's). */
   sheetQuality?: string;
+  /** Cutout, traced and layered rigs: build from this plan (canvas px) as it is, without planning or critique rounds. */
+  plan?: CutoutPlan;
 }
 
 const RigReply = z.object({ rig: Rig, notes: z.string().optional() });
@@ -676,6 +678,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
     review: input.review,
     rounds: input.rounds ?? (full && ctx.rigRounds === undefined ? VECTOR_RIG_ROUNDS : undefined),
     sheetQuality: input.sheetQuality,
+    plan: input.plan,
   };
   const best = input.puppet
     ? await puppetAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), ...options })
@@ -734,6 +737,7 @@ interface AttemptInput {
   review?: boolean;
   rounds?: number;
   sheetQuality?: string;
+  plan?: CutoutPlan;
 }
 
 /** Vector rig: the model traces flat shapes; render over the concept, score, revise. Keeps the best attempt. */
@@ -830,12 +834,14 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
     images = { [file]: sourcePng.toString("base64") };
   }
   // Layered: the design at the concept sheet's own resolution, cut out (the layers' pixels).
-  let native: { cut: Cutout; k: number; image: Pixels } | null = null;
+  let native: { cut: Cutout; k: number; image: Pixels; marked: Cutout } | null = null;
   if (mode === "layered") {
     const found = await nativeDesign(ctx, asset, decodePng(input.concept));
     const rawCut = found.k === 1 ? cut : cutCharacter(found.image);
-    const nativeCut = rawCut && found.k > 1 ? softenEdge(rawCut, Math.ceil(found.k)) : rawCut;
-    native = nativeCut ? { cut: nativeCut, k: found.k, image: found.image } : { cut, k: 1, image: decodePng(input.concept) };
+    // The paint-in marks parts on the plain cutout; the layers take the cleaned one (pockets given back, no pale halo).
+    const marked = rawCut && found.k > 1 ? softenEdge(rawCut, Math.ceil(found.k)) : rawCut;
+    const nativeCut = rawCut && found.k > 1 ? softenEdge(cleanCutout(rawCut, found.image, { depth: Math.ceil(6 * found.k) }), Math.ceil(found.k)) : rawCut;
+    native = nativeCut && marked ? { cut: nativeCut, k: found.k, image: found.image, marked } : { cut, k: 1, image: decodePng(input.concept), marked: cut };
     ctx.log({ text: `layers: ${nativeCut ? found.note : "the full-resolution design has no plain background: the chosen design as it is"}` });
   }
   const direction = ctx.project().art.direction;
@@ -843,8 +849,8 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
     if (mode === "cutout") return cutoutRig(cut, plan, file);
     if (mode === "traced") return tracedRig(cut, plan, direction, { canvasPerGamePx: 1 / frame.scale, clean: input.cleanTrace });
     const layered = buildLayered(native!.cut, plan, native!.k, paint);
-    const atlas = await ctx.files.put(layered.atlas.png, "png");
-    return { rig: layered.rigFor(atlas), warnings: layered.warnings, labels: labelParts(cut, plan), bones: layered.bones, layered };
+    const atlases = await Promise.all(layered.atlases.map((a) => ctx.files.put(a.png, "png")));
+    return { rig: layered.rigFor(atlases), warnings: layered.warnings, labels: labelParts(cut, plan), bones: layered.bones, layered };
   };
   const review = input.review === true && mode === "traced";
   const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(reference) }], grid: GRID });
@@ -852,7 +858,10 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
 
   let plan: CutoutPlan;
   const previous = asset.rig?.mode === mode && asset.preview?.frame ? toCanvasSpace(asset.rig, asset.preview.frame) : null;
-  if (input.feedback && previous) {
+  if (input.plan) {
+    plan = input.plan;
+    ctx.log({ text: "building from the given plan" });
+  } else if (input.feedback && previous) {
     plan = planFromRig(previous);
     ctx.log({ text: "revising the current rig" });
   } else {
@@ -868,8 +877,15 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
     );
   }
 
-  const rounds = input.rounds ?? ctx.rigRounds ?? 3;
+  const rounds = input.plan ? 0 : (input.rounds ?? ctx.rigRounds ?? 3);
   let best: Attempt | null = null;
+  if (input.plan) {
+    const built = await build(plan);
+    for (const w of built.warnings) ctx.log({ text: w });
+    const views = await canvasViews(ctx, built.rig, frame, input.concept, size, reference);
+    ctx.log({ text: `built: ${built.rig.parts.length} parts (${matchText(views.match)})`, file: await ctx.files.put(views.overlay, "png") });
+    best = { rig: toRigSpace(built.rig, frame), frame, score: 0, notes: "built from a given plan (not reviewed)", match: views.match, plan: { ...plan, bones: built.bones } };
+  }
   let feedback = input.feedback;
   for (let round = 0; round < rounds; round++) {
     const built = await build(plan);
@@ -942,14 +958,14 @@ async function paintLayers(
     cut: Cutout;
     reference: Pixels;
     frame: Frame;
-    native: { cut: Cutout; k: number; image: Pixels };
+    native: { cut: Cutout; k: number; image: Pixels; marked: Cutout };
     build: (plan: CutoutPlan, paint?: PaintLookup) => Promise<{ rig: Rig; warnings: string[]; layered?: LayeredBuild }>;
   },
 ): Promise<Attempt> {
   const plan = best.plan!;
   try {
     const painted = await paintHidden(ctx, {
-      native: input.native.cut,
+      native: input.native.marked,
       plan,
       k: input.native.k,
       brief: input.asset.brief,

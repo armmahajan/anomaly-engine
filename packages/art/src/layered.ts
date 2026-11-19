@@ -24,12 +24,17 @@ import { distanceTo } from "./traced.ts";
 
 /** The most an atlas can be a side: mesh uv are rig Points (|v| <= 1000). */
 export const LAYER_ATLAS_MAX = 1000;
+/** Texels around each layer's outline in its atlas region, given the colour of the layer's edge (alpha 0), and the gap between regions: the coarser mipmaps then average nothing from a neighbour or from black. */
+const ATLAS_PAD = 6;
+const ATLAS_GUTTER = 6;
 /** Hidden pixels a layer may take: within this many of its own thicknesses of its pixels... */
 const REACH = 1.5;
 /** ...and never further than this share of the figure's height. */
 const MAX_REACH = 0.25;
 /** A design pixel this opaque is inside the figure (hidden pixels never touch the soft outer edge). */
 const INTERIOR_ALPHA = 250;
+/** Neighbouring background pixels differ by at most this (summed RGB): smoother than any drawn stretch. */
+const SMOOTH = 18;
 /** Interior points per mesh, roughly (before the denser points near joints). */
 const GRID_POINTS = 140;
 const MAX_INNER = 256;
@@ -163,6 +168,97 @@ export function softenEdge(cut: Cutout, width: number): Cutout {
   return { ...cut, image: { width: W, height: H, data: out } };
 }
 
+/**
+ * A full-resolution cutout cleaned for layers (`image` is the design the cutout was cut from):
+ * - small enclosed holes (under `pocket` of the figure's area) the background removal punched into
+ *   pale stretches of the figure (a highlight on a grey head) are given back their own pixels;
+ * - smooth stretches of near-background colour it kept inside the figure (background seen between
+ *   the legs, drawn a shade off) become background;
+ * - pixels near the background's colour along the outside, at most `depth` px in (the light halo
+ *   or soft shadow an image model paints around a figure), become background, so a moving part
+ *   never carries a pale rim with it.
+ */
+export function cleanCutout(cut: Cutout, image: Pixels, options: { depth: number; near?: number; pocket?: number }): Cutout {
+  const { width: W, height: H } = cut.image;
+  const data = cut.image.data.slice();
+  const [ox, oy] = cut.offset;
+  const bg = cut.background;
+  const at = (x: number, y: number) => ((y + oy) * image.width + x + ox) * 4;
+  const solid = data.reduce((n, _, i) => (i % 4 === 3 && data[i]! > 0 ? n + 1 : n), 0);
+  // 1. Pockets: transparent pieces not reaching the cut's border.
+  const empty = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) empty[i] = data[i * 4 + 3] === 0 ? 1 : 0;
+  const restored = new Uint8Array(W * H);
+  for (const piece of components(empty, W, H, 4)) {
+    if (piece.length > (options.pocket ?? 0.0015) * solid) continue;
+    if (piece.some((i) => i % W === 0 || i % W === W - 1 || i < W || i >= W * (H - 1))) continue;
+    for (const i of piece) {
+      const x = i % W;
+      const y = Math.floor(i / W);
+      // The pocket and the soft edge the background removal gave its rim.
+      for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (j !== i && (empty[j] || data[j * 4 + 3] === 255)) continue;
+          const o = at(nx, ny);
+          data.set([image.data[o]!, image.data[o + 1]!, image.data[o + 2]!, 255], j * 4);
+          restored[j] = 1;
+        }
+    }
+  }
+  const near = options.near ?? 30;
+  const plain = (x: number, y: number) => {
+    const o = at(x, y);
+    if (Math.hypot(image.data[o]! - bg[0], image.data[o + 1]! - bg[1], image.data[o + 2]! - bg[2]) >= near) return false;
+    for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const q = at(Math.max(0, Math.min(W - 1, x + ex)), Math.max(0, Math.min(H - 1, y + ey)));
+      if (Math.abs(image.data[q]! - image.data[o]!) + Math.abs(image.data[q + 1]! - image.data[o + 1]!) + Math.abs(image.data[q + 2]! - image.data[o + 2]!) > SMOOTH) return false;
+    }
+    return true;
+  };
+  // 2. Background seen between parts that the removal kept (a gap between the legs drawn a shade off
+  //    the background): smooth near-background stretches inside the figure, big enough to be one.
+  const flat = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (data[(y * W + x) * 4 + 3]! > 0 && !restored[y * W + x] && plain(x, y)) flat[y * W + x] = 1;
+  // Only stretches open to the outside: one enclosed by a single part is its own pale surface (a highlight).
+  const open = (piece: number[]) =>
+    piece.some((i) => {
+      const x = i % W;
+      const y = (i - x) / W;
+      return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+        const nx = x + dx!;
+        const ny = y + dy!;
+        return nx < 0 || ny < 0 || nx >= W || ny >= H || (empty[ny * W + nx] === 1 && !restored[ny * W + nx]);
+      });
+    });
+  for (const piece of components(flat, W, H, 4)) if (piece.length >= Math.max(30, 0.0005 * solid) && open(piece)) for (const i of piece) data.fill(0, i * 4, i * 4 + 4);
+  // 3. Halo: from the outside in, through near-background colours, a few px deep.
+  const depth = new Int32Array(W * H).fill(-1);
+  const queue: number[] = [];
+  for (let i = 0; i < W * H; i++) if (data[i * 4 + 3] === 0) (depth[i] = 0), queue.push(i);
+  for (let head = 0; head < queue.length; head++) {
+    const i = queue[head]!;
+    if (depth[i]! >= options.depth) continue;
+    const x = i % W;
+    const y = (i - x) / W;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const j = ny * W + nx;
+      // Background is smooth; a pale drawn stretch (a highlight, stone, cloth) has texture: kept.
+      if (depth[j]! >= 0 || restored[j] || !plain(nx, ny)) continue;
+      depth[j] = depth[i]! + 1;
+      data.fill(0, j * 4, j * 4 + 4);
+      queue.push(j);
+    }
+  }
+  return { ...cut, image: { width: W, height: H, data } };
+}
+
 /** A plan (canvas px) scaled to native px. */
 export function scalePlan(plan: CutoutPlan, k: number): CutoutPlan {
   const p = (q: readonly [number, number]): [number, number] => [q[0] * k, q[1] * k];
@@ -195,6 +291,8 @@ export interface LayerPlan {
   /** Overlap ring width (px). */
   ring: number;
   figureHeight: number;
+  /** Distance (px) to the nearest pixel outside the figure. */
+  outside: Float32Array;
 }
 
 /** The bone a part bends toward: its bone's nearest ancestor that moves some part (undefined at the root). */
@@ -213,6 +311,43 @@ function partJoints(plan: CutoutPlan, bones: Bone[], k: number, offset: [number,
   return [...own, ...kids].map((p) => [p[0] - offset[0], p[1] - offset[1]]);
 }
 
+/** Per row y0..y1: the first and last column inside the convex hull of a mask's pixels (empty rows: 1, 0). */
+function hullSpans(mask: Uint8Array, W: number, _H: number, x0: number, y0: number, x1: number, y1: number): Int32Array {
+  // Each row's leftmost and rightmost pixel corners are enough to find the hull.
+  const pts: Vec[] = [];
+  for (let y = y0; y <= y1; y++) {
+    let a = -1;
+    let b = -1;
+    for (let x = x0; x <= x1; x++)
+      if (mask[y * W + x]) {
+        if (a < 0) a = x;
+        b = x;
+      }
+    if (a >= 0) pts.push([a, y], [a, y + 1], [b + 1, y], [b + 1, y + 1]);
+  }
+  const rows = y1 - y0 + 1;
+  const span = new Int32Array(rows * 2);
+  for (let r = 0; r < rows; r++) (span[r * 2] = 1), (span[r * 2 + 1] = 0);
+  if (pts.length < 3) return span;
+  const hull = convexHull(pts);
+  for (let r = 0; r < rows; r++) {
+    const y = y0 + r + 0.5;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0, j = hull.length - 1; i < hull.length; j = i++) {
+      const [ax, ay] = hull[j]!;
+      const [bx, by] = hull[i]!;
+      if ((ay <= y && by > y) || (by <= y && ay > y)) {
+        const x = ax + ((y - ay) * (bx - ax)) / (by - ay);
+        lo = Math.min(lo, x);
+        hi = Math.max(hi, x);
+      }
+    }
+    if (lo <= hi) (span[r * 2] = Math.ceil(lo - 0.5)), (span[r * 2 + 1] = Math.floor(hi - 0.5));
+  }
+  return span;
+}
+
 export function planLayers(cut: Cutout, plan: CutoutPlan): LayerPlan {
   const { width: W, height: H, data } = cut.image;
   const label = labelParts(cut, plan);
@@ -224,6 +359,30 @@ export function planLayers(cut: Cutout, plan: CutoutPlan): LayerPlan {
   const boneOf = plan.parts.map((p) => p.bone);
   const figureHeight = Math.max(1, cut.bounds.maxY - cut.bounds.minY);
   const ring = Math.max(2, Math.round(figureHeight * 0.006));
+  const outsideMask = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) outsideMask[i] = data[i * 4 + 3]! === 0 ? 1 : 0;
+  const outside = distanceTo(outsideMask, W, H);
+  // Each bone's thickness (its thickest part's area over its length): a joint's disk spans the thicker side.
+  const counts = new Array<number>(n).fill(0);
+  const boxes = plan.parts.map(() => [W, H, -1, -1]);
+  for (let i = 0; i < W * H; i++) {
+    const l = label[i]!;
+    if (l < 0) continue;
+    counts[l]!++;
+    const b = boxes[l]!;
+    const x = i % W;
+    const y = (i - x) / W;
+    b[0] = Math.min(b[0]!, x);
+    b[1] = Math.min(b[1]!, y);
+    b[2] = Math.max(b[2]!, x);
+    b[3] = Math.max(b[3]!, y);
+  }
+  const boneThickness = new Map<string, number>();
+  plan.parts.forEach((p, k) => {
+    const b = boxes[k]!;
+    const t = counts[k]! / Math.max(1, b[2]! - b[0]! + 1, b[3]! - b[1]! + 1);
+    boneThickness.set(p.bone, Math.max(boneThickness.get(p.bone) ?? 0, t));
+  });
   const vis: Uint8Array[] = [];
   const hidden: Uint8Array[] = [];
   const must: Uint8Array[] = [];
@@ -252,33 +411,119 @@ export function planLayers(cut: Cutout, plan: CutoutPlan): LayerPlan {
     const thickness = count / Math.max(1, x1 - x0 + 1, y1 - y0 + 1);
     const jr = Math.max(2 * ring, Math.min(0.08 * figureHeight, 0.6 * thickness));
     // A thin limb may take a band about as wide as it is (its continuation), a torso the limbs in front of it.
-    const reach = Math.max(jr, 3 * ring, Math.min(MAX_REACH * figureHeight, REACH * thickness));
+    const reach = Math.max(0.12 * figureHeight, 3 * ring, Math.min(MAX_REACH * figureHeight, REACH * thickness));
     // Its joints, each with the bone on the other side: a joint disk fills only under that bone's parts.
     const own = bones.find((b) => b.id === boneOf[k])!;
     const joints = [
       ...(own.parent !== null ? [{ at: own.pivot, partner: own.parent }] : []),
       ...bones.filter((b) => b.parent === own.id).map((b) => ({ at: b.pivot, partner: b.id })),
     ]
-      .map((j) => ({ ...j, at: [j.at[0] - cut.offset[0], j.at[1] - cut.offset[1]] as [number, number] }))
-      .filter(({ at: [px, py] }) => {
+      .map((j) => ({
+        ...j,
+        at: [j.at[0] - cut.offset[0], j.at[1] - cut.offset[1]] as [number, number],
+        r: Math.max(jr, Math.min(0.12 * figureHeight, 0.6 * Math.max(thickness, boneThickness.get(j.partner) ?? 0))),
+      }))
+      .filter(({ at: [px, py], r }) => {
         const ix = Math.max(0, Math.min(W - 1, Math.floor(px)));
         const iy = Math.max(0, Math.min(H - 1, Math.floor(py)));
-        return dist[iy * W + ix]! <= jr;
+        return dist[iy * W + ix]! <= r;
       });
+    // Where the part plausibly goes on behind what covers it: within its own outline's hull (a body
+    // behind the arm across it), not out along the piece in front (a body down a leg below it).
+    const span = hullSpans(v, W, H, x0, y0, x1, y1);
     for (let i = 0; i < W * H; i++) {
       const l = label[i]!;
-      if (l < 0 || boneOf[l] === boneOf[k] || rank[l]! <= rank[k]! || data[i * 4 + 3]! < INTERIOR_ALPHA || dist[i]! > reach) continue;
+      if (l < 0 || rank[l]! <= rank[k]! || data[i * 4 + 3]! < INTERIOR_ALPHA || dist[i]! > reach) continue;
+      // A part on the same bone in front never moves away: only a ring under its edge (no seam at rest).
+      if (boneOf[l] === boneOf[k] && dist[i]! > ring) continue;
+      const px = i % W;
+      const py = Math.floor(i / W);
+      const x = px + 0.5;
+      const y = py + 0.5;
+      const atJoint = joints.some((j) => j.partner === boneOf[l] && Math.hypot(x - j.at[0], y - j.at[1]) <= j.r);
+      // Within its hull, and no further from its own pixels than half its thickness (a thin arm hanging by a
+      // leg takes no band of the leg: it would show, in its colour, when the leg swings away).
+      const inHull = dist[i]! <= 0.5 * thickness && py >= y0 && py <= y1 && px >= span[(py - y0) * 2]! && px <= span[(py - y0) * 2 + 1]!;
+      if (!(dist[i]! <= 3 * ring || atJoint || inHull)) continue;
       h[i] = 1;
-      const x = (i % W) + 0.5;
-      const y = Math.floor(i / W) + 0.5;
-      if (dist[i]! <= ring || joints.some((j) => j.partner === boneOf[l] && Math.hypot(x - j.at[0], y - j.at[1]) <= jr)) m[i] = 1;
+      if (dist[i]! <= 3 * ring || atJoint) m[i] = 1;
     }
   }
-  return { W, H, label, bones, rank, vis, hidden, must, ring, figureHeight };
+  return { W, H, label, bones, rank, vis, hidden, must, ring, figureHeight, outside };
 }
 
 /** Paint for a hidden pixel of a part (cut-local px centre), or null where the painting has none. */
 export type PaintLookup = (part: number, x: number, y: number) => [number, number, number] | null;
+
+/** Outer rim (px from the outside) whose colours are half background: never a fill's source. */
+const RIM = 3;
+
+/**
+ * Colours for every pixel from the `known` ones (pull-push: averages up an image pyramid, then
+ * down again, each pixel keeping what it knows), smooth across big holes. RGB per pixel.
+ */
+export function pullPush(data: Uint8Array, known: Uint8Array, w: number, h: number): Uint8Array {
+  type Level = { w: number; h: number; c: Float32Array; wt: Float32Array };
+  const base: Level = { w, h, c: new Float32Array(w * h * 3), wt: new Float32Array(w * h) };
+  for (let i = 0; i < w * h; i++)
+    if (known[i]) {
+      base.wt[i] = 1;
+      for (let ch = 0; ch < 3; ch++) base.c[i * 3 + ch] = data[i * 4 + ch]!;
+    }
+  const levels: Level[] = [base];
+  while (levels.at(-1)!.w > 1 || levels.at(-1)!.h > 1) {
+    const f = levels.at(-1)!;
+    const nw = Math.ceil(f.w / 2);
+    const nh = Math.ceil(f.h / 2);
+    const next: Level = { w: nw, h: nh, c: new Float32Array(nw * nh * 3), wt: new Float32Array(nw * nh) };
+    for (let y = 0; y < f.h; y++)
+      for (let x = 0; x < f.w; x++) {
+        const i = y * f.w + x;
+        const wt = f.wt[i]!;
+        if (wt <= 0) continue;
+        const j = (y >> 1) * nw + (x >> 1);
+        next.wt[j]! += wt;
+        for (let ch = 0; ch < 3; ch++) next.c[j * 3 + ch]! += f.c[i * 3 + ch]! * wt;
+      }
+    for (let j = 0; j < nw * nh; j++) {
+      const wt = next.wt[j]!;
+      if (wt > 0) for (let ch = 0; ch < 3; ch++) next.c[j * 3 + ch] = next.c[j * 3 + ch]! / wt;
+      next.wt[j] = Math.min(1, wt);
+    }
+    levels.push(next);
+  }
+  for (let l = levels.length - 2; l >= 0; l--) {
+    const f = levels[l]!;
+    const up = levels[l + 1]!;
+    for (let y = 0; y < f.h; y++)
+      for (let x = 0; x < f.w; x++) {
+        const i = y * f.w + x;
+        const wt = f.wt[i]!;
+        if (wt >= 1) continue;
+        // The coarser level, bilinear (smooth, no blocks).
+        const fx = Math.min(up.w - 1, Math.max(0, (x + 0.5) / 2 - 0.5));
+        const fy = Math.min(up.h - 1, Math.max(0, (y + 0.5) / 2 - 0.5));
+        const ax = Math.floor(fx);
+        const ay = Math.floor(fy);
+        const bx = Math.min(up.w - 1, ax + 1);
+        const by = Math.min(up.h - 1, ay + 1);
+        const tx = fx - ax;
+        const ty = fy - ay;
+        for (let ch = 0; ch < 3; ch++) {
+          const v =
+            (1 - tx) * (1 - ty) * up.c[(ay * up.w + ax) * 3 + ch]! +
+            tx * (1 - ty) * up.c[(ay * up.w + bx) * 3 + ch]! +
+            (1 - tx) * ty * up.c[(by * up.w + ax) * 3 + ch]! +
+            tx * ty * up.c[(by * up.w + bx) * 3 + ch]!;
+          f.c[i * 3 + ch] = wt * f.c[i * 3 + ch]! + (1 - wt) * v;
+        }
+        f.wt[i] = 1;
+      }
+  }
+  const out = new Uint8Array(w * h * 3);
+  for (let i = 0; i < w * h * 3; i++) out[i] = Math.max(0, Math.min(255, Math.round(base.c[i]!)));
+  return out;
+}
 
 /** One part's finished layer: its pixels (design where it shows, paint or extension where hidden). */
 export interface Layer {
@@ -303,7 +548,6 @@ export function fillLayer(cut: Cutout, lp: LayerPlan, k: number, paint?: PaintLo
   const { W, H } = lp;
   const vis = lp.vis[k]!;
   const hidden = lp.hidden[k]!;
-  const must = lp.must[k]!;
   let [x0, y0, x1, y1] = [W, H, -1, -1];
   for (let i = 0; i < W * H; i++)
     if (vis[i] || hidden[i]) {
@@ -321,9 +565,6 @@ export function fillLayer(cut: Cutout, lp: LayerPlan, k: number, paint?: PaintLo
   const visible = new Uint8Array(w * h);
   const set = new Uint8Array(w * h); // 1 design, 2 painted, 3 extended
   const src = cut.image.data;
-  const queue: number[] = [];
-  const from = new Int32Array(w * h).fill(-1);
-  const dist = new Float32Array(w * h).fill(Infinity);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const gi = (y + y0) * W + x + x0;
@@ -332,74 +573,33 @@ export function fillLayer(cut: Cutout, lp: LayerPlan, k: number, paint?: PaintLo
         data.set(src.subarray(gi * 4, gi * 4 + 4), i * 4);
         visible[i] = 1;
         set[i] = 1;
-        if (src[gi * 4 + 3]! >= 200) {
-          from[i] = i;
-          dist[i] = 0;
-          queue.push(i);
-        }
       } else if (hidden[gi] && paint) {
         const c = paint(k, x + x0 + 0.5, y + y0 + 0.5);
         if (c) {
           data.set([Math.round(c[0]), Math.round(c[1]), Math.round(c[2]), 255], i * 4);
           set[i] = 2;
-          from[i] = i;
-          dist[i] = 0;
-          queue.push(i);
         }
       }
     }
-  // Nearest known colour over the hidden pixels (through them), kept where the part must cover.
-  for (let head = 0; head < queue.length; head++) {
-    const i = queue[head]!;
-    const x = i % w;
-    const y = (i - x) / w;
-    for (let dy = -1; dy <= 1; dy++)
-      for (let dx = -1; dx <= 1; dx++) {
-        if (!dx && !dy) continue;
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        const j = ny * w + nx;
-        // Breadth first, each pixel once (nearest in steps; re-relaxing can grow the queue past any limit).
-        if (set[j] || from[j]! >= 0 || !hidden[(ny + y0) * W + nx + x0]) continue;
-        dist[j] = dist[i]! + 1;
-        from[j] = from[i]!;
-        queue.push(j);
-      }
-  }
-  for (let i = 0; i < w * h; i++) {
-    if (set[i] || from[i]! < 0) continue;
-    const x = i % w;
-    const y = (i - x) / w;
-    if (!must[(y + y0) * W + x + x0]) continue;
-    data.set(data.subarray(from[i]! * 4, from[i]! * 4 + 3), i * 4);
-    data[i * 4 + 3] = 255;
-    set[i] = 3;
-  }
-  // Edge colours carried inward come out streaky: soften them (extended pixels only, from every known one).
-  for (let pass = 0; pass < 3; pass++) {
-    const next = data.slice();
-    for (let i = 0; i < w * h; i++) {
-      if (set[i] !== 3) continue;
-      const x = i % w;
-      const y = (i - x) / w;
-      let [r, g, b, n] = [0, 0, 0, 0];
-      for (let dy = -2; dy <= 2; dy++)
-        for (let dx = -2; dx <= 2; dx++) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-          const j = ny * w + nx;
-          if (!set[j] || data[j * 4 + 3]! < 200) continue;
-          r += data[j * 4]!;
-          g += data[j * 4 + 1]!;
-          b += data[j * 4 + 2]!;
-          n++;
-        }
-      if (n > 0) next.set([Math.round(r / n), Math.round(g / n), Math.round(b / n)], i * 4);
+  // Every other hidden pixel: the part's own colours carried in smoothly (pull-push from its interior
+  // pixels and the paint; never from the soft outer rim, whose colour is half background).
+  const sources = new Uint8Array(w * h);
+  let nSources = 0;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const gi = (y + y0) * W + x + x0;
+      const i = y * w + x;
+      if (set[i] === 2 || (set[i] === 1 && src[gi * 4 + 3]! >= 250 && lp.outside[gi]! > RIM)) (sources[i] = 1), nSources++;
     }
-    data.set(next);
-  }
+  if (nSources === 0) for (let i = 0; i < w * h; i++) if (set[i] && data[i * 4 + 3]! >= 200) sources[i] = 1;
+  const filled = pullPush(data, sources, w, h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (set[i] || !hidden[(y + y0) * W + x + x0]) continue;
+      data.set([filled[i * 3]!, filled[i * 3 + 1]!, filled[i * 3 + 2]!, 255], i * 4);
+      set[i] = 3;
+    }
   // Only fills that connect to the part's own pixels.
   const reached = new Uint8Array(w * h);
   const walk: number[] = [];
@@ -439,8 +639,8 @@ export interface LayerMesh {
 
 /**
  * How a part's vertices weigh toward the bone it bends to: a smooth falloff across the pivot along
- * the part's axis, from all-parent half a blend-width behind it to all-own one and a half in front
- * (leaning into the part, so the seam with the parent stays nearly shut while the part bends).
+ * the part's axis: all-parent up to the pivot, all-own two blend-widths past it (the seam with the parent
+ * moves with the parent exactly, so it never opens; the part bends just past it).
  */
 export interface JointBlend {
   pivot: Vec;
@@ -456,7 +656,7 @@ export function blendWeight(b: JointBlend, v: Vec): number {
   const dx = v[0] - b.pivot[0];
   const dy = v[1] - b.pivot[1];
   const along = dx * b.axis[0] + dy * b.axis[1];
-  const w = (1 - smoothstep(-0.5 * b.r, 1.5 * b.r, along)) * (1 - smoothstep(b.reach, b.reach + b.r, Math.hypot(dx, dy)));
+  const w = (1 - smoothstep(0, 2 * b.r, along)) * (1 - smoothstep(b.reach, b.reach + b.r, Math.hypot(dx, dy)));
   return Math.round(w * 1000) / 1000;
 }
 
@@ -568,11 +768,16 @@ export interface LayeredPiece {
   /** Its texture box (native cut-local px) and atlas region. */
   box: { x: number; y: number; width: number; height: number };
   region: [number, number, number, number];
+  /** Which atlas page holds it. */
+  page: number;
 }
 
 export interface LayeredBuild {
-  /** The rig in canvas px for a texture file (the atlas, stored by the caller). */
-  rigFor(file: FileRef): Rig;
+  /** The rig in canvas px for the atlas pages' files (stored by the caller, in page order; one file = one page). */
+  rigFor(files: FileRef | FileRef[]): Rig;
+  /** The layers packed at native resolution, on as many pages (each at most LAYER_ATLAS_MAX a side) as that takes. */
+  atlases: Atlas[];
+  /** The first page. */
   atlas: Atlas;
   /** Bones in canvas px (joint-aware pivots). */
   bones: Bone[];
@@ -680,7 +885,8 @@ export function buildLayered(native: Cutout, plan: CutoutPlan, k: number, paint?
       // Its texture: the piece's pixels in a box around its outline (cut-local px).
       let [bx0, by0, bx1, by1] = [Infinity, Infinity, -Infinity, -Infinity];
       for (const [x, y] of [...mesh.points, ...mesh.inner]) (bx0 = Math.min(bx0, x)), (by0 = Math.min(by0, y)), (bx1 = Math.max(bx1, x)), (by1 = Math.max(by1, y));
-      const box = { x: Math.floor(bx0) - 1, y: Math.floor(by0) - 1, width: Math.ceil(bx1) - Math.floor(bx0) + 2, height: Math.ceil(by1) - Math.floor(by0) + 2 };
+      const pad = ATLAS_PAD;
+      const box = { x: Math.floor(bx0) - pad, y: Math.floor(by0) - pad, width: Math.ceil(bx1) - Math.floor(bx0) + 2 * pad, height: Math.ceil(by1) - Math.floor(by0) + 2 * pad };
       const tex = new Uint8Array(box.width * box.height * 4);
       for (let y = 0; y < box.height; y++)
         for (let x = 0; x < box.width; x++) {
@@ -690,7 +896,7 @@ export function buildLayered(native: Cutout, plan: CutoutPlan, k: number, paint?
           tex.set(data.subarray((ly * w + lx) * 4, (ly * w + lx) * 4 + 4), (y * box.width + x) * 4);
         }
       const image = { width: box.width, height: box.height, data: tex };
-      bleed(image);
+      bleed(image, ATLAS_PAD);
       let id = n === 0 ? spec.id : `${spec.id}_${n + 1}`;
       while (ids.has(id)) id = `${id}_x`;
       ids.add(id);
@@ -705,16 +911,25 @@ export function buildLayered(native: Cutout, plan: CutoutPlan, k: number, paint?
     bakes.forEach((b, i) => (b.part = i));
   }
   if (specs.length === 0) throw new StageError("the layered rig has no parts (the plan's regions miss the character)");
-  const atlas = packAtlas(bakes, LAYER_ATLAS_MAX);
-  if (atlas.scale < 1) warnings.push(`the layers were shrunk to ${Math.round(atlas.scale * 100)}% to fit a ${LAYER_ATLAS_MAX} px atlas`);
-  const pieces: LayeredPiece[] = specs.map((s, i) => ({ index: i, part: s.part, mesh: s.mesh, box: s.box, region: atlas.regions[i]!.uv }));
+  const pages = packPages(bakes);
+  const atlases = pages.map((p) => p.atlas);
+  const shrunk = Math.min(...atlases.map((a) => a.scale));
+  if (shrunk < 1) warnings.push(`the layers were shrunk to ${Math.round(shrunk * 100)}% to fit ${MAX_PAGES} atlas pages of ${LAYER_ATLAS_MAX} px`);
+  const where = new Map<number, { page: number; uv: [number, number, number, number] }>();
+  pages.forEach((p, page) => p.atlas.regions.forEach((r) => where.set(r.part, { page, uv: r.uv })));
+  const pieces: LayeredPiece[] = specs.map((s, i) => ({ index: i, part: s.part, mesh: s.mesh, box: s.box, region: where.get(i)!.uv, page: where.get(i)!.page }));
+  const atlas = atlases[0]!;
   const uvOf = (piece: LayeredPiece, [x, y]: Vec): Vec => {
     const [ax, ay, aw, ah] = piece.region;
     return [r2(ax + ((x - piece.box.x) * aw) / piece.box.width), r2(ay + ((y - piece.box.y) * ah) / piece.box.height)];
   };
-  const rigFor = (file: FileRef): Rig => {
+  const rigFor = (files: FileRef | FileRef[]): Rig => {
+    const list = typeof files === "string" ? [files] : files;
+    if (list.length !== atlases.length) throw new Error(`layered rig: ${atlases.length} atlas pages, ${list.length} files`);
     const parts: Part[] = specs.map((s, i) => {
       const piece = pieces[i]!;
+      const file = list[piece.page]!;
+      const page = atlases[piece.page]!;
       const points = s.mesh.points.map(toCanvas);
       const inner = s.mesh.inner.map(toCanvas);
       const all = [...points, ...inner];
@@ -739,12 +954,37 @@ export function buildLayered(native: Cutout, plan: CutoutPlan, k: number, paint?
         glow: false,
         opacity: 1,
         // The whole atlas, so a vertex's uv is atlas px however a renderer reads it.
-        texture: { file, rect: [minX, minY, Math.max(0.01, r2(Math.max(...xs) - minX)), Math.max(0.01, r2(Math.max(...ys) - minY))], uv: [0, 0, atlas.image.width, atlas.image.height], opacity: 1 },
+        texture: { file, rect: [minX, minY, Math.max(0.01, r2(Math.max(...xs) - minX)), Math.max(0.01, r2(Math.max(...ys) - minY))], uv: [0, 0, page.image.width, page.image.height], opacity: 1 },
       };
     });
     return Rig.parse({ mode: "layered", bones, parts });
   };
-  return { rigFor, atlas, bones, layers, pieces, lp, warnings };
+  return { rigFor, atlases, atlas, bones, layers, pieces, lp, warnings };
+}
+
+/** At most this many atlas pages per character before its layers are shrunk instead. */
+const MAX_PAGES = 6;
+
+/**
+ * Bakes packed at full size: on one atlas page when they fit, else spread over as few pages as
+ * hold them all unshrunk (biggest first, each onto the emptiest page). Region `part` = bake index.
+ */
+function packPages(bakes: PartBake[]): { atlas: Atlas; members: number[] }[] {
+  const indexed = bakes.map((b, i) => ({ ...b, part: i }));
+  const order = indexed.map((_, i) => i).sort((a, b) => indexed[b]!.image.width * indexed[b]!.image.height - indexed[a]!.image.width * indexed[a]!.image.height);
+  let last: { atlas: Atlas; members: number[] }[] = [];
+  for (let n = 1; n <= MAX_PAGES; n++) {
+    const members: number[][] = Array.from({ length: n }, () => []);
+    const area = new Array<number>(n).fill(0);
+    for (const i of order) {
+      const p = area.indexOf(Math.min(...area));
+      members[p]!.push(i);
+      area[p]! += (indexed[i]!.image.width + 2 * ATLAS_GUTTER) * (indexed[i]!.image.height + 2 * ATLAS_GUTTER);
+    }
+    last = members.filter((m) => m.length > 0).map((m) => ({ atlas: packAtlas(m.map((i) => indexed[i]!), LAYER_ATLAS_MAX, ATLAS_GUTTER), members: m }));
+    if (last.every((p) => p.atlas.scale === 1)) return last;
+  }
+  return last;
 }
 
 // --- painting in what each part hides ------------------------------------------------------------
@@ -1103,7 +1343,7 @@ function alignByDrawing(
 
 // --- drawing a layered rig (tests and checks; the game draws it in rig_view.gd) ---------------------
 
-type Affine = [number, number, number, number, number, number]; // x' = a x + c y + e, y' = b x + d y + f
+export type Affine = [number, number, number, number, number, number]; // x' = a x + c y + e, y' = b x + d y + f
 
 const apply = (m: Affine, [x, y]: readonly [number, number]): Vec => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 const compose = (m: Affine, n: Affine): Affine => [
@@ -1114,6 +1354,46 @@ const compose = (m: Affine, n: Affine): Affine => [
   m[0] * n[4] + m[2] * n[5] + m[4],
   m[1] * n[4] + m[3] * n[5] + m[5],
 ];
+
+/** Where two bones meet (rest pose): the pivot of whichever is the other's descendant. */
+export function jointBetween(rig: Pick<Rig, "bones">, bone: string, bendTo: string): Vec {
+  const byId = new Map(rig.bones.map((b) => [b.id, b]));
+  for (let up = byId.get(bone)?.parent ?? null; up !== null; up = byId.get(up)?.parent ?? null) if (up === bendTo) return [...byId.get(bone)!.pivot] as Vec;
+  return [...byId.get(bendTo)!.pivot] as Vec;
+}
+
+/**
+ * A vertex bent between two bones (rest point `v`, weight `w` toward `B`; transforms map rest to
+ * posed): the turn from A's pose to B's applied partly (w of the angle, w of the scale and of the
+ * joint's shift) about the joint where they meet, so the outside of a bend keeps its distance
+ * from the joint instead of cutting the corner. A mirrored or degenerate turn falls back to
+ * blending the two positions (as rig_view.gd does).
+ */
+export function bendPoint(A: Affine, B: Affine, joint: Vec, w: number, v: readonly [number, number]): Vec {
+  const a = apply(A, v);
+  if (w <= 0) return a;
+  const b = apply(B, v);
+  if (w >= 1) return b;
+  // Linear part of B * inverse(A): M = LB * inverse(LA).
+  const detA = A[0] * A[3] - A[2] * A[1];
+  const lerp = (): Vec => [(1 - w) * a[0] + w * b[0], (1 - w) * a[1] + w * b[1]];
+  if (Math.abs(detA) < 1e-9) return lerp();
+  const ia = [A[3] / detA, -A[1] / detA, -A[2] / detA, A[0] / detA]; // [a, b, c, d] of inverse(LA)
+  const m = [B[0] * ia[0]! + B[2] * ia[1]!, B[1] * ia[0]! + B[3] * ia[1]!, B[0] * ia[2]! + B[2] * ia[3]!, B[1] * ia[2]! + B[3] * ia[3]!]; // [a, b, c, d]
+  if (m[0]! * m[3]! - m[2]! * m[1]! <= 1e-9) return lerp();
+  const angle = Math.atan2(m[1]!, m[0]!);
+  // K = Rot(-angle) * M: what is left after the turn (scale and shear).
+  const [cs, sn] = [Math.cos(-angle), Math.sin(-angle)];
+  const k = [cs * m[0]! - sn * m[1]!, sn * m[0]! + cs * m[1]!, cs * m[2]! - sn * m[3]!, sn * m[2]! + cs * m[3]!];
+  const kw = [1 + w * (k[0]! - 1), w * k[1]!, w * k[2]!, 1 + w * (k[3]! - 1)];
+  const [c2, s2] = [Math.cos(w * angle), Math.sin(w * angle)];
+  const mw = [c2 * kw[0]! - s2 * kw[1]!, s2 * kw[0]! + c2 * kw[1]!, c2 * kw[2]! - s2 * kw[3]!, s2 * kw[2]! + c2 * kw[3]!];
+  const j0 = apply(A, joint);
+  const j1 = apply(B, joint);
+  const dx = a[0] - j0[0];
+  const dy = a[1] - j0[1];
+  return [j0[0] + w * (j1[0] - j0[0]) + mw[0]! * dx + mw[2]! * dy, j0[1] + w * (j1[1] - j0[1]) + mw[1]! * dx + mw[3]! * dy];
+}
 
 /** Each bone's transform for bones rotated about their pivots (degrees, clockwise on screen), parents first. */
 export function boneTransforms(rig: Rig, rotate: Record<string, number> = {}): Map<string, Affine> {
@@ -1144,7 +1424,7 @@ export function boneTransforms(rig: Rig, rotate: Record<string, number> = {}): M
  */
 export function drawLayered(
   rig: Rig,
-  atlas: Pixels,
+  atlas: Pixels | Record<string, Pixels>,
   size: { width: number; height: number },
   options: { scale?: number; offset?: Vec; rotate?: Record<string, number> } = {},
 ): Pixels {
@@ -1156,15 +1436,16 @@ export function drawLayered(
   const parts = rig.parts.map((p, i) => ({ p, i })).sort((a, b) => a.p.z - b.p.z || a.i - b.i);
   for (const { p } of parts) {
     if (p.shape.type !== "mesh") continue;
+    const tex = "data" in atlas && atlas.data instanceof Uint8Array ? (atlas as Pixels) : (atlas as Record<string, Pixels>)[p.texture?.file ?? ""];
+    if (!tex) continue;
     const s = p.shape;
     const verts = [...s.points, ...s.inner];
     const mb = bones.get(p.bone)!;
     const mt = p.bendTo ? bones.get(p.bendTo)! : mb;
+    const joint = p.bendTo ? jointBetween(rig, p.bone, p.bendTo) : [0, 0];
     const pos = verts.map((v, i) => {
-      const w = s.weights?.[i] ?? 0;
-      const a = apply(mb, v);
-      const b = apply(mt, v);
-      return [((1 - w) * a[0] + w * b[0]) * scale + offX, ((1 - w) * a[1] + w * b[1]) * scale + offY] as Vec;
+      const q = bendPoint(mb, mt, joint as Vec, s.weights?.[i] ?? 0, v);
+      return [q[0] * scale + offX, q[1] * scale + offY] as Vec;
     });
     for (let t = 0; t + 2 < s.triangles.length; t += 3) {
       const [i0, i1, i2] = [s.triangles[t]!, s.triangles[t + 1]!, s.triangles[t + 2]!];
@@ -1197,7 +1478,7 @@ export function drawLayered(
           const sum = w0 + w1 + w2;
           const u = (w0 * ua[0] + w1 * ub[0] + w2 * uc[0]) / sum;
           const v = (w0 * ua[1] + w1 * ub[1] + w2 * uc[1]) / sum;
-          const col = sample(atlas, u, v);
+          const col = sample(tex, u, v);
           if (!col || col[3] <= 0) continue;
           const sa = col[3] / 255;
           const o = (y * W + x) * 4;

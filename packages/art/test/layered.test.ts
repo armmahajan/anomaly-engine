@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { applyBatch, createDefaultProject, Rig, type FileRef, type OperationCall, type ProjectSpec } from "@anomaly/core";
 import {
+  bendPoint,
   blendWeight,
+  boneTransforms,
+  jointBetween,
   buildLayered,
   buildRig,
   chooseConcept,
@@ -259,6 +262,92 @@ describe("layered rig from a design", () => {
     let green = 0;
     for (let i = 0; i < body.image.width * body.image.height; i++) if (!body.visible[i] && body.image.data[i * 4 + 1] === 200 && body.image.data[i * 4 + 3] === 255) green++;
     expect(green).toBeGreaterThan(100);
+  });
+});
+
+describe("joints in motion", () => {
+  it("bends by turning about the joint: the outside of a 90° bend keeps its distance from the joint", () => {
+    const rig = { bones: [{ id: "upper", parent: null, pivot: [0, 0] as Vec }, { id: "fore", parent: "upper", pivot: [20, 0] as Vec }] };
+    const pose = boneTransforms(rig as never, { fore: 90 });
+    const A = pose.get("fore")!;
+    const B = pose.get("upper")!;
+    const joint = jointBetween(rig as never, "fore", "upper");
+    expect(joint).toEqual([20, 0]);
+    for (const w of [0.1, 0.25, 0.5, 0.75, 0.9]) {
+      for (const v of [[20, -5], [24, -5], [20, 5], [26, 6]] as Vec[]) {
+        const rest = Math.hypot(v[0] - 20, v[1]);
+        const bent = bendPoint(A, B, joint, w, v);
+        expect(Math.abs(Math.hypot(bent[0] - 20, bent[1]) / rest - 1)).toBeLessThan(0.02);
+      }
+    }
+    // The ends follow their bones exactly; a straight blend of positions would have cut the corner.
+    expect(bendPoint(A, B, joint, 0, [40, -5])).toEqual([25, 20].map((n) => expect.closeTo(n, 6)));
+    expect(bendPoint(A, B, joint, 1, [40, -5])).toEqual([40, -5]);
+    const lerped: Vec = [(20 + 15) / 2, (-5 + 0) / 2];
+    expect(Math.hypot(lerped[0] - 20, lerped[1]) / 5).toBeLessThan(0.75);
+  });
+
+  it("is opaque inside the figure at rest and bent, every seam backed by the layer behind it", () => {
+    const built = build();
+    const rig = built.rigFor(FILE);
+    const size = { width: SIZE * K, height: SIZE * K };
+    const design = placeCutout(native, size);
+    for (const rotate of [{}, { head: 35, leg_far: -35, leg_near: 35 }, { head: -35, leg_far: 35, leg_near: -35 }] as Record<string, number>[]) {
+      const drawn = drawLayered(rig, built.atlas.image, size, { scale: K, rotate });
+      const rest = drawLayered(rig, built.atlas.image, size, { scale: K });
+      let thin = 0;
+      for (let y = 3; y < size.height - 3; y++)
+        for (let x = 3; x < size.width - 3; x++) {
+          const i = y * size.width + x;
+          // Deep inside the body (away from the moving limbs' outer edges): fully covered.
+          const deep = [-3, 0, 3].every((dy) => [-3, 0, 3].every((dx) => design.data[((y + dy) * size.width + x + dx) * 4 + 3] === 255 && rest.data[((y + dy) * size.width + x + dx) * 4 + 3]! >= 254));
+          if (deep && drawn.data[i * 4 + 3]! < 254) {
+            // Allowed only where a turned limb's own outline passes (it has moved off this spot).
+            const near = [-3, 0, 3].some((dy) => [-3, 0, 3].some((dx) => drawn.data[((y + dy) * size.width + x + dx) * 4 + 3]! === 0));
+            if (!near) thin++;
+          }
+        }
+      expect(thin, JSON.stringify(rotate)).toBe(0);
+    }
+    // Every hidden pixel a part may take is filled (no transparent holes for a moving part to open).
+    for (const layer of built.layers) {
+      const hidden = built.lp.hidden[layer.part]!;
+      let empty = 0;
+      for (let y = 0; y < layer.image.height; y++)
+        for (let x = 0; x < layer.image.width; x++)
+          if (hidden[(y + layer.y) * built.lp.W + x + layer.x] && layer.image.data[(y * layer.image.width + x) * 4 + 3]! < 255) empty++;
+      expect(empty).toBe(0);
+    }
+  });
+
+  it("fills hidden stretches from the part's own interior colours, never its pale outer rim", () => {
+    // The creature with a white rim around its outside (a halo the cutout kept).
+    const rimmed = drawCreature(SIZE * K, SIZE * K);
+    const cut = cutCharacter(rimmed)!;
+    const { width: W, height: H, data } = cut.image;
+    const out = cut.image.data.slice();
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (data[i * 4 + 3] === 0) continue;
+        const edge = [-2, 0, 2].some((dy) => [-2, 0, 2].some((dx) => data[((Math.min(H - 1, Math.max(0, y + dy))) * W + Math.min(W - 1, Math.max(0, x + dx))) * 4 + 3] === 0));
+        if (edge) out.set([250, 250, 250, 255], i * 4);
+      }
+    const halo = { ...cut, image: { width: W, height: H, data: out } };
+    const built = buildLayered(halo, plan, K);
+    const body = built.layers.find((l) => plan.parts[l.part]!.id === "body")!;
+    const hidden = built.lp.hidden[body.part]!;
+    let pale = 0;
+    let n = 0;
+    for (let y = 0; y < body.image.height; y++)
+      for (let x = 0; x < body.image.width; x++) {
+        const i = y * body.image.width + x;
+        if (body.visible[i] || !hidden[(y + body.y) * W + x + body.x]) continue;
+        n++;
+        if (body.image.data[i * 4]! > 180) pale++;
+      }
+    expect(n).toBeGreaterThan(500);
+    expect(pale / n).toBeLessThan(0.01);
   });
 });
 

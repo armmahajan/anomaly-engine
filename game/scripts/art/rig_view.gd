@@ -827,7 +827,11 @@ func _draw() -> void:
 
 
 ## A part's layers' vertices on the current pose (rig space): each follows `bone`, or for a part
-## that bends, the blend of `bone` and `bendTo` by its weight.
+## that bends, the blend of `bone` and `bendTo` by its weight: the turn from one bone's pose to the
+## other's applied partly (that share of the angle, of the scale and of the joint's shift) about the
+## joint where they meet, so the outside of a bend keeps its distance from the joint instead of
+## cutting the corner (a straight blend of positions). A mirrored or degenerate turn blends positions.
+## Mirrored in packages/art/src/layered.ts bendPoint.
 func _posed_layers(part: Dictionary, layers: Array) -> Array:
 	var base: Vector2 = _bones[part.bone].pivot
 	var xf: Transform2D = _pose.get(part.bone, Transform2D.IDENTITY) * Transform2D(0.0, -base)
@@ -835,18 +839,49 @@ func _posed_layers(part: Dictionary, layers: Array) -> Array:
 	if part.bend != "":
 		xf2 = _pose.get(part.bend, Transform2D.IDENTITY) * Transform2D(0.0, -(_bones[part.bend].pivot as Vector2))
 	var out := []
+	if part.bend == "":
+		for layer in layers:
+			out.append(xf * (layer[0] as PackedVector2Array))
+		return out
+	var joint := _joint_between(part.bone, part.bend)
+	var j0: Vector2 = xf * joint
+	var j1: Vector2 = xf2 * joint
+	var la := Transform2D(xf.x, xf.y, Vector2.ZERO)
+	var m := Transform2D(xf2.x, xf2.y, Vector2.ZERO) * la.affine_inverse() if absf(la.determinant()) > 1e-9 else Transform2D.IDENTITY
+	var turns := absf(la.determinant()) > 1e-9 and m.determinant() > 1e-9
+	var angle := atan2(m.x.y, m.x.x) if turns else 0.0
+	var k := Transform2D(-angle, Vector2.ZERO) * m  # what is left after the turn: scale and shear
 	for layer in layers:
 		var poly: PackedVector2Array = layer[0]
-		if part.bend == "":
-			out.append(xf * poly)
-			continue
 		var weights: PackedFloat32Array = layer[2]
 		var bent := PackedVector2Array()
 		bent.resize(poly.size())
 		for i in poly.size():
-			bent[i] = (xf * poly[i]).lerp(xf2 * poly[i], weights[i])
+			var w: float = weights[i]
+			var a: Vector2 = xf * poly[i]
+			if w <= 0.0:
+				bent[i] = a
+			elif w >= 1.0:
+				bent[i] = xf2 * poly[i]
+			elif not turns:
+				bent[i] = a.lerp(xf2 * poly[i], w)
+			else:
+				var kw := Transform2D(Vector2(1, 0).lerp(k.x, w), Vector2(0, 1).lerp(k.y, w), Vector2.ZERO)
+				bent[i] = j0.lerp(j1, w) + (Transform2D(angle * w, Vector2.ZERO) * kw).basis_xform(a - j0)
 		out.append(bent)
 	return out
+
+
+## Where two bones meet (rest pose): the pivot of whichever is the other's descendant.
+func _joint_between(bone: String, other: String) -> Vector2:
+	var up = _bones[bone].parent
+	var guard := 0
+	while up != null and _bones.has(up) and guard < 64:
+		if up == other:
+			return _bones[bone].pivot
+		up = _bones[up].parent
+		guard += 1
+	return _bones[other].pivot
 
 
 ## Probes and tests: a part's drawn layers on the current pose (boil frame 0), as

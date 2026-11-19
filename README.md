@@ -1006,14 +1006,22 @@ the bone editor can move, turn and scale a mesh. Meshes draw no fill, outline or
 clip or be clipped to.
 The rig stage builds one (`packages/art/src/layered.ts`) on the cutout plan and critique loop: the
 chosen design's sheet cell is cropped at the sheet's own resolution (not the 512 px pick; mirrored
-like the pick), the plan's parts become layers of the design's own pixels, and **one image edit**
-paints in what each part hides (the layers on each bone pulled apart, the hidden stretches marked
-magenta, the paint lined up and colour-matched per group and taken only where the part was hidden,
-so the rest pose stays the design; an edge ring and the joints are always filled from the edge
-colours). Each layer becomes a mesh: its outline traced from its alpha, interior points on a
-staggered grid, twice as dense near joints, triangulated inside the outline; uv point into one
-atlas of the layers at native resolution (at most 1000 px a side); a part bends toward its parent
-bone with weights falling off across its pivot. The finished rig is measured like the others.
+like the pick) and cleaned (holes the background removal punched into pale stretches given back;
+the pale halo and smooth background seen between parts removed), and the plan's parts become
+layers of the design's own pixels. **One image edit** paints in what the parts hide (the design
+with its near-side parts marked magenta; the paint lined up, colour-matched and taken only where a
+part was marked out and only where it looks like the part behind). Every stretch a part hides
+that it plausibly continues into (inside its own outline's hull, within half its thickness, a
+seam ring, and a disk at each joint as wide as the thicker side) is filled: from the paint, else
+from the part's own interior colours carried in smoothly (never its pale outer rim), so a moving
+part never opens a hole. Each layer becomes a mesh: its outline traced from its alpha, interior
+points on a staggered grid, twice as dense near joints, triangulated inside the outline; uv point
+into atlas pages of the layers at native resolution (each at most 1000 px a side, padded with the
+layers' edge colours). A part bends toward its parent bone: all-parent up to the pivot, all-own two
+blend-widths past it, so the seam never opens. The runtime blends a bending vertex by turning it
+about the joint (that share of the angle, scale and shift; `rig_view.gd` `_posed_layers`, mirrored
+by `bendPoint`), so the outside of a bend keeps its distance from the joint. The finished rig is
+measured like the others; `node scripts/rig-gaps.ts <round> <out>` measures gaps in motion.
 
 **Rig looks on trial** (`dressRig {look}` in `packages/art/src/dress.ts`, opt-in, no default flow
 calls it; compared blind by `node scripts/rig-ab4.ts <round3> <out>` then
