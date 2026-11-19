@@ -7,7 +7,7 @@ import {
   type VisionModel,
 } from "@anomaly/art";
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
-import { RIG_MODES, type RigMode } from "@anomaly/core";
+import { DEFAULT_RIG_MODE, RIG_MODES, type RigMode } from "@anomaly/core";
 import { ClaudeCodeVisionModel, DEFAULT_CLAUDE_VISION_MODEL } from "./claudeCodeVision.ts";
 import { BrowserRenderer } from "./renderer.ts";
 import { DEFAULT_ART_CONCURRENCY, type ArtServiceOptions } from "./service.ts";
@@ -30,7 +30,7 @@ import { DEFAULT_ART_CONCURRENCY, type ArtServiceOptions } from "./service.ts";
  *   STUDIO_ART_VISION_MODEL    default claude-opus-5-5 on claude-code,
  *                              anthropic/claude-haiku-5.5 on openrouter
  *   STUDIO_ART_VISION_EFFORT   claude-code only: low|medium|high|xhigh|max (default: the model's)
- *   STUDIO_ART_RIG_MODE        vector (default: the full pipeline, see stages.ts rigModeFor), traced, cutout or layered
+ *   STUDIO_ART_RIG_MODE        layered (default, core DEFAULT_RIG_MODE), vector, traced or cutout
  *   STUDIO_ART_BUDGET          USD per job, default 0.25
  *   STUDIO_ART_CONCURRENCY     art jobs that run at once, default 3 (1 = one at a time); jobs that touch
  *                              the same character, weapon, biome, room or modal still wait for each other
@@ -94,7 +94,7 @@ export type VisionBackend = "claude-code" | "openrouter";
 
 function rigModeFromEnv(value: string | undefined): RigMode {
   const v = value?.trim();
-  return (RIG_MODES as readonly string[]).includes(v ?? "") ? (v as RigMode) : "vector";
+  return (RIG_MODES as readonly string[]).includes(v ?? "") ? (v as RigMode) : DEFAULT_RIG_MODE;
 }
 
 /** The vision backend the environment asks for; null when STUDIO_ART_VISION_BACKEND is misspelled. */

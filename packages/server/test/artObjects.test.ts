@@ -111,12 +111,18 @@ describe("object art jobs", () => {
     await art.drained();
 
     for (const s of states) expect(s.runningJobs.filter((j) => j.objectId === "lever").length).toBeLessThanOrEqual(1);
-    const jobs = art.getState().jobs;
-    expect(jobs.map((j) => [j.stage, j.objectId, j.outcome])).toEqual([
-      ["auto", "lever", "committed"],
-      ["auto", "trap", "committed"],
-      ["concepts", "lever", "committed"],
-    ]);
+    // The two objects run side by side, so they may finish in either order; the queued lever job runs after the lever's first.
+    const jobs = art.getState().jobs.map((j) => [j.stage, j.objectId, j.outcome]);
+    expect(jobs).toHaveLength(3);
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        ["auto", "lever", "committed"],
+        ["auto", "trap", "committed"],
+        ["concepts", "lever", "committed"],
+      ]),
+    );
+    const at = (stage: string) => jobs.findIndex(([s, o]) => s === stage && o === "lever");
+    expect(at("concepts")).toBeGreaterThan(at("auto"));
     expect(Object.keys(asset("lever").clips).sort()).toEqual(["idle", "pull"]);
     expect(Object.keys(asset("trap").clips).sort()).toEqual(["idle", "snap"]);
     expect(asset("trap").clips.snap!.markers.map((m) => m.name)).toContain("strike");

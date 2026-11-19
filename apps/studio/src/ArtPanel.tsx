@@ -26,12 +26,17 @@ export const money = (usd: number) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${u
 
 const RIG_MODE_CHOICES: { id: RigMode; label: string; title: string }[] = [
   {
+    id: "layered",
+    label: "Layered (recommended)",
+    title: "The design itself at full resolution, split into part layers (what each part hides painted in) on meshes that bend smoothly at the joints: stays true to the concept.",
+  },
+  {
     id: "vector",
-    label: "Vector (recommended)",
+    label: "Vector",
     title:
       "The full pipeline: designs drawn ready to rig, a clean flat redraw, a vector rig with elbows and knees checked over several rounds, then detail shapes (shading, highlights, folds) from the design. Animates cleanly.",
   },
-  { id: "cutout", label: "Cutout", title: "The design itself, cut into pieces on bones: looks exactly like the concept" },
+  { id: "cutout", label: "Cutout", title: "The design itself, cut into rigid pieces on bones: a lo-fi look" },
   { id: "traced", label: "Traced", title: "The design cut into pieces on bones, each redrawn as flat shapes with the art direction's outline: close to the concept, matching the vector art" },
 ];
 
@@ -45,7 +50,7 @@ export function ArtPanel({ subject, project, art, session, locked }: Props) {
   const [rigNote, setRigNote] = useState("");
   const [animNote, setAnimNote] = useState("");
   const [auto, setAuto] = useState(false);
-  const [rigMode, setRigMode] = useState<RigMode>(asset?.rig?.mode ?? project.art.direction.rigMode ?? "vector");
+  const [rigMode, setRigMode] = useState<RigMode>(asset?.rig?.mode ?? project.art.direction.rigMode ?? art.models.rigMode);
   const [zoom, setZoom] = useState<string | null>(null);
   // Another character's job doesn't block this one: it runs alongside (or queues behind what it conflicts with).
   const queued = art.pending.some((p) => isSubjectJob(p, subject));

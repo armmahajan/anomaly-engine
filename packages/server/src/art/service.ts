@@ -213,6 +213,7 @@ export class ArtService {
         image: this.options.models?.image.id ?? "none",
         vision: this.options.models?.vision.id ?? "none",
         imageChoices: (this.options.models?.imageChoices ?? []).map(({ id, label }) => ({ id, label })),
+        rigMode: this.options.defaultRigMode ?? "vector",
       },
       budget: this.options.budget,
       concurrency: this.concurrency,

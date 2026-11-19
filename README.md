@@ -938,8 +938,11 @@ its picks all the way):
    inspiration only). The AI marks its pick; click a design to choose it, or
    ask for **Variations** of the chosen one. Left-facing designs are mirrored.
 2. **Rig**: the design becomes a *rig*, pure data on bones
-   (`packages/core/src/art/rig.ts`), in one of two modes (pick **Vector** or
-   **Cutout** in the sidebar; default: the art direction's `rigMode`, else vector):
+   (`packages/core/src/art/rig.ts`), in one of four modes (pick **Layered**, **Vector**,
+   **Cutout** or **Traced** in the sidebar; default: the art direction's `rigMode`, else
+   `STUDIO_ART_RIG_MODE`, else **layered**, the rig round 6 winner; the fake backend keeps vector):
+   - **Layered** (the default, see "Layered rigs" below): the design itself at full resolution,
+     split into part layers on bending meshes.
    - **Vector**: a vision model traces the design as flat shapes (blobs,
      ellipses, tapered strokes), in the concept's own pixels over a grid.
    - **Cutout**: the design itself, cut into pieces (`packages/art/src/cutout.ts`).

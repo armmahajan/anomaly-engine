@@ -294,6 +294,8 @@ export const ArtState = z.object({
     vision: z.string(),
     /** Image models the creator can pick for all art (the art direction's imageModel); the first is the default. */
     imageChoices: z.array(z.object({ id: z.string(), label: z.string() })).default([]),
+    /** How characters are rigged when neither the art direction nor the request says (STUDIO_ART_RIG_MODE). */
+    rigMode: z.enum(RIG_MODES).default("vector"),
   }),
   /** USD limit per job. */
   budget: z.number(),

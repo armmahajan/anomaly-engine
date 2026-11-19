@@ -170,6 +170,8 @@ export const MAX_GRIPS = 4;
 
 export const RIG_MODES = ["vector", "cutout", "traced", "layered"] as const;
 export type RigMode = (typeof RIG_MODES)[number];
+/** How new characters are rigged unless the art direction or the studio says otherwise (rig round 6 winner, 2026-11-19). */
+export const DEFAULT_RIG_MODE: RigMode = "layered";
 
 export const Rig = z
   .strictObject({
