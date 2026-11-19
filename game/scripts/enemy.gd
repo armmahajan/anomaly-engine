@@ -8,6 +8,7 @@ const CharacterArt := preload("res://scripts/art/character_art.gd")
 const Attack := preload("res://scripts/combat/attack.gd")
 const WeaponRunner := preload("res://scripts/combat/weapon_runner.gd")
 const WeaponView := preload("res://scripts/art/weapon_view.gd")
+const LookView := preload("res://scripts/art/look_view.gd")
 
 ## The sword (or anything else) brought its health to 0.
 signal killed
@@ -46,6 +47,8 @@ var hold_air := false
 var summons: Array = []
 ## The weapon attack it is making (useWeapon: combat/weapon_runner.gd, the player's code), or null.
 var weapon_runner = null
+## Its looks (core art/animation.ts: its behavior state's look, setLook, dissolve): art/look_view.gd.
+var look: Node2D = null
 
 const FLASH_TIME := 0.1
 const RECOIL_SPEED := 260.0
@@ -88,6 +91,8 @@ var _tint = null  # Color or null
 var _kill_y := 0.0
 var _asset := {}
 var _rig: Node2D = null
+## Without a rig: the box it is drawn as (a child, so looks can tint, scale and dissolve it).
+var _box: Node2D = null
 var _preview_clip := ""
 ## Seconds since the killing hit, and how its death runs: the death clip's (or the fallback's)
 ## length, then linger, then fade. `gone` once it has faded out (hidden, out of play).
@@ -160,6 +165,27 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 	if not held.is_empty():
 		_shown_weapon = str(held.id)
 		_weapon_view.set_weapon(held, _rig)
+	if _rig == null:
+		_box = Node2D.new()
+		_box.draw.connect(_draw_box)
+		add_child(_box)
+	_setup_look(art)
+
+
+## Its look view: the rig (or box) it is drawn as, its body's rectangle, afterimages as rig copies.
+func _setup_look(art: Dictionary) -> void:
+	look = LookView.new()
+	add_child(look)
+	move_child(look, 0)
+	var drawn: Node2D = _rig if _rig != null else _box
+	look.setup(drawn, drawn, func(): return Rect2(Vector2(-_size.x / 2.0, -_size.y), _size))
+	look.base_color = _color
+	look.extras = [_weapon_view]
+	if _rig != null:
+		var asset := _asset
+		look.ghost_maker = func(): return CharacterArt.make_view(asset, art)
+	else:
+		look.own_scale = true
 
 
 func _physics_process(delta: float) -> void:
@@ -191,6 +217,8 @@ func _physics_process(delta: float) -> void:
 	_touch_player()
 	_check_transitions()
 	_update_rig()
+	if _box != null:
+		_box.queue_redraw()
 
 	if shaking or _hidden or _attack != null:
 		queue_redraw()
@@ -238,6 +266,11 @@ func _enter(state_id: String) -> void:
 		appear(false)
 	var action: Dictionary = _states[state_id].action
 	Registry.ACTIONS[action.type].enter(self, action)
+	if look != null:
+		look.set_state_look(_states[state_id].get("look"))
+	var main := _main()
+	if main != null and main._mode == "play" and main._run.active:
+		main._run.events.state_entered(spawn_id, character_id, state_id)
 
 
 func _touch_player() -> void:
@@ -275,6 +308,8 @@ func _die(push: Vector2) -> void:
 	hold_air = false
 	phase = ""
 	set_tint(null)
+	if look != null:
+		look.set_state_look(null)
 	_recoil_time = 0.0
 	_flash = DEATH_FLASH
 	death_time = 0.0
@@ -313,6 +348,8 @@ func _dying(delta: float) -> void:
 	modulate.a = 1.0 - clampf(fading / _death_fade, 0.0, 1.0)
 	_update_rig()
 	queue_redraw()
+	if _box != null:
+		_box.queue_redraw()
 
 
 ## Faded out: hidden and out of play (it stays listed as a dead entity until the room is rebuilt).
@@ -635,9 +672,11 @@ func _update_rig() -> void:
 	if dead:
 		_update_dying_rig()
 		return
-	_rig.scale.x = facing
+	_rig.scale = Vector2(facing, 1.0) * (look.scale_factor() if look != null else 1.0)
 	# Same feedback as the box: shake in place, flash white when struck, tint while telegraphing.
 	_rig.position.x = ((2.0 if int(state_time * 30.0) % 2 == 0 else -2.0) if shaking else 0.0)
+	if look != null:
+		look.flashing = _flash > 0.0
 	if _flash > 0.0:
 		_rig.modulate = Color(2.5, 2.5, 2.5)
 	elif _tint != null:
@@ -676,8 +715,10 @@ func _update_rig() -> void:
 func _update_dying_rig() -> void:
 	_rig.position = Vector2.ZERO
 	var white := _flash > 0.0
+	if look != null:
+		look.flashing = white
 	if _death_clip:
-		_rig.scale = Vector2(facing, 1.0)
+		_rig.scale = Vector2(facing, 1.0) * (look.scale_factor() if look != null else 1.0)
 		_rig.modulate = Color(2.5, 2.5, 2.5) if white else Color.WHITE
 		_rig.pose_at(minf(death_time, _death_anim), int(death_time * 8.0))
 		return
@@ -690,12 +731,6 @@ func _update_dying_rig() -> void:
 
 func _draw() -> void:
 	if dead:
-		if _rig == null:
-			var pose := _fallback_pose()
-			draw_set_transform(Vector2.ZERO, 0.0, pose[0])
-			var body := Color.WHITE if _flash > 0.0 else _color.lerp(Color(0.1, 0.1, 0.13), pose[1] * 0.6)
-			draw_rect(Rect2(Vector2(-_size.x / 2.0, -_size.y), _size), body)
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	if _attack != null:
 		var box: Rect2 = _attack.rect
@@ -708,13 +743,25 @@ func _draw() -> void:
 		var marker := Rect2(_marker - position - Vector2(_size.x / 2.0, _size.y), _size)
 		draw_rect(marker, Color(_marker_color, pulse * 0.5))
 		draw_rect(marker, Color(_marker_color, pulse + 0.3), false, 2.0)
+
+
+## Without a rig: the box it is drawn as (the `_box` child; looks tint, scale and dissolve it).
+func _draw_box() -> void:
+	if look != null:
+		look.flashing = _flash > 0.0
+	if dead:
+		var pose := _fallback_pose()
+		_box.draw_set_transform(Vector2.ZERO, 0.0, pose[0])
+		var body := Color.WHITE if _flash > 0.0 else _color.lerp(Color(0.1, 0.1, 0.13), pose[1] * 0.6)
+		_box.draw_rect(Rect2(Vector2(-_size.x / 2.0, -_size.y), _size), body)
+		_box.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
-	if _rig != null:
+	if _hidden:
 		return
 	var offset := Vector2((2.0 if int(state_time * 30.0) % 2 == 0 else -2.0) if shaking else 0.0, 0.0)
 	var body = Color.WHITE if _flash > 0.0 else (_tint if _tint != null else _color)
-	draw_rect(Rect2(offset + Vector2(-_size.x / 2.0, -_size.y), _size), body)
-	draw_rect(Rect2(offset + Vector2(facing * _size.x * 0.25 - 3.0, -_size.y * 0.75), Vector2(6.0, 6.0)), Color("#ffd27a"))
+	_box.draw_rect(Rect2(offset + Vector2(-_size.x / 2.0, -_size.y), _size), body)
+	_box.draw_rect(Rect2(offset + Vector2(facing * _size.x * 0.25 - 3.0, -_size.y * 0.75), Vector2(6.0, 6.0)), Color("#ffd27a"))
 
 
 ## The weapon this enemy attacks with first (its first useWeapon action, in state order), else {}.

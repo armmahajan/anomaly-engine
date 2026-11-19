@@ -3,7 +3,7 @@ extends Node2D
 ## shows the playtest room (edit mode) or plays the world (rooms and doors) from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 17
+const PROTOCOL_VERSION := 18
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -230,6 +230,10 @@ func run_state() -> Dictionary:
 		# Animation in play (core art/animation.ts): what the player plays, live effects, fired markers, projectiles.
 		"playerPlaying": _player.anim_playing() if playing and _player != null and is_instance_valid(_player) else null,
 		"effects": _fx.effects_state() if playing else [],
+		# Looks: the player's look keys and dissolve, and the particle systems alive in the room.
+		"playerLook": _player.look.keys() if playing and _player != null and is_instance_valid(_player) and _player.look != null else null,
+		"playerDissolved": playing and _player != null and is_instance_valid(_player) and _player.look != null and _player.look.dissolved(),
+		"emitters": _fx.emitters_count() if playing else 0,
 		"markers": events.markers.duplicate() if playing else [],
 		"projectiles": _projectile_states(),
 		"camera": _camera_state(),
@@ -420,6 +424,9 @@ func _entity_states() -> Array:
 				"phase": child.phase if "phase" in child and child.phase != "" else null,
 				"health": child.health,
 				"playing": child.anim_playing() if child.has_method("anim_playing") else null,
+				# Looks (core art/animation.ts): the keys of the look it shows, and dissolved out.
+				"look": child.look.keys() if _mode == "play" and "look" in child and child.look != null else null,
+				"dissolved": _mode == "play" and "look" in child and child.look != null and child.look.dissolved(),
 			})
 	return out
 
@@ -728,6 +735,8 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 	add_child(_world)
 	var bounds := _room_bounds(room, abilities)
 	var player: Node = carried
+	if player != null and player.look != null:
+		player.look.reset()  # looks last until the room changes
 	if player == null:
 		player = PlayerScript.new()
 		player.setup(_player_character(), bounds, at, _project.get("art", {}))

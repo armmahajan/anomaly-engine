@@ -9,6 +9,7 @@ const CharacterArt := preload("res://scripts/art/character_art.gd")
 const WeaponView := preload("res://scripts/art/weapon_view.gd")
 const RenderService := preload("res://scripts/art/render_service.gd")
 const ObjectView := preload("res://scripts/art/object_view.gd")
+const LookView := preload("res://scripts/art/look_view.gd")
 
 var _camera: Camera2D
 var _backdrop: ColorRect
@@ -27,6 +28,9 @@ var _attack := {}
 ## The clip that attack plays (its phases follow only that clip).
 var _attack_clip := ""
 var _weapon_key := ""
+## The stage's look (stage.look: e.g. the behavior state selected in the studio) on the rig, and what it was set from.
+var _look: Node2D = null
+var _look_key := ""
 
 
 func _ready() -> void:
@@ -106,6 +110,10 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 		if _rig != null:
 			_rig.queue_free()
 			_rig = null
+		if _look != null:
+			_look.queue_free()
+			_look = null
+		_look_key = ""
 		_weapon_key = ""
 		if asset.is_empty():
 			_say("%s has no rig yet." % label)
@@ -113,6 +121,13 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 		_rig = CharacterArt.make_view(asset, art)
 		_holder.add_child(_rig)
 		_bounds = _rest_bounds(asset.rig)
+		_look = LookView.new()
+		_holder.add_child(_look)
+		_holder.move_child(_look, _onion.get_index() + 1)
+		var bounds := _bounds
+		_look.setup(_rig, _rig, func(): return bounds)
+		_look.own_scale = true
+		_look.ghost_maker = func(): return CharacterArt.make_view(asset, art)
 		_place_onion(asset)
 		_fit()
 	if _rig == null:
@@ -129,6 +144,7 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 	_hold(project, stage.get("weapon"))
 	if time != null:
 		_rig.pose_at(float(time))
+	_show_look(stage.get("look"))
 
 	# onion.image: base64 PNG to load, "" to clear, null to keep the current one (it is sent once, not per frame).
 	var onion = stage.get("onion", {})
@@ -146,6 +162,25 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 	_onion.visible = _onion.texture != null and alpha > 0.0
 	_onion.modulate = Color(1, 1, 1, alpha)
 	return ""
+
+
+## stage.look (core art/animation.ts Look, or null): shown on the rig, set again only when it changes.
+func _show_look(look: Variant) -> void:
+	if _look == null:
+		return
+	var key := JSON.stringify(look) if typeof(look) == TYPE_DICTIONARY else ""
+	if key == _look_key:
+		return
+	_look_key = key
+	if key == "":
+		_look.clear_look(0.15)
+	else:
+		_look.set_look(look, null, 0.15)
+
+
+## Probes: the look shown on the stage ({} without one).
+func look_state() -> Dictionary:
+	return _look.describe() if _look != null else {}
 
 
 ## The held weapon: rebuilt when the weapon, the rig or the project changes; with an attack, its

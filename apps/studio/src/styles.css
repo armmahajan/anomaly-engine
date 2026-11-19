@@ -1584,6 +1584,12 @@ body.resizing iframe {
 .handler-list { display: flex; flex-direction: column; gap: 3px; padding-left: 8px; }
 .handler-nested { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 2px 4px; border-left: 2px solid var(--border); }
 .handler-text { width: 7rem; }
+.handler-nested { align-items: center; }
+.handler-object { flex-basis: 100%; }
+.color-box { width: 2rem; height: 1.4rem; padding: 0; border: 1px solid var(--border); background: none; }
+.look-editor { margin-top: 4px; }
+.look-editor summary { cursor: pointer; font-size: 12px; }
+.look-fields { display: flex; flex-wrap: wrap; gap: 4px; border-left: none; padding: 0; }
 .link-button { background: none; border: none; padding: 0 2px; color: var(--accent); cursor: pointer; align-self: flex-start; }
 .inline-check { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; }
 

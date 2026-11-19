@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import { MovementAbility } from "../movement/params.ts";
-import { AnimTarget, EffectPlace } from "../art/animation.ts";
+import { AnimTarget, EffectPlace, Emitter, Look } from "../art/animation.ts";
 
 /**
  * Game logic is data: *handlers* bind an event to conditions and effects.
@@ -19,6 +19,7 @@ import { AnimTarget, EffectPlace } from "../art/animation.ts";
  */
 
 const Seconds = z.number().min(0).max(600);
+const Fade = z.number().min(0).max(5).default(0.2).describe("Seconds.");
 
 export const GameEvent = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("gameStarted") }).describe("A run begins (from the start, a playtest or a saved run)."),
@@ -42,6 +43,13 @@ export const GameEvent = z.discriminatedUnion("type", [
       from: AnimTarget.optional().describe("World/room handlers: only this one's clips."),
     })
     .describe("A clip reaches a marker. On a prop/spawn: its own clips."),
+  z
+    .strictObject({
+      type: z.literal("stateEntered"),
+      state: Id.optional(),
+      from: AnimTarget.optional().describe("World/room handlers: only this spawn."),
+    })
+    .describe("An enemy enters a behavior state (also its first, and interrupts). On a spawn: its own."),
 ]);
 export type GameEvent = z.infer<typeof GameEvent>;
 export type GameEventType = GameEvent["type"];
@@ -125,6 +133,38 @@ export const Effect = z.discriminatedUnion("type", [
       layer: z.enum(["back", "front"]).default("front"),
     })
     .describe("Show an object's clip once at a place (removed when it ends)."),
+  z
+    .strictObject({
+      type: z.literal("setLook"),
+      target: AnimTarget.default({ kind: "self" }),
+      look: Look,
+      seconds: z.number().min(0).max(60).nullable().default(null).describe("null = until clearLook or the room changes."),
+      fade: Fade,
+    })
+    .describe("Put a look on the target (replaces its last setLook)."),
+  z.strictObject({ type: z.literal("clearLook"), target: AnimTarget.default({ kind: "self" }), fade: Fade }).describe("Take the target's setLook off."),
+  z
+    .strictObject({
+      type: z.literal("emit"),
+      at: EffectPlace.default({ kind: "self" }),
+      offset: z.tuple([z.number().min(-2000).max(2000), z.number().min(-2000).max(2000)]).default([0, 0]),
+      emitter: Emitter,
+      seconds: z.number().min(0).max(30).default(0.5).describe("How long it emits (0 = burst only)."),
+      layer: z.enum(["back", "front"]).default("front"),
+    })
+    .describe("Emit particles at a place (follows a target)."),
+  z
+    .strictObject({
+      type: z.literal("dissolve"),
+      target: AnimTarget.default({ kind: "self" }),
+      to: z.enum(["out", "in"]).default("out").describe("out stays invisible until in (visual only)."),
+      seconds: z.number().min(0.05).max(5).default(0.4),
+      color: Color.default("#ffffff").describe("Edge."),
+    })
+    .describe("Dissolve the target out or back in."),
+  z
+    .strictObject({ type: z.literal("cameraZoom"), amount: z.number().min(0.5).max(3).default(1.15), seconds: z.number().min(0).max(5).default(0.3) })
+    .describe("Punch the camera in (amount x), easing back."),
 ]);
 export type Effect = z.infer<typeof Effect>;
 export type EffectType = Effect["type"];

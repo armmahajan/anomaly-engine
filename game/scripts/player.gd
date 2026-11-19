@@ -58,6 +58,10 @@ var _slash_hits: Array = []
 var _recoil := 0.0
 var _recoil_direction := 0.0
 var _rig: Node2D = null
+## Without a rig: the box it is drawn as (a child behind its own drawing, so looks can tint, scale and dissolve it).
+var _box: Node2D = null
+## Its looks (core art/animation.ts: setLook, dissolve): art/look_view.gd.
+var look: Node2D = null
 var _preview_clip := ""
 var _recoil_speed := RECOIL_SPEED
 ## The weapons (combat/arsenal.gd): loadout slots, picking attacks, combos, ammo. Its attacks run in
@@ -84,6 +88,7 @@ const CharacterArt := preload("res://scripts/art/character_art.gd")
 const PlayCamera := preload("res://scripts/play_camera.gd")
 const Arsenal := preload("res://scripts/combat/arsenal.gd")
 const WeaponRunner := preload("res://scripts/combat/weapon_runner.gd")
+const LookView := preload("res://scripts/art/look_view.gd")
 const WeaponView := preload("res://scripts/art/weapon_view.gd")
 
 # Movement. Mirrors packages/core/src/movement/simulate.ts `step` line for
@@ -192,12 +197,33 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 	add_child(_weapon_view)
 	arsenal.view = _weapon_view
 	_show_weapon()
+	if _rig == null:
+		_box = Node2D.new()
+		_box.show_behind_parent = true  # the sword swing (drawn by the player) stays on top
+		_box.draw.connect(_draw_box)
+		add_child(_box)
+	_setup_look(asset, art)
 
 	camera = PlayCamera.new()
 	camera.target = self
 	camera.rows = float(bounds.get("viewRows", 14))
 	camera.room_size = Vector2(float(bounds.width), float(bounds.height))
 	add_child(camera)
+
+
+## Its look view: the rig (or box) it is drawn as, its body's rectangle, afterimages as rig copies.
+func _setup_look(asset: Dictionary, art: Dictionary) -> void:
+	look = LookView.new()
+	add_child(look)
+	move_child(look, 0)
+	var drawn: Node2D = _rig if _rig != null else _box
+	look.setup(drawn, drawn, func(): return Rect2(Vector2(-_size.x / 2.0, -_size.y), _size))
+	look.base_color = _color
+	look.extras = [_weapon_view]
+	if _rig != null:
+		look.ghost_maker = func(): return CharacterArt.make_view(asset, art)
+	else:
+		look.own_scale = true
 
 
 func _tune(ability: String, key: String, fallback: float) -> float:
@@ -353,9 +379,11 @@ func _update_rig() -> void:
 	# The arm (or, without one, the held weapon) turns toward a mouse aim; set before posing.
 	if _weapon_view != null:
 		_weapon_view.set_aim_turn(_aim_turn() if attacking else 0.0)
+	if _box != null:
+		_box.queue_redraw()
 	if _rig == null:
 		return
-	_rig.scale.x = facing_sign()
+	_rig.scale = Vector2(facing_sign(), 1.0) * (look.scale_factor() if look != null else 1.0)
 	var blinking := _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07
 	_rig.modulate = Color(1, 0.45, 0.45, 0.6) if blinking else Color.WHITE
 	if _anim_clip != "" and _preview_clip == "":
@@ -775,6 +803,17 @@ func _show_weapon(weapon = null) -> void:
 		_weapon_view.set_weapon(weapon, _rig)
 
 
+## Without a rig: the placeholder box, its dash trail and its eye (on the `_box` child).
+func _draw_box() -> void:
+	var color := _color
+	if _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07:
+		color = Color(1, 0.35, 0.35, 0.55)
+	if _dashing:
+		_box.draw_rect(Rect2(-_size.x / 2.0 - _dash_dir * _size.x, -_size.y * 0.8, _size.x, _size.y * 0.6), Color(color, 0.3))
+	_box.draw_rect(Rect2(-_size.x / 2.0, -_size.y, _size.x, _size.y), color)
+	_box.draw_rect(Rect2(facing_sign() * _size.x * 0.18 - 3.0, -_size.y * 0.8, 6.0, 6.0), Color.BLACK)
+
+
 func center() -> Vector2:
 	return position - Vector2(0, _size.y / 2.0)
 
@@ -783,17 +822,11 @@ func _draw() -> void:
 	var color := _color
 	if _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07:
 		color = Color(1, 0.35, 0.35, 0.55)
-	# The placeholder box (and its dash trail) only when the character has no rig; ability cues always.
-	if _rig == null:
-		if _dashing:
-			draw_rect(Rect2(-_size.x / 2.0 - _dash_dir * _size.x, -_size.y * 0.8, _size.x, _size.y * 0.6), Color(color, 0.3))
-		draw_rect(Rect2(-_size.x / 2.0, -_size.y, _size.x, _size.y), color)
+	# The placeholder box (and its dash trail, _draw_box) only when the character has no rig; ability cues always.
 	if _gliding:
 		draw_line(Vector2(-_size.x * 1.2, -_size.y * 0.75), Vector2(_size.x * 1.2, -_size.y * 0.75), Color(color, 0.8), 3.0)
 	if _pounding:
 		draw_line(Vector2(0, 4), Vector2(0, 18), Color.WHITE, 3.0)
-	if _rig == null:
-		draw_rect(Rect2(facing_sign() * _size.x * 0.18 - 3.0, -_size.y * 0.8, 6.0, 6.0), Color.BLACK)
 	if _slash != "":
 		var area := slash_rect()
 		area.position -= position
