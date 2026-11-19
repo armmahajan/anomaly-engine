@@ -278,7 +278,7 @@ export function JobLog({
       )}
       {others.length > 0 && (
         <p className="hint" data-testid="art-others">
-          Also drawing: {others.map((o) => `${o.characterId ?? o.weaponId ?? o.biomeId ?? (o.stage === "worldKit" ? "a new biome" : o.stage)} (${o.stage})`).join(", ")}.
+          Also drawing: {others.map((o) => (o.stage === "gameArt" ? `the whole game${o.underLock ? " (the Architect)" : ""}` : `${o.characterId ?? o.weaponId ?? o.biomeId ?? (o.stage === "worldKit" ? "a new biome" : o.stage)} (${o.stage})`)).join(", ")}.
         </p>
       )}
       {art.queued > 0 && (

@@ -2,6 +2,7 @@ import type { ProjectSpec } from "../schema.ts";
 import { roomLinks, type RoomContent } from "./plan.ts";
 import type { StageIssue } from "./stages.ts";
 import { designedReach } from "../world/logic/gates.ts";
+import { usedWeapons } from "../art/gamePlan.ts";
 
 /**
  * Static checks of the plan before anything is built: what the plan stage (the
@@ -93,6 +94,12 @@ export function planIssues(project: ProjectSpec): { issues: StageIssue[]; toCast
 
   // Weapons the plan gives and gates with (the progression doesn't place them, so the plan alone must be right).
   for (const w of weaponGrantIssues(project)) issue(w.code, w.message, w.roomId);
+  for (const id of ungivenWeapons(project)) {
+    issue(
+      "unused-weapon",
+      `nothing gives the weapon "${id}" and no one wields it, so the player never gets it: give it once (a pickup whose grants is "${id}", or a guardian's grants) where its wiki page says; one the player starts with goes in the start room`,
+    );
+  }
 
   const characters = new Set(project.characters.map((c) => c.id));
   const toCast = [...new Set(plan.rooms.flatMap((r) => r.contents.flatMap((c) => (c.kind === "enemy" && !characters.has(c.characterId) ? [c.characterId] : []))))];
@@ -182,6 +189,16 @@ export function unguardedGrants(project: ProjectSpec): { ability: string; roomId
     if (room && planReach(project, new Set(requires)).has(room.id)) out.push({ ability: a.id, roomId: room.id, requires });
   }
   return out;
+}
+
+/**
+ * Weapons nobody ever gets: not in the starting loadout, not given by the plan (a pickup or a
+ * guardian's grants) or by the built world (a giveWeapon effect), and wielded by no enemy.
+ */
+export function ungivenWeapons(project: ProjectSpec): string[] {
+  const abilities = new Set(project.progression.abilities.map((a) => a.id));
+  const given = new Set([...project.architect.rooms.flatMap((r) => r.contents.flatMap(grantsOf)), ...usedWeapons(project).map((w) => w.id)]);
+  return project.weapons.list.map((w) => w.id).filter((id) => !abilities.has(id) && !given.has(id));
 }
 
 /** Weapon ids the loadout starts with. */

@@ -178,6 +178,8 @@ export class ArtService {
       characterId: r.request.characterId,
       biomeId: r.biomeId,
       weaponId: r.request.weaponId,
+      worldRoomId: r.request.worldRoomId,
+      modalId: r.request.modalId,
       startedAt: r.startedAt,
       cost: r.cost,
       activity: r.activity,
@@ -195,7 +197,9 @@ export class ArtService {
       queued: this.queue.length,
       pending: this.queue.flatMap(({ request }) => {
         const parsed = ArtJobRequest.safeParse(request);
-        return parsed.success ? [{ stage: parsed.data.stage, characterId: parsed.data.characterId, biomeId: parsed.data.biomeId }] : [];
+        if (!parsed.success) return [];
+        const { stage, characterId, biomeId, weaponId, worldRoomId, modalId } = parsed.data;
+        return [{ stage, characterId, biomeId, weaponId, worldRoomId, modalId }];
       }),
       totalCost: this.totalCost,
     };

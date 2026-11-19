@@ -40,6 +40,24 @@ function reachesTarget(attack: WeaponAttack, body: BodySize, size: BodySize): bo
   return aims.some((name) => attackHits(attack, AIM_VECTORS[name], body, lane(name, body, size)));
 }
 
+/** Weapons the player can hold: the loadout's starts and every giveWeapon (handlers and modal buttons). */
+export function heldWeaponIds(project: ProjectSpec): Set<string> {
+  const effects = [...allHandlers(project).flatMap(({ handlers }) => handlers.flatMap((h) => h.do)), ...project.world.modals.flatMap((m) => m.buttons.flatMap((b) => b.do))];
+  return new Set([...project.weapons.loadout.slots.flatMap((s) => (s.start ? [s.start] : [])), ...effects.flatMap((e) => (e.type === "giveWeapon" ? [e.weapon] : []))]);
+}
+
+/**
+ * The most health an enemy may have before the lint calls a weapon the player holds too weak
+ * (weapon_too_weak): MAX_HITS hits of the weakest held weapon's strongest attack. Null when the
+ * player holds no weapon that does damage.
+ */
+export function weaponHealthCap(project: ProjectSpec): number | null {
+  const held = heldWeaponIds(project);
+  const bests = project.weapons.list.filter((w) => held.has(w.id) && w.attacks.length > 0).map((w) => Math.max(...w.attacks.map((a) => a.damage)));
+  const usable = bests.filter((b) => b > 0);
+  return usable.length ? MAX_HITS * Math.min(...usable) : null;
+}
+
 export function lintWeapons(project: ProjectSpec): DomainWarning[] {
   const warnings: DomainWarning[] = [];
   const weapons = new Map(project.weapons.list.map((w) => [w.id, w]));
@@ -97,7 +115,7 @@ export function lintWeapons(project: ProjectSpec): DomainWarning[] {
   });
 
   // Weapons the player can hold: the loadout's starts and every giveWeapon.
-  const held = new Set([...project.weapons.loadout.slots.flatMap((s) => (s.start ? [s.start] : [])), ...effects.flatMap(({ effect: e }) => (e.type === "giveWeapon" ? [e.weapon] : []))]);
+  const held = heldWeaponIds(project);
   const smallest = enemies.reduce<EnemyCharacter | null>((best, e) => (best === null || e.size.width * e.size.height < best.size.width * best.size.height ? e : best), null);
   const spawned = new Set(project.world.rooms.flatMap((r) => r.spawns.map((s) => s.characterId)));
   const waitedOn = foughtFor(project);

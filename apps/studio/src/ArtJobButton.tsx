@@ -1,5 +1,12 @@
 import { useSyncExternalStore } from "react";
 import type { ArtJobRequest } from "@anomaly/core";
+
+const SUBJECTS = ["characterId", "biomeId", "weaponId", "worldRoomId", "modalId"] as const;
+
+/** A running or queued job is this request's job: the same stage, for the same character, biome, weapon, room or screen. */
+export function sameJob(job: Partial<Record<(typeof SUBJECTS)[number], string>> & { stage: string }, request: ArtJobRequest): boolean {
+  return job.stage === request.stage && SUBJECTS.every((k) => job[k] === undefined || request[k] === undefined || job[k] === request[k]);
+}
 import type { Session } from "./session.ts";
 
 /**
@@ -8,8 +15,8 @@ import type { Session } from "./session.ts";
  */
 export function ArtJobButton({ session, request, label, cost, locked, nothing }: { session: Session; request: ArtJobRequest; label: string; cost: string; locked: boolean; nothing?: string }) {
   const { art } = useSyncExternalStore(session.subscribe, session.getState);
-  // Jobs of other kinds run alongside (or queue behind what they conflict with); only the same kind of job blocks this button.
-  const running = art.runningJobs.some((j) => j.stage === request.stage) || art.pending.some((p) => p.stage === request.stage);
+  // Other jobs run alongside (or queue behind what they conflict with); only this same job (its stage, for the same subject) blocks the button.
+  const running = art.runningJobs.some((j) => sameJob(j, request)) || art.pending.some((p) => sameJob(p, request));
   const last = [...art.jobs].reverse().find((j) => j.stage === request.stage);
   const title = !art.available ? "Art generation is off (no model key)" : nothing ?? (running ? "This art job is running" : `About ${cost}`);
   return (

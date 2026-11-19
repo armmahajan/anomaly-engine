@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ARCHITECT_STAGES, STAGE_DESCRIPTIONS, type ArchitectRunRequest, type ArchitectStage, type ArchitectState, type ProjectSpec } from "@anomaly/core";
+import { ARCHITECT_STAGES, STAGE_DESCRIPTIONS, type ArchitectRunRequest, type ArchitectStage, type ArchitectState, type ArtState, type ProjectSpec } from "@anomaly/core";
+import { money } from "../ArtPanel.tsx";
 import type { Session } from "../session.ts";
 import { runReported, showRoom, startRun, stopRun, useRunControl } from "./ui.ts";
 
@@ -44,9 +45,11 @@ interface Props {
   session: Session;
   /** Edits refused (a playtest, or the AI/art/the Architect at work). */
   locked: boolean;
+  /** The art jobs, for the art stage's progress (its game-art job). */
+  art?: ArtState;
 }
 
-export function RunPanel({ project, architect, session, locked }: Props) {
+export function RunPanel({ project, architect, session, locked, art }: Props) {
   const plan = project.architect;
   const running = architect.running;
   const last = architect.last;
@@ -138,6 +141,7 @@ export function RunPanel({ project, architect, session, locked }: Props) {
                 )}
               </div>
               {record?.summary && <p className="arch-stage-summary">{record.summary}</p>}
+              {stage === "art" && running?.stage === "art" && art && <ArtProgress art={art} />}
               {details && <p className="arch-stage-desc">{STAGE_DESCRIPTIONS[stage]}</p>}
               {paused && !isLast && <div className="arch-pause-line">⏸ pauses here for review</div>}
             </li>
@@ -193,6 +197,32 @@ export function RunPanel({ project, architect, session, locked }: Props) {
         </details>
       )}
     </section>
+  );
+}
+
+/** The art stage's game-art job as it draws: steps started of the plan, spend, the latest activity. */
+export function ArtProgress({ art }: { art: ArtState }) {
+  const job = art.runningJobs.find((j) => j.stage === "gameArt");
+  if (!job) return <p className="arch-stage-summary">waiting for the art jobs running now…</p>;
+  const total = Number(job.activity.map((e) => /^plan: (\d+) steps/.exec(e.text)?.[1]).find(Boolean) ?? 0);
+  const started = job.activity.filter((e) => /^step \S+: /.test(e.text)).length;
+  const failed = job.activity.filter((e) => /^step \S+ failed: /.test(e.text)).length;
+  return (
+    <div className="arch-art-progress" data-testid="architect-art-progress">
+      <p className="arch-stage-summary">
+        {total ? `${started} of ${total} steps started` : "planning the art"}
+        {failed ? `, ${failed} failed` : ""} · {money(job.cost)}
+        {job.waiting ? ` · waiting (${job.waiting})` : ""}
+      </p>
+      <ol>
+        {job.activity
+          .slice(-4)
+          .reverse()
+          .map((e, i) => (
+            <li key={`${e.at}-${i}`}>{e.text}</li>
+          ))}
+      </ol>
+    </div>
   );
 }
 

@@ -266,6 +266,10 @@ export const ArtRunningJob = z.object({
   characterId: z.string().optional(),
   biomeId: z.string().optional(),
   weaponId: z.string().optional(),
+  /** propArt: the world room whose props it draws. */
+  worldRoomId: z.string().optional(),
+  /** modalArt: the screen it illustrates. */
+  modalId: z.string().optional(),
   startedAt: z.string(),
   cost: z.number(),
   activity: z.array(ArtActivityEntry),
@@ -293,7 +297,18 @@ export const ArtState = z.object({
   /** Jobs waiting to start (queued by the chat, the creator or the live cast): no free slot yet, or they touch what a running job touches. */
   queued: z.number().default(0),
   /** What those queued jobs are, in order. */
-  pending: z.array(z.object({ stage: ArtStage, characterId: z.string().optional(), biomeId: z.string().optional() })).default([]),
+  pending: z
+    .array(
+      z.object({
+        stage: ArtStage,
+        characterId: z.string().optional(),
+        biomeId: z.string().optional(),
+        weaponId: z.string().optional(),
+        worldRoomId: z.string().optional(),
+        modalId: z.string().optional(),
+      }),
+    )
+    .default([]),
   /** USD spent on art in this project. */
   totalCost: z.number(),
 });

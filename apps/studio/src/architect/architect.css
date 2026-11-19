@@ -936,3 +936,19 @@ button.arch-stop {
 .arch-stage-summary {
   color: var(--muted);
 }
+
+.arch-art-progress ol {
+  margin: 3px 0 0;
+  padding-left: 14px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.arch-art-progress li {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

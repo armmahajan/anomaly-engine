@@ -41,6 +41,15 @@ describe("the build assistant reads the design", () => {
     expect(progression.abilities.find((a: any) => a.id === "double_jump").givenAt).toEqual(["sanctum/guardian_1"]);
   });
 
+  it("reads a weapon in full: every attack's numbers, and who starts with or wields it", () => {
+    const base = fixtureReferenceProject();
+    const blade = { id: "blade", name: "Blade", attacks: [{ id: "cut", name: "Cut", shape: { type: "arc", radius: 60 }, damage: 3 }] };
+    const draft = new Draft(ProjectSpec.parse({ ...base, weapons: { ...base.weapons, list: [blade], loadout: { slots: [{ id: "main", label: "Main", action: "attack", start: "blade" }], cycle: false } } }));
+    expect(run(draft, "getWeapon", { weaponId: "blade" })).toMatchObject({ ok: true, weapon: { id: "blade", attacks: [{ id: "cut", damage: 3, shape: { type: "arc", radius: 60 } }] }, startsIn: ["main"] });
+    expect(run(draft, "getWeapon", { weaponId: "nope" }).error.message).toContain("known weapons: blade");
+    expect(summarizeProject(draft.current)).toContain("Weapons (getWeapon reads one in full): blade (cut)");
+  });
+
   it("queues character art without a brief when the wiki describes the character", () => {
     const draft = new Draft(fixtureReferenceProject(), true);
     expect(run(draft, "generateCharacterArt", { characterId: "guardian" })).toMatchObject({ ok: true });

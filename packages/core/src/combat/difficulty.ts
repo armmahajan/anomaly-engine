@@ -5,6 +5,7 @@ import type { WorldRoom as Room } from "../world/world.ts";
 import { progressionReport } from "../progression/report.ts";
 import { regionOrder } from "../architect/seedPlan.ts";
 import type { StageIssue, StageOutcome } from "../architect/stages.ts";
+import { weaponHealthCap } from "./weaponLint.ts";
 
 /**
  * Difficulty by region (agent M owns this file): enemy stats rise with how deep in
@@ -65,15 +66,19 @@ export function regionDepths(project: ProjectSpec): Record<string, number> {
   return Object.fromEntries(order.map((id) => [id, keys.indexOf(key(id).join(":"))]));
 }
 
-/** The stats and behavior of `original` at `depth` (depth 0: unchanged). */
-export function scaleEnemy(original: EnemyCharacter, depth: number): Pick<EnemyCharacter, "stats" | "behavior"> {
+/**
+ * The stats and behavior of `original` at `depth` (depth 0: unchanged). `healthCap`: scaled health
+ * stops there (the most the player's weapons can beat in a fair number of hits), though never
+ * below the original's own.
+ */
+export function scaleEnemy(original: EnemyCharacter, depth: number, healthCap: number | null = null): Pick<EnemyCharacter, "stats" | "behavior"> {
   if (depth <= 0) return { stats: original.stats, behavior: original.behavior };
   const c = DIFFICULTY_CURVE;
   const damage = (n: number, max: number) => (n <= 0 ? n : Math.min(max, Math.round(n * Math.min(c.damageMax, 1 + c.damage * depth))));
   const { health } = original.stats;
   const stats = {
     ...original.stats,
-    health: Math.min(999, Math.ceil(health * Math.min(c.healthMax, 1 + c.health * depth) - 1e-9)),
+    health: Math.max(health, Math.min(999, healthCap ?? 999, Math.ceil(health * Math.min(c.healthMax, 1 + c.health * depth) - 1e-9))),
     contactDamage: damage(original.stats.contactDamage, 20),
   };
   const speed = Math.min(c.speedMax, 1 + c.speed * depth);
@@ -206,6 +211,8 @@ export function difficultyStage(project: ProjectSpec): StageOutcome {
   const remade = new Set(ids.values());
   const regionName = (id: string) => folded.progression.regions.find((r) => r.id === id)?.name ?? id;
   const order = regionOrder(folded);
+  // Deeper enemies get tougher, but never past what the player's weakest weapon beats in a fair number of hits.
+  const healthCap = weaponHealthCap(folded);
 
   // Each original, then its variants by depth.
   const characters: Character[] = [];
@@ -218,7 +225,7 @@ export function difficultyStage(project: ProjectSpec): StageOutcome {
       const vid = variantId(c.id, d);
       const regions = [...(regionsAt.get(`${c.id}:${d}`) ?? [])].sort((a, b) => order.indexOf(a) - order.indexOf(b));
       const where = regions.length > 0 ? regions.map(regionName).join(", ") : `depth ${d}`;
-      const scaled = scaleEnemy(c, d);
+      const scaled = scaleEnemy(c, d, healthCap);
       const appearance = c.appearance ?? oldAppearance.get(vid);
       const variant: EnemyCharacter = mapActions(
         { ...structuredClone(c), id: vid, name: `${c.name} (${where})`.slice(0, 80), stats: scaled.stats, behavior: scaled.behavior, variantOf: c.id, ...(appearance ? { appearance } : {}) },

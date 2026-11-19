@@ -170,6 +170,27 @@ describe("the difficulty stage", () => {
     expect(summary).toMatch(/crawler_d2: health/);
   });
 
+  it("never scales health past what the player's weakest weapon beats in MAX_HITS hits, nor below what the creator wrote", () => {
+    const base = game();
+    const blade = { id: "blade", name: "Blade", attacks: [{ id: "cut", name: "Cut", shape: { type: "arc", radius: 60 }, damage: 1 }] };
+    const armed = (health: number) =>
+      ProjectSpec.parse({
+        ...base,
+        characters: base.characters.map((c) => (c.id === "crawler" && c.kind === "enemy" ? { ...c, stats: { ...c.stats, health } } : c)),
+        weapons: { ...base.weapons, list: [blade], loadout: { slots: [{ id: "main", label: "Main", action: "attack", start: "blade" }], cycle: false } },
+      });
+    // 38 health deeper would be 50 (x1.3) and 61 (x1.6): capped at 40 hits of 1 damage.
+    const capped = difficultyStage(armed(38)).project;
+    expect(enemy(capped, "crawler_d1").stats.health).toBe(40);
+    expect(enemy(capped, "crawler_d2").stats.health).toBe(40);
+    expect(lintProject(capped).map((w) => w.code)).not.toContain("weapon_too_weak");
+    // Written tougher than the cap: the variants keep the creator's number (and the lint says so).
+    const tough = difficultyStage(armed(50)).project;
+    expect(enemy(tough, "crawler_d2").stats.health).toBe(50);
+    // Without weapons nothing changes.
+    expect(enemy(difficultyStage(base).project, "crawler_d2").stats.health).toBe(scaleEnemy(enemy(base, "crawler"), 2).stats.health);
+  });
+
   it("keeps game logic: handlers that name a character follow its variants, and the game is still beatable", () => {
     const before = game();
     const { project: p } = difficultyStage(before);

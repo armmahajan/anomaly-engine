@@ -156,6 +156,30 @@ describe("the Architect's weapon grants", () => {
     expect(verifyStage(armedPlan(base, without("thorn_whip"))).issues).toContainEqual(expect.objectContaining({ stage: "plan", code: "weapon-ungranted" }));
   });
 
+  it("a weapon nothing gives, the loadout doesn't start with and no enemy wields is flagged (the player would never get it)", () => {
+    const base = design();
+    const plain = (plan: ArchitectPlan): ArchitectPlan => ({
+      ...plan,
+      rooms: plan.rooms.map((r) => ({ ...r, contents: r.contents.flatMap((c): RoomContent[] => (c.kind === "pickup" && c.grants === "ember_blade" ? [] : c.kind === "enemy" ? [{ ...c, grants: c.grants.filter((g) => g !== "ember_blade") }] : [c])) })),
+      links: plan.links.map((l) => ({ ...l, requires: l.requires.filter((r) => r !== "ember_blade") })),
+    });
+    const ungiven = armedPlan(base, plain);
+    expect(planIssues(ungiven).issues).toContainEqual(expect.objectContaining({ code: "unused-weapon", message: expect.stringContaining('"ember_blade"') }));
+    // Not an issue the run blocks or verify sends back: the creator may keep a weapon for later.
+    expect(verifyStage(ungiven).issues.map((i) => i.code)).not.toContain("unused-weapon");
+    // An enemy wielding it, or the loadout starting with it, uses it.
+    const enemy = ungiven.characters.find((c) => c.kind === "enemy")!;
+    if (enemy.kind !== "enemy") throw new Error("the reference project has an enemy");
+    const wielded = ProjectSpec.parse({
+      ...ungiven,
+      characters: ungiven.characters.map((c) => (c.id === enemy.id && c.kind === "enemy" ? { ...c, behavior: { ...c.behavior, states: { ...c.behavior.states, [c.behavior.initial]: { ...c.behavior.states[c.behavior.initial]!, action: { type: "useWeapon", weapon: "ember_blade" } } } } } : c)),
+    });
+    expect(codes(wielded)).not.toContain("unused-weapon");
+    const starting = ProjectSpec.parse({ ...ungiven, weapons: { ...ungiven.weapons, loadout: { slots: [{ id: "main", label: "Main", action: "attack", start: "ember_blade" }], cycle: false } } });
+    expect(codes(starting)).not.toContain("unused-weapon");
+    expect(codes(armedPlan(base))).not.toContain("unused-weapon");
+  });
+
   it("population gives weapons with giveWeapon and a message, and bars a weapon gate's door until the player has it", () => {
     const built = build(armedPlan(design()));
     const start = built.world.rooms.find((r) => r.id === "undercroft_1")!;

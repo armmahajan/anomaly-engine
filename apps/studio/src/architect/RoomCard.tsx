@@ -51,7 +51,7 @@ export function RoomCard({ room, project, architect, session, run, expanded, foc
   const update = (changes: Record<string, unknown>) => run("updateRoomPlan", { roomId: room.id, changes });
   const built = project.world.rooms.some((r) => r.id === room.id);
   const rebuilding = architect.running?.rooms?.includes(room.id) ?? false;
-  const abilities = project.progression.abilities.map((a) => ({ id: a.id, name: a.name }));
+  const abilities = grantables(project);
   const abilityName = (id: string) => abilities.find((a) => a.id === id)?.name ?? id;
   const characterName = (id: string) => project.characters.find((c) => c.id === id)?.name ?? id;
 
@@ -196,7 +196,7 @@ type Update = (changes: Record<string, unknown>) => Promise<boolean>;
 
 function ContentsEditor({ room, project, ro, update }: { room: RoomPlan; project: ProjectSpec; ro: boolean; update: Update }) {
   const contents = room.contents;
-  const abilities = project.progression.abilities;
+  const abilities = grantables(project);
   const region = project.progression.regions.find((r) => r.id === room.regionId);
   const enemies = project.characters.filter((c) => c.kind === "enemy");
   const save = (next: RoomContent[]) => update({ contents: next });
@@ -265,7 +265,7 @@ function ContentsEditor({ room, project, ro, update }: { room: RoomPlan; project
         <button type="button" disabled={ro || full} onClick={() => add(newEnemy())}>
           + Enemy
         </button>
-        <button type="button" disabled={ro || full || abilities.length === 0} title={abilities.length ? undefined : "The progression has no abilities or keys yet"} onClick={() => add(newPickup())}>
+        <button type="button" disabled={ro || full || abilities.length === 0} title={abilities.length ? "Gives an ability, a key or a weapon" : "The progression has no abilities or keys, and the game no weapons, yet"} onClick={() => add(newPickup())}>
           + Pickup
         </button>
         <button type="button" disabled={ro || full} onClick={() => add({ kind: "save" })}>
@@ -284,9 +284,16 @@ function ContentsEditor({ room, project, ro, update }: { room: RoomPlan; project
 
 type Enemy = Extract<RoomContent, { kind: "enemy" }>;
 
+/** What a pickup or a guardian can give, and a link can require: the progression's abilities and keys, then the game's weapons. */
+function grantables(project: ProjectSpec): { id: string; name: string }[] {
+  const abilities = project.progression.abilities.map((a) => ({ id: a.id, name: a.name }));
+  const taken = new Set(abilities.map((a) => a.id));
+  return [...abilities, ...project.weapons.list.filter((w) => !taken.has(w.id)).map((w) => ({ id: w.id, name: `${w.name} (weapon)` }))];
+}
+
 function EnemyRow({ content: c, project, ro, onChange }: { content: Enemy; project: ProjectSpec; ro: boolean; onChange: (c: Enemy) => Promise<boolean> }) {
   const exists = project.characters.some((ch) => ch.id === c.characterId && ch.kind === "enemy");
-  const abilities = project.progression.abilities.map((a) => ({ id: a.id, name: a.name }));
+  const abilities = grantables(project);
   return (
     <div className="enemy-row">
       <div className="enemy-line">

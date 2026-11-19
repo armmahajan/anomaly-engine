@@ -421,7 +421,7 @@ export function App({ session }: { session: Session }) {
 
       {tab === "architect" ? (
         <SidePanel label="Architect" resize={sideResize} footer={problem}>
-          <ArchitectSidebar project={project} architect={state.architect} session={session} locked={locked} live={state.live} />
+          <ArchitectSidebar project={project} architect={state.architect} session={session} locked={locked} live={state.live} art={state.art} />
         </SidePanel>
       ) : tab === "wiki" ? (
         <SidePanel label="Wiki pages" resize={sideResize} footer={problem}>

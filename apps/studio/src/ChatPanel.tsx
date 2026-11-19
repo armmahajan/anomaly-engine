@@ -46,6 +46,8 @@ const drafts = new Map<AgentId, string>();
 
 const WIDTH_KEY = "anomaly.chatWidth";
 const WIDTH_DEFAULT = 420;
+/** How long after a turn starts its Stop button arms (it appears where Send was). */
+const STOP_ARM_MS = 700;
 const WIDTH_MIN = 300;
 const WIDTH_MAX = 800;
 
@@ -164,6 +166,14 @@ export function ChatPanel({ session, agent, chat, revision, canUndo, playing, co
         ? "Game art is being made; you can send when it's done."
         : null;
   const busy = sending || running || blockedBy !== null;
+  // Stop takes Send's place: it arms a moment after the turn starts, so a click meant for Send can't stop it.
+  const [stopArmed, setStopArmed] = useState(false);
+  useEffect(() => {
+    setStopArmed(false);
+    if (!running) return;
+    const t = window.setTimeout(() => setStopArmed(true), STOP_ARM_MS);
+    return () => window.clearTimeout(t);
+  }, [running]);
   const canAct = connected && !busy;
 
   // Follow new messages only while the log is scrolled to the bottom (don't yank someone reading).
@@ -218,9 +228,13 @@ export function ChatPanel({ session, agent, chat, revision, canUndo, playing, co
   const send = async () => {
     const message = draft.trim();
     if (!message || busy || !connected) return;
+    // Cleared at once, so it shows as sent (and a second press has nothing to send); put back if it fails.
+    setDraft("");
     const failed = await sendMessage(message);
-    if (failed) setError(failed);
-    else setDraft("");
+    if (failed) {
+      setError(failed);
+      setDraft(message);
+    }
     inputRef.current?.focus();
   };
 
@@ -395,7 +409,7 @@ export function ChatPanel({ session, agent, chat, revision, canUndo, playing, co
             disabled={!connected}
           />
           {running ? (
-            <button type="button" className="chat-send chat-stop" onClick={() => void session.cancelChat(agent)} title="Stop this turn; nothing it did is saved">
+            <button type="button" className="chat-send chat-stop" disabled={!stopArmed} onClick={() => void session.cancelChat(agent)} title="Stop this turn; nothing it did is saved">
               <span aria-hidden>■</span> Stop
             </button>
           ) : (
