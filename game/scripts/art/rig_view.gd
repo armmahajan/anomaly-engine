@@ -520,7 +520,11 @@ func _find_shoulders(parts: Variant) -> void:
 			limb = limb.slice(0, n)
 		else:
 			limb = limb.slice(0, maxi(1, limb.size() - 1))
-		_shoulders[id] = str(limb.back()) if not limb.is_empty() else ""
+		var shoulder: String = str(limb.back()) if not limb.is_empty() else ""
+		# A grip on the body itself (not an arm, right under the root): turn the weapon, not the body.
+		if shoulder != "" and limb.size() == 1 and not _is_arm_bone(shoulder, part_names) and path.size() <= 2:
+			shoulder = ""
+		_shoulders[id] = shoulder
 
 
 static var _arm_word: RegEx = RegEx.create_from_string("^((fore|upper|lower|up|low)?arms?|forearm[lr]?|arm[lr]|hands?|hand[lr]|wrists?|fists?|elbows?|palms?|claws?|paws?|grip)$")
