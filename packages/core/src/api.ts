@@ -188,6 +188,8 @@ export const ArtJobRequest = z
   .strictObject({
     stage: ArtStage,
     characterId: Id.optional(),
+    /** An object asset (subject object) to draw instead of a character: stages concepts, choose, rig, animate, auto (animation target). */
+    objectId: Id.optional(),
     biomeId: Id.optional(),
     /** New biome / room name. */
     name: z.string().trim().max(80).optional(),
@@ -221,7 +223,8 @@ export const ArtJobRequest = z
   })
   .superRefine((r, ctx) => {
     const world = WORLD_STAGES.includes(r.stage);
-    if (CHARACTER_STAGES.includes(r.stage) && !r.characterId) ctx.addIssue({ code: "custom", path: ["characterId"], message: `${r.stage} needs a characterId` });
+    if (CHARACTER_STAGES.includes(r.stage) && !r.characterId && !r.objectId) ctx.addIssue({ code: "custom", path: ["characterId"], message: `${r.stage} needs a characterId (or an objectId)` });
+    if (r.characterId && r.objectId) ctx.addIssue({ code: "custom", path: ["objectId"], message: "give a characterId or an objectId, not both" });
     if (r.stage === "propArt" && !r.worldRoomId) ctx.addIssue({ code: "custom", path: ["worldRoomId"], message: "propArt needs a worldRoomId" });
     if (r.stage === "weaponArt" && !r.weaponId) ctx.addIssue({ code: "custom", path: ["weaponId"], message: "weaponArt needs a weaponId" });
     if (r.stage === "modalArt" && !r.modalId) ctx.addIssue({ code: "custom", path: ["modalId"], message: "modalArt needs a modalId" });
@@ -244,8 +247,9 @@ export const ArtJobOutcome = z.enum(["committed", "failed", "cancelled", "over_b
 export const ArtJobSummary = z.object({
   id: z.string(),
   stage: ArtStage,
-  /** The character or biome the job worked on. */
+  /** The character, object or biome the job worked on. */
   characterId: z.string().optional(),
+  objectId: z.string().optional(),
   biomeId: z.string().optional(),
   at: z.string(),
   outcome: ArtJobOutcome,
@@ -264,6 +268,7 @@ export const ArtRunningJob = z.object({
   id: z.string(),
   stage: ArtStage,
   characterId: z.string().optional(),
+  objectId: z.string().optional(),
   biomeId: z.string().optional(),
   weaponId: z.string().optional(),
   /** propArt: the world room whose props it draws. */
@@ -302,6 +307,7 @@ export const ArtState = z.object({
       z.object({
         stage: ArtStage,
         characterId: z.string().optional(),
+        objectId: z.string().optional(),
         biomeId: z.string().optional(),
         weaponId: z.string().optional(),
         worldRoomId: z.string().optional(),

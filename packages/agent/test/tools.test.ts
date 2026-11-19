@@ -23,8 +23,9 @@ describe("tool definitions", () => {
   it("are plain JSON a provider can accept", () => {
     expect(JSON.parse(JSON.stringify(definitions))).toEqual(definitions);
     // 40k before the game-world tools (+7.6k), handlers (+1.7k), props, modals, combat and controls; weapons +11k
-    // (setWeaponAttack carries the attack schema once; createWeapon stays small). Keep new domains this lean.
-    expect(JSON.stringify(definitions).length).toBeLessThan(72_000);
+    // (setWeaponAttack carries the attack schema once; createWeapon stays small); animation +3.5k (the projectile
+    // look in setBehavior's shoot and setWeaponAttack's projectile, createObject, setClipMarkers). Keep new domains this lean.
+    expect(JSON.stringify(definitions).length).toBeLessThan(76_000);
     expect(JSON.stringify(toolDefinitions(NARRATIVE_TOOLS)).length).toBeLessThan(40_000);
   });
 

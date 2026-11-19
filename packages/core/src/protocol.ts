@@ -19,7 +19,7 @@ import type { ControlOverrides } from "./controls/controls.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -97,6 +97,19 @@ export type Stage =
       weapon?: { id: string; attack?: string | null } | null;
     }
   | StageWorld
+  /**
+   * One object asset (subject object) large on a neutral stage (the Characters tab's Objects): the
+   * same framing and controls as the character stage, without a character or weapons.
+   */
+  | {
+      mode: "object";
+      assetId: string;
+      clip: string | null;
+      time: number | null;
+      speed: number;
+      bones: boolean;
+      onion: { image: string | null; alpha: number };
+    }
   /** One game-world room, frozen, for editing (Rooms mode). */
   | { mode: "room"; roomId: string };
 
@@ -158,6 +171,8 @@ const EntityState = z.object({
   health: z.number(),
   /** Enemies running an attack action: "windup" | "active" | "recovery" (the art picks clips by it). */
   phase: z.string().nullable().default(null),
+  /** The clip a playAnimation is playing on it (until it ends), else null. */
+  playing: z.string().nullable().default(null),
 });
 export type EntityState = z.infer<typeof EntityState>;
 
@@ -180,7 +195,7 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     /** Times the player has died (and the run restarted) since play began. */
     deaths: z.number(),
     /** What the runtime is showing (see Stage). */
-    stage: z.enum(["game", "character", "world", "room"]).default("game"),
+    stage: z.enum(["game", "character", "world", "room", "object"]).default("game"),
     /** The room shown is drawn with its biome dressing. */
     dressed: z.boolean().default(false),
     entities: z.array(EntityState),
@@ -199,7 +214,15 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     /** Spawns whose health bars are on screen, top first. */
     healthBars: z.array(z.string()).default([]),
     /** Props in the current room as the run sees them (id, visible, solid). */
-    props: z.array(z.object({ id: z.string(), visible: z.boolean(), solid: z.boolean() })).default([]),
+    props: z.array(z.object({ id: z.string(), visible: z.boolean(), solid: z.boolean(), playing: z.string().nullable().default(null) })).default([]),
+    /** Play: the clip a playAnimation is playing on the player, else null. */
+    playerPlaying: z.string().nullable().default(null),
+    /** Play: spawnEffect effects alive in the current room (room px, their centre). */
+    effects: z.array(z.object({ object: z.string(), clip: z.string(), x: z.number(), y: z.number() })).default([]),
+    /** Play: marker events fired this run, oldest first (at most the last 50): the marker's name and what played it ("prop:<id>", "spawn:<id>", "player", "effect:<object>"). */
+    markers: z.array(z.object({ name: z.string(), from: z.string() })).default([]),
+    /** Play: projectiles alive (room px). `charging`: still at its origin during its shooter's windup (appear windup). */
+    projectiles: z.array(z.object({ x: z.number(), y: z.number(), charging: z.boolean(), object: z.string().nullable(), owner: z.string() })).default([]),
     /** Where the camera looks (room px, the view's centre) and its zoom (screen px per room px). */
     camera: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).nullable().default(null),
     /** The keyboard keys in effect per action (the game's, with the player's overrides), by key name. */

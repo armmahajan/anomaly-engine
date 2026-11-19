@@ -27,6 +27,8 @@ test("a modal authored in the Game tab opens on entering a room, and its button 
   await expect.poll(async () => (await project(page)).world.modals[0]!.buttons).toEqual([{ label: "Continue", do: [] }]);
   await commit(page, panel.getByLabel("button 0 label"), "Open");
   await panel.getByRole("button", { name: "add button 0 effect" }).click();
+  // The new effect is its own edit: wait for it before editing its flag.
+  await expect.poll(async () => (await project(page)).world.modals[0]!.buttons[0]!.do).toHaveLength(1);
   await commit(page, panel.getByLabel("button 0 effect 0 flag"), "opened");
   expect((await project(page)).world.modals[0]).toEqual({
     id: "new_modal",

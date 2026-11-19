@@ -212,6 +212,8 @@ static func _valid_param(kind: String, value: Variant) -> bool:
 			return typeof(value) == TYPE_STRING and value != ""
 		"id?":
 			return value == null or (typeof(value) == TYPE_STRING and value != "")
+		"object":
+			return typeof(value) == TYPE_DICTIONARY
 	if kind.begins_with("enum:"):
 		return typeof(value) == TYPE_STRING and value in kind.substr(5).split("|")
 	return false

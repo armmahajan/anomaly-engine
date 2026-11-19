@@ -101,7 +101,7 @@ const shot: WeaponAttack = {
   ...swing,
   id: "shot",
   name: "Shot",
-  shape: { type: "projectile", projectile: { speed: 700, gravity: 0, count: 1, spread: 0, lifetime: 1.2, pierce: 0, size: 12, color: "#ffffff", sprite: null } },
+  shape: { type: "projectile", projectile: { speed: 700, gravity: 0, count: 1, spread: 0, lifetime: 1.2, pierce: 0, size: 12, color: "#ffffff", sprite: null, look: { origin: [0, 0], appear: "fire", art: null } } },
   timing: { windup: 0.15, active: 0.06, recovery: 0.25 },
 };
 

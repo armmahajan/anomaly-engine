@@ -8,6 +8,7 @@ import { lintCombat } from "./combat/lint.ts";
 import { lintWeapons } from "./combat/weaponLint.ts";
 import { lintProgressionWorld } from "./progression/lint.ts";
 import { lintPlatforms } from "./world/platformLint.ts";
+import { lintAnimation } from "./art/objectLint.ts";
 import { lintLegibility } from "./architect/population/lint.ts";
 
 /**
@@ -122,6 +123,6 @@ export function lintProject(project: ProjectSpec): ProjectWarning[] {
     }
   });
 
-  warnings.push(...lintArt(project), ...lintEvents(project), ...lintProps(project), ...lintModals(project), ...lintCombat(project), ...lintWeapons(project), ...lintProgressionWorld(project), ...lintPlatforms(project), ...lintLegibility(project));
+  warnings.push(...lintArt(project), ...lintAnimation(project), ...lintEvents(project), ...lintProps(project), ...lintModals(project), ...lintCombat(project), ...lintWeapons(project), ...lintProgressionWorld(project), ...lintPlatforms(project), ...lintLegibility(project));
   return warnings;
 }

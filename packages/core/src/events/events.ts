@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import { MovementAbility } from "../movement/params.ts";
+import { AnimTarget, EffectPlace } from "../art/animation.ts";
 
 /**
  * Game logic is data: *handlers* bind an event to conditions and effects.
@@ -34,6 +35,13 @@ export const GameEvent = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("interact") }).describe("Prop: the player presses interact (Up / W) while overlapping it."),
   z.strictObject({ type: z.literal("hit") }).describe("Prop: the player's sword strikes it."),
   z.strictObject({ type: z.literal("destroyed") }).describe("Prop: its health (hits) runs out."),
+  z
+    .strictObject({
+      type: z.literal("marker"),
+      name: Id.optional(),
+      from: AnimTarget.optional().describe("World/room handlers: only this one's clips."),
+    })
+    .describe("A clip reaches a marker. On a prop/spawn: its own clips."),
 ]);
 export type GameEvent = z.infer<typeof GameEvent>;
 export type GameEventType = GameEvent["type"];
@@ -98,6 +106,25 @@ export const Effect = z.discriminatedUnion("type", [
   z
     .strictObject({ type: z.literal("slowMotion"), scale: z.number().min(0.05).max(1).default(0.3), seconds: z.number().min(0).max(5).default(0.8) })
     .describe("Slow time to `scale` for `seconds` (real time)."),
+  z
+    .strictObject({
+      type: z.literal("playAnimation"),
+      target: AnimTarget.default({ kind: "self" }),
+      clip: Id,
+      then: z.enum(["idle", "hold"]).default("idle").describe("After a one-shot clip: usual clips, or hold the last frame."),
+    })
+    .describe("Play a clip of the target's art; its markers fire marker events."),
+  z
+    .strictObject({
+      type: z.literal("spawnEffect"),
+      object: Id,
+      clip: Id.default("idle"),
+      at: EffectPlace.default({ kind: "self" }),
+      offset: z.tuple([z.number().min(-2000).max(2000), z.number().min(-2000).max(2000)]).default([0, 0]),
+      scale: z.number().min(0.1).max(8).default(1),
+      layer: z.enum(["back", "front"]).default("front"),
+    })
+    .describe("Show an object's clip once at a place (removed when it ends)."),
 ]);
 export type Effect = z.infer<typeof Effect>;
 export type EffectType = Effect["type"];

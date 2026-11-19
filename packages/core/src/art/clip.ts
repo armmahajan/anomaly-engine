@@ -62,6 +62,13 @@ export const Motion = z
   .describe("An animation primitive, added on top of keyframed tracks.");
 export type Motion = z.infer<typeof Motion>;
 
+/** A named moment in a clip: reaching it in play fires a `marker` event (events.ts). */
+export const ClipMarker = z.strictObject({
+  t: T.describe("When, as normalized clip time 0..1."),
+  name: Id.describe("What happens then, e.g. strike, release, impact."),
+});
+export type ClipMarker = z.infer<typeof ClipMarker>;
+
 export const PartVisibility = z.strictObject({
   part: Id,
   keys: z.array(z.tuple([T, z.boolean()])).min(1).max(32).describe("[t, visible] pairs: the part shows/hides at each t."),
@@ -74,6 +81,7 @@ export const Clip = z.strictObject({
   motions: z.array(Motion).max(64).default([]),
   visibility: z.array(PartVisibility).max(32).default([]).describe("Show/hide parts over time: blinks, smears, effects."),
   direction: z.string().max(600).optional().describe("What the creator asked this animation to be (kept to redo it: the animation list)."),
+  markers: z.array(ClipMarker).max(16).default([]).describe("Named moments that fire marker events in play (a strike landing, a lever clicking)."),
 });
 export type Clip = z.infer<typeof Clip>;
 

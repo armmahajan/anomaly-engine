@@ -4,7 +4,8 @@ import { Color, Id } from "../common.ts";
 import type { OperationError, OperationResult } from "../operations.ts";
 import { ProjectSpec } from "../schema.ts";
 import { ArtDirection, Asset, ConceptSheet, FileRef, Preview, type CharacterAsset } from "./asset.ts";
-import { Clip } from "./clip.ts";
+import { Clip, ClipMarker } from "./clip.ts";
+import { objectUses } from "./objects.ts";
 import { Part, Rig } from "./rig.ts";
 import { undress } from "./worldOperations.ts";
 
@@ -88,6 +89,7 @@ export const CreateAssetInput = z.strictObject({
     id: Id,
     name: z.string(),
     kind: z.enum(["character", "biome"]),
+    subject: z.enum(["character", "object"]).optional(),
     brief: z.string(),
   }),
   assignTo: Id.optional().describe("Character id to draw with this asset right away."),
@@ -132,6 +134,8 @@ export function deleteAsset(project: ProjectSpec, input: unknown): OperationResu
   if (!p.ok) return p;
   const found = findAsset(project, p.data.assetId);
   if (!found.ok) return found;
+  const uses = objectUses(project).filter((u) => u.object === p.data.assetId);
+  if (uses.length > 0) return fail("invalid_input", `object "${p.data.assetId}" is still used by ${[...new Set(uses.map((u) => u.what))].join(", ")}; change those first`);
   const characters = project.characters.map((c) => {
     if (c.appearance !== p.data.assetId) return c;
     const { appearance: _removed, ...rest } = c;
@@ -324,6 +328,40 @@ export function setStateClip(project: ProjectSpec, input: unknown): OperationRes
   return replaceAsset(project, found.index, { ...found.asset, stateClips }, `asset "${assetId}"`);
 }
 
+// --- objects ---------------------------------------------------------------
+
+export const CreateObjectInput = z.strictObject({
+  id: Id,
+  name: z.string().min(1).max(80),
+  brief: z.string().max(2000).describe("What it is and looks like, in plain words (a rusted floor lever; a crackling shockwave ring)."),
+});
+
+/** Add an object asset (subject object): a rigged, animated thing props, effects and projectiles draw with. Drawn by its art job. */
+export function createObject(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(CreateObjectInput, input, "createObject");
+  if (!p.ok) return p;
+  return createAsset(project, { asset: { id: p.data.id, name: p.data.name, kind: "character", subject: "object", brief: p.data.brief } });
+}
+
+export const SetClipMarkersInput = z.strictObject({
+  assetId: Id,
+  clipId: Id,
+  markers: z.array(ClipMarker).max(16).describe("Replaces the clip's markers (normalized time 0..1)."),
+});
+
+/** Set a clip's markers (named moments that fire marker events in play). */
+export function setClipMarkers(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(SetClipMarkersInput, input, "setClipMarkers");
+  if (!p.ok) return p;
+  const { assetId, clipId } = p.data;
+  const found = findCharacterAsset(project, assetId);
+  if (!found.ok) return found;
+  const clip = found.asset.clips[clipId];
+  if (!clip) return fail("not_found", `asset "${assetId}" has no clip "${clipId}"${list(Object.keys(found.asset.clips))}`);
+  const markers = [...p.data.markers].sort((a, b) => a.t - b.t);
+  return replaceAsset(project, found.index, { ...found.asset, clips: { ...found.asset.clips, [clipId]: { ...clip, markers } } }, `asset "${assetId}"`);
+}
+
 export const artOperations = {
   setArtDirection,
   createAsset,
@@ -336,4 +374,6 @@ export const artOperations = {
   updatePart,
   setClip,
   setStateClip,
+  createObject,
+  setClipMarkers,
 } satisfies Record<string, (project: ProjectSpec, input: unknown) => OperationResult>;

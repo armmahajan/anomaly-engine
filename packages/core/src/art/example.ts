@@ -111,6 +111,7 @@ export function exampleClips(): Record<string, Clip> {
         { type: "sway", bone: "head", degrees: 3, cycles: 1, phase: 0.25 },
       ],
       visibility: [{ part: "eye", keys: [[0, true], [0.9, false], [0.95, true]] }],
+      markers: [],
     },
     walk: {
       duration: 0.6,
@@ -118,6 +119,7 @@ export function exampleClips(): Record<string, Clip> {
       tracks: [],
       motions: [...legs(22, 2), { type: "bob", bone: "body", amount: 1.2, cycles: 4, phase: 0 }],
       visibility: [],
+      markers: [],
     },
     windup: {
       duration: 0.6,
@@ -128,6 +130,7 @@ export function exampleClips(): Record<string, Clip> {
       ],
       motions: [{ type: "shake", bone: "body", amount: 0.8 }, { type: "squash", bone: "body", amount: 0.12, at: 0.8, width: 0.4 }],
       visibility: [],
+      markers: [],
     },
     attack: {
       duration: 0.36,
@@ -135,6 +138,7 @@ export function exampleClips(): Record<string, Clip> {
       tracks: [{ bone: "body", property: "rotate", keys: [[0, 8], [1, 8]], ease: "step" }],
       motions: [...legs(32, 3), { type: "bob", bone: "body", amount: 1.5, cycles: 6, phase: 0 }],
       visibility: [],
+      markers: [],
     },
     // Plays once and holds: rears up from the blow, slumps, legs curl, the eye goes dark.
     death: {
@@ -150,6 +154,7 @@ export function exampleClips(): Record<string, Clip> {
       ],
       motions: [{ type: "squash", bone: "body", amount: 0.2, at: 0.62, width: 0.3 }],
       visibility: [{ part: "eye", keys: [[0, true], [0.55, false]] }],
+      markers: [],
     },
   };
 }

@@ -823,6 +823,36 @@ runs the same runner):
   through `game/tests/aim_probe.gd`), `game/test/logic.test.ts` (the mirror with weapons),
   `packages/core/test/weaponModel.test.ts`, `weaponCheck.test.ts`, `weaponLint.test.ts`.
 
+## Animation in play (target 9)
+
+Anything with a rig can play its clips on cue (`packages/core/src/art/animation.ts`); nothing names a role.
+
+- **Objects.** An *object* is an animated asset that isn't a game character: a character asset with
+  `subject: "object"` (a lever, a trap, a shockwave, a bolt). Its brief says what it is. It is drawn by the
+  same pipeline as characters (concepts, choose, flat redraw, rig, clips; the rig plans parts and hinges,
+  not limbs) and edited with the same animation list and bone editor. Operations: `createObject {id, name,
+  brief}`; `deleteAsset` refuses an object still in use (`objectUses`).
+- **Props** draw with a kit piece (`art: {biome, piece}`) or an object (`art: {object, idle, scale}`),
+  which loops its `idle` clip.
+- **Effects** (any handler): `playAnimation {target, clip, then}` plays a clip on `self` (the prop or spawn
+  whose handler it is), the `player`, a `prop` or a `spawn` of the room, then goes back to its usual clips
+  (`then: idle`) or holds the last frame (`hold`). `spawnEffect {object, clip, at, offset, scale, layer}`
+  shows an object once at a target or a room `point`; it is removed when a clip that doesn't loop ends.
+- **Markers.** Clips carry `markers: [{t, name}]` (normalized time). Reaching one in play fires
+  `{type: "marker", name, from}`: a prop's or spawn's handlers hear the markers of its own clips; world and
+  room handlers hear every marker, filtered by `name` and `from`. `setClipMarkers` edits them.
+- **Projectiles.** Weapon projectiles and the enemy `shoot` action take a `look`: `origin` (px from the
+  shooter's centre, facing right), `appear` (`fire`, or `windup`: it sits at its origin playing `charge`
+  through the windup, then launches and plays `fly`), and `art` (an object with `charge`, `fly`, `burst`
+  clips; burst plays as an effect where it breaks). The defaults keep old projects as they were.
+- **The checker** treats playAnimation as instant: it fires the clip's markers at once, in order, and
+  damage in a marker handler counts as a hazard wherever its trigger can happen.
+- **Lint:** `object_unknown`, `anim_clip_unknown`, `anim_target_unknown`, `anim_self_outside`,
+  `anim_prop_not_object`.
+- **Runtime** (protocol 17): `game/scripts/art/object_view.gd` draws objects; state reports what props,
+  spawns and the player are `playing`, live `effects`, fired `markers` and `projectiles` (with `charging`).
+  The stage `{mode: "object", assetId, ...}` shows one object, like the character stage.
+
 ## Enemy combat primitives
 
 Any enemy fights with the same behavior primitives (`behavior.ts`,

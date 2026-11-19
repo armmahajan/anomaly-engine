@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import { FileRef } from "../art/fileRef.ts";
 import { ControlAction, type ControlActionId } from "../controls/controls.ts";
+import { ProjectileLook } from "../art/animation.ts";
 
 /**
  * Weapons: generic attack data the player (and any enemy) can wield. A weapon is a list of
@@ -38,6 +39,7 @@ export const WeaponProjectile = z.strictObject({
   size: z.number().min(2).max(200).default(12).describe("Hit radius, px."),
   color: Color.default("#ffffff").describe("Drawn in this colour when it has no sprite."),
   sprite: FileRef.nullable().default(null).describe("Its image (pointing right), else a coloured shape."),
+  look: ProjectileLook.prefault({}),
 });
 export type WeaponProjectile = z.infer<typeof WeaponProjectile>;
 

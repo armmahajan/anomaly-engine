@@ -3,7 +3,7 @@ extends Node2D
 ## shows the playtest room (edit mode) or plays the world (rooms and doors) from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 16
+const PROTOCOL_VERSION := 17
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 
@@ -106,7 +106,10 @@ func _on_js_message(args: Array) -> void:
 	var envelope = JSON.parse_string(data)
 	if typeof(envelope) != TYPE_DICTIONARY or envelope.get("source") != STUDIO_SOURCE:
 		return  # not for us
-	if int(envelope.get("protocolVersion", -1)) != PROTOCOL_VERSION:
+	# A studio still running the previous protocol keeps working (each version only adds to the one
+	# before), so rebuilding the runtime never breaks a studio that hasn't restarted yet.
+	var version := int(envelope.get("protocolVersion", -1))
+	if version != PROTOCOL_VERSION and version != PROTOCOL_VERSION - 1:
 		_error("protocol_mismatch", "runtime speaks protocol v%d" % PROTOCOL_VERSION)
 		return
 	var message = envelope.get("message")

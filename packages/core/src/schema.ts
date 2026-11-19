@@ -4,7 +4,7 @@ import { Color, Id } from "./common.ts";
 import { defaultWiki, Wiki } from "./wiki/wiki.ts";
 import { defaultProgression, Progression, progressionIssues } from "./progression/progression.ts";
 import { AbilityTuning } from "./movement/params.ts";
-import { ArtSection, defaultArtSection } from "./art/asset.ts";
+import { ArtSection, defaultArtSection, isObjectAsset } from "./art/asset.ts";
 import { Dressing } from "./art/world.ts";
 import { World, worldIssues } from "./world/world.ts";
 import { ArchitectPlan, architectIssues, defaultArchitectPlan } from "./architect/plan.ts";
@@ -157,10 +157,17 @@ export const ProjectSpec = z
     project.world.rooms.forEach((room, i) => {
       checkDressing(room.dressing, ["world", "rooms", i, "dressing"]);
       room.props.forEach((prop, j) => {
-        if (!prop.art) return;
-        const biome = project.art.assets.find((a) => a.id === prop.art!.biome);
-        const piece = biome?.kind === "biome" ? biome.kit?.pieces.find((p) => p.id === prop.art!.piece) : undefined;
-        if (!piece) ctx.addIssue({ code: "custom", path: ["world", "rooms", i, "props", j, "art"], message: `no kit piece "${prop.art.piece}" in biome "${prop.art.biome}"` });
+        const art = prop.art;
+        if (!art) return;
+        if ("object" in art) {
+          if (!isObjectAsset(project.art.assets.find((a) => a.id === art.object))) {
+            ctx.addIssue({ code: "custom", path: ["world", "rooms", i, "props", j, "art", "object"], message: `no object asset "${art.object}" (an asset with subject object)` });
+          }
+          return;
+        }
+        const biome = project.art.assets.find((a) => a.id === art.biome);
+        const piece = biome?.kind === "biome" ? biome.kit?.pieces.find((p) => p.id === art.piece) : undefined;
+        if (!piece) ctx.addIssue({ code: "custom", path: ["world", "rooms", i, "props", j, "art"], message: `no kit piece "${art.piece}" in biome "${art.biome}"` });
       });
     });
     project.characters.forEach((c, i) => {

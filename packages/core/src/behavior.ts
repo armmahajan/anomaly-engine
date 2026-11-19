@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Color, Id } from "./common.ts";
+import { ProjectileLook } from "./art/animation.ts";
 
 /**
  * Behaviors are data: a state machine whose states each run one *action*
@@ -118,6 +119,7 @@ export const Action = z
         damage: Damage,
         pogo: z.boolean().default(false).describe("A downward sword strike bounces off it."),
         color: WarnColor,
+        look: ProjectileLook.prefault({}),
       })
       .describe("Fire `count` projectiles in a fan; they break on solids or the player. Done once fired."),
     z

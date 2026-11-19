@@ -158,6 +158,7 @@ describe("art pipeline stages", () => {
       id: "look",
       name: "Look",
       kind: "character",
+      subject: "character",
       brief: "",
       concepts: [],
       chosen: null,

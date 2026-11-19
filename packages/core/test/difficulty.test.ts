@@ -108,7 +108,7 @@ describe("scaling an enemy", () => {
           transitions: [{ when: { type: "actionDone" }, to: "walk" }],
         },
         shoot: {
-          action: { type: "shoot", windup: 0.5, count: 1, spread: 30, speed: 400, gravity: 0, aim: "player", angle: 0, lifetime: 3, damage: 1, pogo: false, color: "#ffd27a" },
+          action: { type: "shoot", windup: 0.5, count: 1, spread: 30, speed: 400, gravity: 0, aim: "player", angle: 0, lifetime: 3, damage: 1, pogo: false, color: "#ffd27a", look: { origin: [0, 0], appear: "fire", art: null } },
           transitions: [],
         },
       },

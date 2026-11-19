@@ -55,6 +55,23 @@ export type RoomSpawn = z.infer<typeof RoomSpawn>;
 export const PropSwitch = z.union([z.boolean(), GameCondition]);
 export type PropSwitch = z.infer<typeof PropSwitch>;
 
+/** A biome kit piece, fitted to the prop's rectangle. */
+export const KitArt = z.strictObject({ biome: Id, piece: Id });
+export type KitArt = z.infer<typeof KitArt>;
+
+/** An object asset (subject object), drawn centred on the prop's rectangle, looping `idle` until a playAnimation. */
+export const ObjectArt = z.strictObject({
+  object: Id,
+  idle: Id.nullable().default("idle").describe("Clip it loops when nothing else plays; null = rest pose."),
+  scale: z.number().min(0.1).max(8).default(1).describe("Size relative to fitting its rectangle."),
+});
+export type ObjectArt = z.infer<typeof ObjectArt>;
+
+export const PropArt = z.union([KitArt, ObjectArt]);
+export type PropArt = z.infer<typeof PropArt>;
+export const isKitArt = (art: PropArt | null | undefined): art is KitArt => !!art && "biome" in art;
+export const isObjectArt = (art: PropArt | null | undefined): art is ObjectArt => !!art && "object" in art;
+
 /** A rectangle in a room that can be seen, stood on, touched, used and struck. */
 export const Prop = z.strictObject({
   id: Id,
@@ -64,7 +81,7 @@ export const Prop = z.strictObject({
   width: z.number().min(4).max(4000),
   height: z.number().min(4).max(4000),
   color: Color.default("#c9a227").describe("Drawn as this color unless it has art."),
-  art: z.strictObject({ biome: Id, piece: Id }).nullable().default(null).describe("A biome kit piece to draw it with, fitted to its rectangle."),
+  art: PropArt.nullable().default(null).describe("Its art: a biome kit piece, or an animated object; null = its colour."),
   solid: PropSwitch.default(false).describe("Blocks the player and enemies like a solid tile."),
   visible: PropSwitch.default(true).describe("Hidden props are gone: not drawn, not solid, no events."),
   health: z.number().int().min(1).max(99).nullable().default(null).describe("Sword hits until it fires destroyed and is gone for this visit; null = can't be destroyed."),

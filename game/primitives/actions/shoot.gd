@@ -7,6 +7,7 @@ const Projectile := preload("res://scripts/combat/projectile.gd")
 const PARAMS := {
 	"windup": "number", "count": "number", "spread": "number", "speed": "number", "gravity": "number",
 	"aim": "enum:player|angle", "angle": "number", "lifetime": "number", "damage": "number", "pogo": "bool", "color": "color",
+	"look": "object",  # core art/animation.ts ProjectileLook (origin, appear, art); the defaults are today's shots
 }
 
 

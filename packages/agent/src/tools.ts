@@ -123,6 +123,9 @@ const writeDescriptions: Record<BuildOperation, string> = {
   setClip:
     "Create, replace or delete (clip: null) an animation clip on a character asset. Slot names (idle, walk, run, windup, attack, hurt, jump, fall, fly) are used automatically.",
   setStateClip: "Make a behavior state play a specific clip instead of its automatic slot (clipId null = automatic).",
+  createObject:
+    "Add an object: an animated thing that isn't a character (a lever, a trap, an effect, a projectile; the brief says what). Props draw with it (art {object, idle}), spawnEffect shows it, projectile looks fly as it. Queue its art with generateObjectArt.",
+  setClipMarkers: "Set a clip's markers [{t 0..1, name}]: playing the clip fires marker events by name (handlers on {type: marker, name}).",
   updateRoom: "Change a world room's name or atmosphere: palette colors, fog density per layer (0-1), dust.",
   deleteRoom: "Delete a biome's room (composition); world rooms dressed with it go back to plain tiles.",
   updatePlacement: "Move, re-layer, scale or flip one placed piece in a world room.",
@@ -196,6 +199,8 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
       ),
   }),
   setStateClip: z.strictObject({ assetId: Id, stateId: Id, clipId: Id.nullable() }),
+  createObject: z.strictObject({ id: Id, name: z.string(), brief: z.string() }),
+  setClipMarkers: z.strictObject({ assetId: Id, clipId: Id, markers: z.array(z.strictObject({ t: z.number(), name: Id })) }),
   // World edits also take compact specs (the operations validate fully); light shafts and extra lights stay workbench-only.
   updateRoom: z.strictObject({
     assetId: Id,

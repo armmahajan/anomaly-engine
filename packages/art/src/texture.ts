@@ -46,6 +46,7 @@ function onlyClip(rig: Rig, keep: Set<string>): Clip {
     loop: false,
     tracks: [],
     motions: [],
+    markers: [],
     visibility: rig.parts.filter((p) => !keep.has(p.id)).map((p) => ({ part: p.id, keys: [[0, false]] as [number, boolean][] })),
   };
 }

@@ -114,7 +114,7 @@ export function weaponFiles(weapon: ProjectSpec["weapons"]["list"][number]): Fil
 }
 
 function usedBiomeIds(project: Pick<ProjectSpec, "world">): Set<string> {
-  return new Set(project.world.rooms.flatMap((r) => [...(r.dressing ? [r.dressing.biome] : []), ...r.props.flatMap((p) => (p.art ? [p.art.biome] : []))]));
+  return new Set(project.world.rooms.flatMap((r) => [...(r.dressing ? [r.dressing.biome] : []), ...r.props.flatMap((p) => (p.art && "biome" in p.art ? [p.art.biome] : []))]));
 }
 
 /**

@@ -53,7 +53,7 @@ export const propTools: DomainTools<Op> = {
           p.health !== null && `health ${p.health}`,
           p.bounce && "bounce",
           p.prompt && `prompt "${p.prompt}"`,
-          p.art && `art ${p.art.biome}/${p.art.piece}`,
+          p.art && ("biome" in p.art ? `art ${p.art.biome}/${p.art.piece}` : `object ${p.art.object}${p.art.idle ? ` (idle ${p.art.idle})` : ""}`),
         ].filter(Boolean);
         lines.push(`- prop ${room.id}/${p.id}${p.name ? ` "${p.name}"` : ""} (${p.x}, ${p.y}) ${p.width}x${p.height}${extras.length ? `; ${extras.join(", ")}` : ""}`);
         p.handlers.forEach((h, i) => lines.push(`  [${i}] ${describeHandler(h)}`));

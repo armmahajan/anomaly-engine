@@ -75,6 +75,10 @@ const assetBase = {
 export const CharacterAsset = z.strictObject({
   ...assetBase,
   kind: z.literal("character"),
+  subject: z
+    .enum(["character", "object"])
+    .default("character")
+    .describe("character: drawn for a game character (appearance). object: an animated thing on its own (a lever, a trap, an effect, a projectile) that props, effects and projectiles use."),
   rig: Rig.nullable().default(null),
   /** Rest-pose render of the rig. */
   preview: Preview.nullable().default(null),
@@ -116,6 +120,9 @@ export const BiomeAsset = z.strictObject({
 export type BiomeAsset = z.infer<typeof BiomeAsset>;
 
 export const Asset = z.discriminatedUnion("kind", [CharacterAsset, BiomeAsset]);
+
+/** An object asset: a rigged, animated thing that isn't a game character (props, effects, projectiles draw with it). */
+export const isObjectAsset = (asset: { kind: string; subject?: string } | undefined): asset is CharacterAsset => asset?.kind === "character" && asset.subject === "object";
 export type Asset = z.infer<typeof Asset>;
 export type AssetKind = Asset["kind"];
 

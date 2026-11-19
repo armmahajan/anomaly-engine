@@ -77,6 +77,7 @@ export function PropsSection({
 
 /** A prop's kit piece, small. */
 function PieceThumb({ project, art }: { project: ProjectSpec; art: NonNullable<Prop["art"]> }) {
+  if (!("biome" in art)) return <span className="swatch" title={`object ${art.object}`} />;
   const biome = project.art.assets.find((a) => a.id === art.biome);
   const piece = biome?.kind === "biome" ? biome.kit?.pieces.find((p) => p.id === art.piece) : undefined;
   return piece ? <img className="prop-thumb" src={fileUrl(piece.file)} alt="" data-testid="prop-art" /> : <span className="swatch" />;
@@ -94,7 +95,7 @@ interface EditorProps {
 
 function PropEditor({ project, room, prop, locked, change, remove, setHandlers }: EditorProps) {
   const pieces = project.art.assets.flatMap((a) => (a.kind === "biome" && a.kit ? a.kit.pieces.map((p) => ({ value: `${a.id}/${p.id}`, label: `${a.name} · ${p.name}` })) : []));
-  const art = prop.art ? `${prop.art.biome}/${prop.art.piece}` : "";
+  const art = prop.art && "biome" in prop.art ? `${prop.art.biome}/${prop.art.piece}` : "";
   return (
     <div className="prop-editor" data-testid="prop-editor">
       <div className="prop-row">

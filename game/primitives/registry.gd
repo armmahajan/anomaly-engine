@@ -4,7 +4,7 @@ extends RefCounted
 ##
 ## Action scripts:    const PARAMS; static func enter(actor, params); static func tick(actor, params, delta)
 ## Condition scripts: const PARAMS; static func check(actor, params) -> bool
-## PARAMS maps each parameter to "number", "bool", "color", "id" (another thing's id), "id?" (an id or null) or "enum:a|b" (checked on load).
+## PARAMS maps each parameter to "number", "bool", "color", "id" (another thing's id), "id?" (an id or null), "object" (a dictionary the core schema validated) or "enum:a|b" (checked on load).
 
 const ACTIONS := {
 	"patrol": preload("res://primitives/actions/patrol.gd"),

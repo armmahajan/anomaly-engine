@@ -30,6 +30,10 @@ func _init(world_run: Node) -> void:
 	run = world_run
 	for type in ["setFlag", "giveItem", "takeItem", "grantAbility", "giveWeapon", "takeWeapon", "heal", "damage", "respawn", "returnToSafeGround", "setCheckpoint", "saveRun", "startTimer"]:
 		register(type, Callable(self, "_effect_" + type))
+	# The animation effects (core art/animation.ts): placeholders until the runtime plays objects
+	# (art/object_view.gd); the systems that draw props, spawns, the player and fx register theirs.
+	for type in ["playAnimation", "spawnEffect"]:
+		register(type, func(_effect: Dictionary, _context: Dictionary) -> void: pass)
 
 
 ## Add (or replace) an effect: `callable(effect: Dictionary, context: Dictionary)`.
