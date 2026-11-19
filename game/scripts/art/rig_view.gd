@@ -4,8 +4,11 @@ extends Node2D
 ## Contract: packages/core/src/art/rig.ts and clip.ts. Origin = feet.
 ##
 ## Geometry is built once in rest-pose space (with a few "boil" variants of
-## slightly wobbled outlines for a hand-drawn look); each frame only bone
-## transforms are evaluated and applied.
+## slightly wobbled outlines for a hand-drawn look) and triangulated there once;
+## each frame only bone transforms are evaluated and applied to the vertices,
+## which are drawn with the rest pose's triangles (a pose that folds or
+## collapses a part can't fail triangulation). Mesh parts (layered rigs) come
+## with their own triangles.
 
 const Geo := preload("res://scripts/art/rig_geometry.gd")
 
@@ -243,6 +246,10 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 			if _build_image_part(part, p.shape, opacity):
 				_parts.append(part)
 			continue
+		if str(p.shape.get("type", "")) == "mesh":
+			if _build_mesh_part(part, p, opacity):
+				_parts.append(part)
+			continue
 		var fill := Color(str(p.get("fill", "#888888")))
 		fill.a *= opacity
 		var shade = p.get("shade")
@@ -253,7 +260,7 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 		var clip: Array = []
 		if clip_to != "":
 			var target = by_id.get(clip_to)
-			if target == null or str(target[0].get("bone", "")) != bone or str(target[0].get("bendTo", "")) != str(p.get("bendTo", "")) or str(target[0].shape.get("type", "")) == "image":
+			if target == null or str(target[0].get("bone", "")) != bone or str(target[0].get("bendTo", "")) != str(p.get("bendTo", "")) or str(target[0].shape.get("type", "")) in ["image", "mesh"]:
 				warnings.append("part '%s' clips to '%s', which is not a vector part on the same bone (drawn unclipped)" % [part.id, clip_to])
 			else:
 				clip = target
@@ -297,7 +304,7 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 					for q in poly:
 						uv.append(texture.uv_origin + (q - texture.rect_origin) * texture.per_px)
 					layers.append(_layer(poly, _flat(poly, tint), uv))
-			part.variants.append(_with_weights(layers, part))
+			part.variants.append(_with_weights(_triangulated(layers, part), part))
 		if part.variants.is_empty():
 			continue
 		_parts.append(part)
@@ -324,7 +331,49 @@ func _build_image_part(part: Dictionary, shape: Dictionary, opacity: float) -> b
 		for q in poly:
 			px.append(q / scale + anchor)
 		layers.append(_layer(poly, _flat(poly, Color(1, 1, 1, opacity)), px))
-	part.variants.append(_with_weights(layers, part))
+	part.variants.append(_with_weights(_triangulated(layers, part), part))
+	return true
+
+
+## Layered rigs: the part's texture on its own triangle mesh (vertices = points then inner, uv in
+## the texture's px, optional weights toward bendTo, else weighted like vector parts). One variant
+## (no boil), no fill, outline or glow; like a cutout piece it shows nothing until its texture arrives.
+func _build_mesh_part(part: Dictionary, p: Dictionary, opacity: float) -> bool:
+	var shape: Dictionary = p.shape
+	var raw_texture = p.get("texture")
+	var file := str(raw_texture.get("file", "")) if typeof(raw_texture) == TYPE_DICTIONARY else ""
+	if file == "":
+		warnings.append("mesh part '%s' needs a texture (not drawn)" % part.id)
+		return false
+	var verts := Geo.to_points(shape.get("points", []))
+	verts.append_array(Geo.to_points(shape.get("inner", [])))
+	var n := verts.size()
+	var uv := Geo.to_points(shape.get("uv", []))
+	var raw_tris = shape.get("triangles", [])
+	var tris := PackedInt32Array()
+	var bad: bool = typeof(raw_tris) != TYPE_ARRAY or raw_tris.size() < 3 or raw_tris.size() % 3 != 0 or uv.size() != n
+	if not bad:
+		for t in raw_tris:
+			var i := int(t)
+			if i < 0 or i >= n:
+				bad = true
+				break
+			tris.append(i)
+	if bad:
+		warnings.append("mesh part '%s' has malformed triangles or uv (not drawn)" % part.id)
+		return false
+	var tint := Color(1, 1, 1, opacity * clampf(float(raw_texture.get("opacity", 1.0)), 0.0, 1.0))
+	var layer := [verts, _flat(verts, tint), PackedFloat32Array(), uv, tris]
+	part.image = true
+	part.tex_file = file
+	_with_weights([layer], part)
+	var raw_weights = shape.get("weights")
+	if part.bend != "" and typeof(raw_weights) == TYPE_ARRAY and raw_weights.size() == n:
+		var w := PackedFloat32Array()
+		for x in raw_weights:
+			w.append(clampf(float(x), 0.0, 1.0))
+		layer[2] = w
+	part.variants.append([layer])
 	return true
 
 
@@ -382,8 +431,26 @@ func image_files() -> Array:
 	return out
 
 
+## A drawn layer: [polygon (rest pose), colors, bend weights, texture px, triangle indices].
 func _layer(poly: PackedVector2Array, colors: PackedColorArray, uv := PackedVector2Array()) -> Array:
-	return [poly, colors, PackedFloat32Array(), uv]
+	return [poly, colors, PackedFloat32Array(), uv, PackedInt32Array()]
+
+
+## `layers` with their triangles, computed once on the rest outline; a polygon that can't be
+## triangulated is left out (with a warning) instead of failing on every frame.
+func _triangulated(layers: Array, part: Dictionary) -> Array:
+	var out := []
+	var dropped := 0
+	for layer in layers:
+		var tris := Geometry2D.triangulate_polygon(layer[0])
+		if tris.is_empty():
+			dropped += 1
+			continue
+		layer[4] = tris
+		out.append(layer)
+	if dropped > 0:
+		warnings.append("part '%s': %d polygon(s) can't be triangulated (not drawn)" % [part.id, dropped])
+	return out
 
 
 ## `polys` cut to the inside of `inside` (no clipping when `inside` is empty).
@@ -736,35 +803,65 @@ func clip_time() -> float:
 func _draw() -> void:
 	if show_bones:
 		_draw_bones.call_deferred()
+	var canvas := get_canvas_item()
+	var no_bones := PackedInt32Array()
+	var no_weights := PackedFloat32Array()
 	for part in _parts:
 		if _hidden.has(part.id):
 			continue
 		var texture: Texture2D = _image_for(part) if part.tex_file != "" else null
 		if part.get("image", false) and texture == null:
-			continue  # the source image has not arrived yet
+			continue  # the source image (or a mesh's layer) has not arrived yet
 		var layers: Array = part.variants[mini(_boil, part.variants.size() - 1)]
-		var base: Vector2 = _bones[part.bone].pivot
-		var xf: Transform2D = _pose.get(part.bone, Transform2D.IDENTITY) * Transform2D(0.0, -base)
-		var xf2 := xf
-		if part.bend != "":
-			xf2 = _pose.get(part.bend, Transform2D.IDENTITY) * Transform2D(0.0, -(_bones[part.bend].pivot as Vector2))
+		var posed := _posed_layers(part, layers)
 		for n in layers.size():
 			var layer: Array = layers[n]
-			var poly: PackedVector2Array = layer[0]
-			var out: PackedVector2Array
-			if part.bend == "":
-				out = xf * poly
-			else:
-				var weights: PackedFloat32Array = layer[2]
-				out.resize(poly.size())
-				for i in poly.size():
-					out[i] = (xf * poly[i]).lerp(xf2 * poly[i], weights[i])
 			var uv: PackedVector2Array = layer[3]
+			# The rest pose's triangles over the posed vertices: never triangulated again, so a pose
+			# that folds or collapses a part draws what is left of it instead of failing.
 			if uv.is_empty():
-				draw_polygon(out, layer[1])
+				RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], posed[n], layer[1])
 			elif texture != null:
-				draw_polygon(out, layer[1], uv, texture)
+				RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], posed[n], layer[1], uv, no_bones, no_weights, texture.get_rid())
 			# else: a part texture that has not arrived yet (the flat fill shows meanwhile)
+
+
+## A part's layers' vertices on the current pose (rig space): each follows `bone`, or for a part
+## that bends, the blend of `bone` and `bendTo` by its weight.
+func _posed_layers(part: Dictionary, layers: Array) -> Array:
+	var base: Vector2 = _bones[part.bone].pivot
+	var xf: Transform2D = _pose.get(part.bone, Transform2D.IDENTITY) * Transform2D(0.0, -base)
+	var xf2 := xf
+	if part.bend != "":
+		xf2 = _pose.get(part.bend, Transform2D.IDENTITY) * Transform2D(0.0, -(_bones[part.bend].pivot as Vector2))
+	var out := []
+	for layer in layers:
+		var poly: PackedVector2Array = layer[0]
+		if part.bend == "":
+			out.append(xf * poly)
+			continue
+		var weights: PackedFloat32Array = layer[2]
+		var bent := PackedVector2Array()
+		bent.resize(poly.size())
+		for i in poly.size():
+			bent[i] = (xf * poly[i]).lerp(xf2 * poly[i], weights[i])
+		out.append(bent)
+	return out
+
+
+## Probes and tests: a part's drawn layers on the current pose (boil frame 0), as
+## [{points (rig space), indices, uv (texture px; normalized once its texture was found)}].
+func posed_mesh(part_id: String) -> Array:
+	for part in _parts:
+		if part.id != part_id:
+			continue
+		var layers: Array = part.variants[0]
+		var posed := _posed_layers(part, layers)
+		var out := []
+		for n in layers.size():
+			out.append({"points": posed[n], "indices": layers[n][4], "uv": layers[n][3]})
+		return out
+	return []
 
 
 var _bone_overlay: Node2D = null
