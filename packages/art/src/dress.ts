@@ -60,6 +60,8 @@ export interface LookInput {
   /** The design to take the look from (any size; usually the concept the rig's design came from). */
   design: Buffer;
   brief: string;
+  /** An object (hinged parts, no held equipment), not a character. */
+  object?: boolean;
 }
 
 export interface LookResult {
@@ -218,7 +220,7 @@ export async function detailLook(ctx: ArtContext, input: LookInput, options: Det
   const canvasRig = toCanvasSpace(rig, frame);
   const maxDetails = MAX_PARTS - rig.parts.length;
   if (maxDetails <= 0) throw new StageError(`the rig already has ${rig.parts.length} parts (the most is ${MAX_PARTS}): no room for details`);
-  const system = detailSystemPrompt(ctx.project().art.direction, canvas);
+  const system = detailSystemPrompt(ctx.project().art.direction, canvas, input.object);
   const start = await canvasRender(ctx, canvasRig, frame, canvas);
   const authored = await askJson(
     ctx,

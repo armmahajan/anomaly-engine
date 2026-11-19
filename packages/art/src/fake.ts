@@ -3,6 +3,7 @@ import { CLIP_SLOTS, exampleClips, exampleRig } from "@anomaly/core";
 import { pngSize } from "./frame.ts";
 import { encodePng } from "./match.ts";
 import { creaturePlan, drawCreatureSheet } from "./rigFixtures.ts";
+import { OBJECT_CLIPS_MARK } from "./prompts.ts";
 import type { ImageModel, ImageRequest, GeneratedImage, VisionModel, VisionReply, VisionRequest } from "./models.ts";
 
 /**
@@ -121,6 +122,8 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("That reply was invalid")) reply = { rig: exampleRig(), clips: exampleClips(), cell: 0, reason: "fixed", score: 7, issues: [] };
     else if (prompt.includes("Pick the single best design")) reply = { cell: 1, reason: "clearest silhouette" };
     else if (prompt.includes("Which way is this character facing")) reply = { facing: "left" };
+    else if (prompt.includes("Which way does this object point")) reply = { facing: "right" };
+    else if (prompt.includes(OBJECT_CLIPS_MARK)) reply = { clips: fakeObjectClips(prompt), notes: "ok" };
     else if (prompt.includes("Build the rig")) reply = { rig: exampleRig(), notes: "beetle" };
     else if (prompt.includes("Score how well the render matches")) reply = { score: 8, issues: ["horn a bit small"], rig: exampleRig() };
     else if (prompt.includes("Write these clips")) reply = { clips: exampleClips(), notes: "ok" };
@@ -196,6 +199,27 @@ function fakeClips(prompt: string): Record<string, unknown> {
 function askedClipNames(prompt: string): string[] {
   const line = prompt.match(/Write exactly these clips[^:]*: (.*)$/m)?.[1];
   return line ? [...line.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]!) : [];
+}
+
+/**
+ * Object clips: loops are the example idle; a clip that plays once swings the first child bone shut
+ * (fast, landing about t 0.45) and proposes markers as a careless model might: the ones the game
+ * listens for (else "impact") at t 1.4, a "start" before 0, and one with a malformed name.
+ */
+function fakeObjectClips(prompt: string): Record<string, unknown> {
+  const idle = exampleClips().idle;
+  const bone = prompt.match(/^- ([a-z0-9_]+) \(parent (?!none)/m)?.[1] ?? "root";
+  const heard = prompt.match(/The game listens for these markers on this object: ([^.]+)\./)?.[1]?.split(", ") ?? ["impact"];
+  const line = prompt.match(/Write exactly these clips[^:]*: (.*)$/m)?.[1] ?? "";
+  const asked = [...line.matchAll(/"([a-z0-9_]+)" \((.*?); (loops seamlessly|plays once, loop false|loop or once, as fits)\)/g)].map((m) => ({ name: m[1]!, loops: m[3] === "loops seamlessly" }));
+  const once = (i: number) => ({
+    duration: 0.5,
+    loop: false,
+    tracks: [{ bone, property: "rotate", keys: [[0, 0], [0.25, -20], [0.45, 30], [1, 30]], ease: "smooth" }],
+    motions: [],
+    markers: [...(i === 0 ? heard.map((name) => ({ t: 1.4, name })) : []), { t: -0.2, name: "start" }, { t: 0.5, name: "Bad Name" }],
+  });
+  return Object.fromEntries(asked.map((c) => [c.name, c.loops ? idle : once(asked.filter((a) => !a.loops).indexOf(c))]));
 }
 
 /** Asked clips that aren't standard slots (named in the animation list). */

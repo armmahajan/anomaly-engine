@@ -28,6 +28,7 @@ import { CutoutPlan, cutCharacter, cutoutRig, isolateFigure, jointPivots, labelP
 import { assemblePuppet, drawnParts, partAnchors, piecesView, PieceMatch, PieceNudge, PuppetPlan, sheetPieces } from "./puppet.ts";
 import { fitClips, limitsText, motionLimits } from "./motionLimits.ts";
 import { tracedRig } from "./traced.ts";
+import { findObject, heardMarkers, objectClipBriefs, objectClipModes, ObjectClips, ObjectClipsReply, settleObjectClips } from "./objects.ts";
 import { fitBounds, fitFrame, frameForCanvas, pngSize, toCanvasSpace, toRigSpace, type Frame } from "./frame.ts";
 import { parseReply } from "./json.ts";
 import { decodePng, encodePng, flatten, matchScore, matchValue, type MatchScore, type Pixels } from "./match.ts";
@@ -40,8 +41,13 @@ import {
   cutoutAuthorPrompt,
   cutoutCritiquePrompt,
   cutoutSystemPrompt,
-  FACING_PROMPT,
+  facingPrompt,
   flatRedrawPrompt,
+  isDrawnObject,
+  objectAnimPrompt,
+  type DrawnObject,
+  type ObjectClipBrief,
+  type Subject,
   partsSheetPrompt,
   PICK_SYSTEM,
   pickPrompt,
@@ -151,11 +157,38 @@ function assetOf(project: ProjectSpec, character: Character): CharacterAsset | n
   return asset && asset.kind === "character" ? asset : null;
 }
 
-function requireAsset(project: ProjectSpec, character: Character): CharacterAsset {
-  const asset = assetOf(project, character);
-  if (!asset) throw new StageError(`"${character.id}" has no art yet; generate concepts first`);
-  return asset;
+/**
+ * What a character stage works on: a game character (`characterId`, drawn as its appearance asset)
+ * or an object (`objectId`: an object asset, core isObjectAsset). Objects run the same stages.
+ */
+export interface SubjectRef {
+  characterId?: string;
+  /** An object asset to draw instead of a character (wins over characterId). */
+  objectId?: string;
 }
+
+/** The character or object a stage works on, and its art asset (null: a character not drawn yet). */
+function findSubject(project: ProjectSpec, ref: SubjectRef): { subject: Subject; asset: CharacterAsset | null } {
+  if (ref.objectId) {
+    const found = findObject(project, ref.objectId);
+    if ("error" in found) throw new StageError(found.error);
+    return found;
+  }
+  const character = findCharacter(project, ref.characterId ?? "");
+  return { subject: character, asset: assetOf(project, character) };
+}
+
+function requireSubject(project: ProjectSpec, ref: SubjectRef): { subject: Subject; asset: CharacterAsset } {
+  const { subject, asset } = findSubject(project, ref);
+  if (!asset) throw new StageError(`"${subject.id}" has no art yet; generate concepts first`);
+  return { subject, asset };
+}
+
+/** The ref that finds `subject` again. */
+const refOf = (subject: Subject): SubjectRef => (isDrawnObject(subject) ? { objectId: subject.id } : { characterId: subject.id });
+
+/** Drawn without held weapons (core drawnEmptyHanded); objects hold nothing. */
+const emptyHanded = (project: ProjectSpec, subject: Subject) => !isDrawnObject(subject) && drawnEmptyHanded(project, subject);
 
 /** A problem the creator can fix (shown as-is). */
 export class StageError extends Error {}
@@ -218,8 +251,7 @@ async function renderRest(ctx: ArtContext, rig: Rig, size = 384): Promise<{ png:
 
 // --- stage: concepts --------------------------------------------------------
 
-export interface ConceptsInput {
-  characterId: string;
+export interface ConceptsInput extends SubjectRef {
   /** New/updated brief for the character's look. */
   brief?: string;
   /** What to change this round. */
@@ -263,15 +295,15 @@ export function wikiBrief(project: ProjectSpec, characterId: string): string | u
 
 export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): Promise<StageResult & { assetId: string }> {
   const project = ctx.project();
-  const character = findCharacter(project, input.characterId);
+  const { subject: character, asset } = findSubject(project, input);
   const operations: OperationCall[] = [];
-  let asset = assetOf(project, character);
   let assetId: string;
   // An explicit brief wins, then the asset's own (unless it's only the name), then the character's wiki page.
   const own = asset?.brief && asset.brief !== character.name ? asset.brief : undefined;
-  const brief = input.brief?.trim() || own || wikiBrief(project, character.id) || character.name;
+  const brief = input.brief?.trim() || own || (isDrawnObject(character) ? undefined : wikiBrief(project, character.id)) || character.name;
   const rigReady = input.rigReady ?? rigModeFor(ctx, project, input.rigMode) === "vector";
 
+  // An object's asset always exists (createObject); a character's is made with its first sheet.
   if (!asset) {
     assetId = uniqueId(`${character.id}_look`, project.art.assets.map((a) => a.id));
     operations.push({
@@ -293,7 +325,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
     feedback: input.feedback,
     refining: reference !== null,
     rigReady,
-    emptyHanded: drawnEmptyHanded(project, character),
+    emptyHanded: emptyHanded(project, character),
   });
   // Rig-ready: cells whose figure runs off the cell's edge are never recommended; a sheet with none whole is drawn again (once).
   let generated: Awaited<ReturnType<ImageModel["generate"]>>;
@@ -327,7 +359,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
     recommended = await askJson(
       ctx,
       z.object({ cell: z.number().int().min(0).max(3), reason: z.string().max(500) }),
-      { system: PICK_SYSTEM, content: [image(generated.image), text(pickPrompt(brief, project.art.direction, input.feedback, cutOff ? { cutOff } : undefined, drawnEmptyHanded(project, character)))], maxTokens: 3000 },
+      { system: PICK_SYSTEM, content: [image(generated.image), text(pickPrompt(brief, project.art.direction, input.feedback, cutOff ? { cutOff } : undefined, emptyHanded(project, character), isDrawnObject(character)))], maxTokens: 3000 },
       "picking a design",
     );
     const fits = cells?.filter((c) => !c.touchesEdge) ?? [];
@@ -361,8 +393,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
 
 // --- stage: choose ------------------------------------------------------------
 
-export interface ChooseInput {
-  characterId: string;
+export interface ChooseInput extends SubjectRef {
   /** Sheet index; default the latest. */
   sheet?: number;
   /** Cell 0-3; default the AI's recommendation (else 0). */
@@ -381,8 +412,7 @@ export function sheetCell(cell: number): { x: number; y: number; width: number; 
 
 export async function chooseConcept(ctx: ArtContext, input: ChooseInput): Promise<StageResult> {
   const project = ctx.project();
-  const character = findCharacter(project, input.characterId);
-  const asset = requireAsset(project, character);
+  const { subject: character, asset } = requireSubject(project, input);
   const sheetIndex = input.sheet ?? asset.concepts.length - 1;
   const sheet = asset.concepts[sheetIndex];
   if (!sheet) throw new StageError(`"${asset.id}" has no concept sheet ${sheetIndex}`);
@@ -394,7 +424,7 @@ export async function chooseConcept(ctx: ArtContext, input: ChooseInput): Promis
     const { facing } = await askJson(
       ctx,
       z.object({ facing: z.enum(["left", "right"]) }),
-      { system: PICK_SYSTEM, content: [image(cropped), text(FACING_PROMPT)], maxTokens: 2000 },
+      { system: PICK_SYSTEM, content: [image(cropped), text(facingPrompt(character))], maxTokens: 2000 },
       "checking which way it faces",
     );
     if (facing === "left") {
@@ -453,8 +483,7 @@ function mainFigureOnly(ctx: ArtContext, png: Buffer): Buffer {
 
 // --- stage: flat redraw -------------------------------------------------------------
 
-export interface RedrawInput {
-  characterId: string;
+export interface RedrawInput extends SubjectRef {
   /** Image quality for the edit (models with a quality knob; default the model's): a higher one keeps closer to the design. */
   quality?: string;
 }
@@ -466,13 +495,12 @@ export interface RedrawInput {
  */
 export async function redrawFlat(ctx: ArtContext, input: RedrawInput): Promise<StageResult> {
   const project = ctx.project();
-  const character = findCharacter(project, input.characterId);
-  const asset = requireAsset(project, character);
+  const { subject: character, asset } = requireSubject(project, input);
   if (!asset.chosen) throw new StageError(`choose a concept design for "${character.name}" first`);
   const chosen = await ctx.files.get(asset.chosen.file);
   checkAbort(ctx);
   const generated = await ctx.image.generate({
-    prompt: flatRedrawPrompt(asset.brief, drawnEmptyHanded(project, character)),
+    prompt: flatRedrawPrompt(asset.brief, emptyHanded(project, character), isDrawnObject(character)),
     references: [chosen],
     signal: ctx.signal,
     ...(input.quality ? { quality: input.quality } : {}),
@@ -485,7 +513,7 @@ export async function redrawFlat(ctx: ArtContext, input: RedrawInput): Promise<S
     const { facing } = await askJson(
       ctx,
       z.object({ facing: z.enum(["left", "right"]) }),
-      { system: PICK_SYSTEM, content: [image(png), text(FACING_PROMPT)], maxTokens: 2000 },
+      { system: PICK_SYSTEM, content: [image(png), text(facingPrompt(character))], maxTokens: 2000 },
       "checking which way it faces",
     );
     if (facing === "left") {
@@ -507,8 +535,7 @@ export async function redrawFlat(ctx: ArtContext, input: RedrawInput): Promise<S
 
 // --- stage: rig ------------------------------------------------------------------
 
-export interface RigInput {
-  characterId: string;
+export interface RigInput extends SubjectRef {
   /** Revise the existing rig with this direction instead of building from scratch. */
   feedback?: string;
   /** Vector shapes, cutout pieces of the design, or those pieces traced as vector shapes (default: the art direction's rigMode, else the backend's default). */
@@ -619,17 +646,17 @@ const VECTOR_RIG_ROUNDS = 4;
 
 export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageResult & { plan?: CutoutPlan }> {
   const project = ctx.project();
-  const character = findCharacter(project, input.characterId);
-  const asset = requireAsset(project, character);
+  const { subject: character, asset } = requireSubject(project, input);
   if (!asset.chosen) throw new StageError(`choose a concept design for "${character.name}" first`);
+  const object = isDrawnObject(character);
   const mode = rigModeFor(ctx, project, input.rigMode);
-  // Vector rigs on the full pipeline: built from a flat redraw of the design, with elbows and knees, then detailed.
+  // Vector rigs on the full pipeline: built from a flat redraw of the design, with elbows and knees (characters), then detailed.
   const full = mode === "vector" && !input.puppet;
   const revising = Boolean(input.feedback?.trim() && asset.rig);
   const operations: OperationCall[] = [];
   let chosen = asset.chosen;
   if (full && (input.redraw ?? true) && !chosen.original && !revising) {
-    const redrawn = await redrawFlat(ctx, { characterId: character.id, quality: FLAT_REDRAW_QUALITY });
+    const redrawn = await redrawFlat(ctx, { ...refOf(character), quality: FLAT_REDRAW_QUALITY });
     const choice = redrawn.operations[0]!.input as { file: FileRef };
     operations.push(...redrawn.operations);
     chosen = { ...chosen, file: choice.file, original: chosen.file };
@@ -640,7 +667,8 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
   const cut = cutCharacter(decodePng(concept));
   const reference = cut ? flatten(placeCutout(cut, size), BACKGROUND) : null;
   const options = {
-    limbJoints: input.limbJoints ?? (full ? true : undefined),
+    // Objects have hinges, not limbs.
+    limbJoints: input.limbJoints ?? (full && !object ? true : undefined),
     cleanTrace: input.cleanTrace,
     review: input.review,
     rounds: input.rounds ?? (full && ctx.rigRounds === undefined ? VECTOR_RIG_ROUNDS : undefined),
@@ -658,7 +686,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
   if (full && (input.detail ?? true) && !revising) {
     try {
       const design = chosen.original ? await ctx.files.get(chosen.original) : concept;
-      const dressed = await detailLook(ctx, { rig: best.rig, frame: best.frame, canvas: size, design, brief: asset.brief });
+      const dressed = await detailLook(ctx, { rig: best.rig, frame: best.frame, canvas: size, design, brief: asset.brief, ...(object ? { object } : {}) });
       rig = dressed.rig;
       finish = `, ${dressed.details?.length ?? 0} detail shapes`;
     } catch (error) {
@@ -666,10 +694,10 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
       ctx.log({ text: `details skipped (${error instanceof Error ? error.message : String(error)})` });
     }
   }
-  // Where it holds a weapon: the front hand (placed from the rig before its detail shapes; optional, never fails the build).
-  const gripped = withHandGrip(best.rig);
+  // Where it holds a weapon: the front hand (placed from the rig before its detail shapes; optional, never fails the build). Objects hold nothing.
+  const gripped = object ? best.rig : withHandGrip(best.rig);
   const hand = gripped.grips?.find((g) => g.id === "hand");
-  if (hand) {
+  if (hand && !object) {
     rig = { ...rig, grips: gripped.grips };
     ctx.log({ text: `holds weapons in ${hand.bone} at [${hand.at.join(", ")}]` });
   }
@@ -691,7 +719,8 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
 }
 
 interface AttemptInput {
-  character: Character;
+  /** The character or object drawn. */
+  character: Subject;
   asset: CharacterAsset;
   concept: Buffer;
   size: { width: number; height: number };
@@ -706,7 +735,7 @@ interface AttemptInput {
 
 /** Vector rig: the model traces flat shapes; render over the concept, score, revise. Keeps the best attempt. */
 async function vectorAttempts(ctx: ArtContext, { character, asset, concept, size, reference, feedback: direction, limbJoints, rounds: roundsWanted }: AttemptInput): Promise<Attempt> {
-  const system = rigSystemPrompt(ctx.project().art.direction, size);
+  const system = rigSystemPrompt(ctx.project().art.direction, size, isDrawnObject(character));
   const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: concept }], grid: GRID });
 
   // The model traces in concept pixels ("canvas space"); see frame.ts.
@@ -802,7 +831,7 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
     mode === "cutout" ? cutoutRig(cut, plan, file) : tracedRig(cut, plan, direction, { canvasPerGamePx: 1 / frame.scale, clean: input.cleanTrace });
   const review = input.review === true && mode === "traced";
   const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(reference) }], grid: GRID });
-  const system = cutoutSystemPrompt(size);
+  const system = cutoutSystemPrompt(size, isDrawnObject(character));
 
   let plan: CutoutPlan;
   const previous = asset.rig?.mode === mode && asset.preview?.frame ? toCanvasSpace(asset.rig, asset.preview.frame) : null;
@@ -901,7 +930,7 @@ async function puppetAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
   const plan = await askJson(
     ctx,
     PuppetPlan,
-    { system: cutoutSystemPrompt(size), content: [image(gridded), text(puppetPlanPrompt(character, asset.brief, size))], maxTokens: 8000 },
+    { system: cutoutSystemPrompt(size, isDrawnObject(character)), content: [image(gridded), text(puppetPlanPrompt(character, asset.brief, size))], maxTokens: 8000 },
     "planning the puppet",
   );
   const cutPlan: CutoutPlan = { bones: plan.bones, parts: plan.parts.map(({ id, bone, z, region }) => ({ id, bone, z, region })) };
@@ -990,8 +1019,7 @@ async function puppetAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
 
 // --- stage: animate -----------------------------------------------------------------
 
-export interface AnimateInput {
-  characterId: string;
+export interface AnimateInput extends SubjectRef {
   feedback?: string;
   /** Only these clips (default: every slot the character's characters use, and their weapons' attack clips). */
   slots?: ClipSlot[];
@@ -1085,9 +1113,10 @@ interface WeaponJob {
 
 export async function animate(ctx: ArtContext, input: AnimateInput): Promise<StageResult> {
   const project = ctx.project();
-  const character = findCharacter(project, input.characterId);
-  const asset = requireAsset(project, character);
-  if (!asset.rig) throw new StageError(`build "${character.name}"'s rig first`);
+  const { subject, asset } = requireSubject(project, input);
+  if (!asset.rig) throw new StageError(`build "${subject.name}"'s rig first`);
+  if (isDrawnObject(subject)) return animateObject(ctx, input, subject, asset);
+  const character = subject;
   const rig = asset.rig;
 
   // What to write: slots, weapon attack clips and clips by any other name.
@@ -1259,6 +1288,108 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
     if (job.attack.clip === null && clips[job.clip]) operations.push({ name: "setWeaponAttack", input: { weaponId: job.weapon.id, attack: { ...job.attack, clip: job.clip } } });
   }
   return { operations, summary: `animated ${character.name} (${ids.join(", ")})` };
+}
+
+/**
+ * An object's clips: idle plus every clip the game plays on it (core wantedObjectClips), or only the
+ * named ones, each written from its name and direction; each plays as the game plays it (a prop's
+ * idle and a projectile's charge and fly loop; handler-played clips, effects and bursts play once).
+ * The model proposes markers for the clips that play once; code keeps them valid and puts
+ * impact-like ones (strike, click, impact...) where the motion lands (objects.ts settleObjectClips).
+ */
+async function animateObject(ctx: ArtContext, input: AnimateInput, object: DrawnObject, asset: CharacterAsset): Promise<StageResult> {
+  const project = ctx.project();
+  const rig = asset.rig!;
+  if (input.weaponId) throw new StageError(`"${object.name}" is an object: it has no weapon attack clips`);
+  const named = input.clips ?? (input.clip ? [input.clip] : input.slots);
+  const only = named ? [...new Set(named)] : undefined;
+  const said = input.direction?.trim() || input.feedback?.trim();
+  const briefs = objectClipBriefs(project, asset, only, said);
+  const modes = objectClipModes(project, asset.id);
+  const heard = heardMarkers(project, asset.id);
+  const wanted = briefs.map((b) => b.name);
+  // The creator's direction kept on each clip: the new one for clips named here, else the clip's own.
+  const direction = (name: string): string | undefined => ((only && said) || asset.clips[name]?.direction || undefined)?.slice(0, 600);
+
+  const rest = asset.preview ? await ctx.files.get(asset.preview.file) : (await renderRest(ctx, rig)).png;
+  const system = animSystemPrompt();
+  const limits = rig.mode === "cutout" || rig.mode === "traced" ? motionLimits(rig, { joint: input.jointLimits }) : null;
+  const fit = (clips: Record<string, Clip>) => (limits ? fitClips(clips, limits) : clips);
+  const limitsLine = limits && limits.size > 0 ? limitsText(limits) : undefined;
+  const write = async (list: ObjectClipBrief[], label: string) =>
+    fit(
+      pick(
+        (
+          await askJson(
+            ctx,
+            ObjectClipsReply,
+            {
+              system,
+              content: [image(rest), text(objectAnimPrompt({ object, brief: asset.brief, rig, clips: list, heard, limits: limitsLine, feedback: only ? undefined : input.feedback?.trim() }))],
+              maxTokens: 10000,
+            },
+            label,
+          )
+        ).clips,
+        list.map((b) => b.name),
+      ),
+    );
+
+  let clips = await write(briefs, `writing ${wanted.join(", ")}`);
+  const missing = briefs.filter((b) => !clips[b.name]);
+  if (missing.length > 0 && Object.keys(clips).length > 0) {
+    clips = { ...clips, ...(await write(missing, `writing the missing ${missing.map((b) => b.name).join(", ")}`)) };
+  }
+  const still = wanted.filter((n) => !clips[n]);
+  if (still.length > 0) ctx.log({ text: `no clip for ${still.join(", ")}` });
+  const settle = (raw: Record<string, Clip>) => {
+    const settled = settleObjectClips(rig, raw, modes, heard);
+    if (settled.added.length > 0) ctx.log({ text: `added the markers the game listens for: ${settled.added.join(", ")}` });
+    return settled.clips;
+  };
+  clips = settle(clips);
+  let ids = Object.keys(clips);
+  if (ids.length === 0) throw new StageError("the model wrote no clips");
+
+  for (let round = 0; round < (ctx.animRounds ?? 1); round++) {
+    const sheet = await filmstrips(ctx, rig, clips, ids);
+    ctx.log({ text: `filmstrips ${round + 1}`, file: await ctx.files.put(sheet, "png") });
+    if (ctx.remaining() < CRITIQUE_RESERVE) break;
+    const critique = await askJson(
+      ctx,
+      AnimCritique,
+      {
+        system,
+        content: [image(sheet), text(animCritiquePrompt({ slots: ids, clipsJson: JSON.stringify(clips), framesPerClip: FILMSTRIP_FRAMES, limits: limitsLine, object: true }))],
+        maxTokens: 10000,
+      },
+      `reviewing animation ${round + 1}`,
+    );
+    ctx.log({ text: `score ${critique.score}/10${critique.issues.length ? `: ${critique.issues.join("; ")}` : ""}` });
+    if (critique.score >= 8) break;
+    const revised = ObjectClips.safeParse(critique.clips);
+    const picked = revised.success ? pick(revised.data, ids) : {};
+    if (Object.keys(picked).length === 0) {
+      ctx.log({ text: "the revision was invalid; keeping the clips as written" });
+      break;
+    }
+    // A revision that drops a clip keeps the written one; one that drops its markers keeps them.
+    const kept = Object.fromEntries(Object.entries(fit(picked)).map(([id, c]) => [id, c.markers.length === 0 ? { ...c, markers: clips[id]!.markers } : c]));
+    clips = settle({ ...clips, ...kept });
+    ids = Object.keys(clips);
+  }
+
+  const operations: OperationCall[] = [];
+  for (const id of ids) {
+    const file = await ctx.files.put(await filmstrips(ctx, rig, clips, [id]), "png");
+    const said = direction(id);
+    const clip: Clip = { ...clips[id]! };
+    delete clip.direction;
+    operations.push({ name: "setClip", input: { assetId: asset.id, clipId: id, clip: { ...clip, ...(said ? { direction: said } : {}) }, preview: file } });
+  }
+  const marked = ids.filter((id) => clips[id]!.markers.length > 0).map((id) => `${id}: ${clips[id]!.markers.map((m) => `${m.name}@${m.t.toFixed(2)}`).join(", ")}`);
+  if (marked.length > 0) ctx.log({ text: `markers ${marked.join("; ")}` });
+  return { operations, summary: `animated ${object.name} (${ids.join(", ")})` };
 }
 
 /** The weapon to show in a filmstrip of several clips: the one weapon all the attack clips use, if they share one. */

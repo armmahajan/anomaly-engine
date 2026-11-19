@@ -3,6 +3,7 @@ import { dressingOutOfDate } from "../world/world.ts";
 import { isDefaultArtDirection } from "./asset.ts";
 import { ACTION_CLIP_SLOTS, ACTION_PHASE_SLOTS, ENEMY_CLIP_SLOTS, PLAYER_CLIP_SLOTS, type ClipSlot } from "./clip.ts";
 import type { Weapon, WeaponAttack } from "../combat/weapon.ts";
+import { usedObjects, wantedObjectClips } from "./objects.ts";
 
 /**
  * What a game still needs to be fully drawn, as ordered steps the game-art
@@ -15,11 +16,13 @@ import type { Weapon, WeaponAttack } from "../combat/weapon.ts";
  * prop is for: props are drawn from their names, sizes and handlers.
  */
 
-export type ArtStepKind = "direction" | "character" | "biome" | "room" | "props" | "modal" | "items" | "weapon";
+export type ArtStepKind = "direction" | "character" | "object" | "biome" | "room" | "props" | "modal" | "items" | "weapon";
 
 export interface ArtStepRequest {
   stage: "artDirection" | "auto" | "animate" | "worldKit" | "worldCompose" | "propArt" | "modalArt" | "itemArt" | "weaponArt";
   characterId?: string;
+  /** auto / animate: an object asset (subject object) instead of a character. */
+  objectId?: string;
   biomeId?: string;
   /** The biome made by this earlier step (worldKit) of the plan. */
   biomeStep?: string;
@@ -39,7 +42,7 @@ export interface ArtStepRequest {
 }
 
 export interface ArtStep {
-  /** Stable within a plan, e.g. "character:crawler", "biome:caves", "room:hall". */
+  /** Stable within a plan, e.g. "character:crawler", "object:lever", "biome:caves", "room:hall". */
   id: string;
   kind: ArtStepKind;
   reason: "missing" | "out_of_date" | "incomplete";
@@ -54,6 +57,7 @@ export const ART_COST_ESTIMATES = {
   direction: 0.003, // one text call (free on Claude Code)
   character: 0.03,
   animate: 0.01,
+  object: 0.02, // like a character: a concept sheet, a flat redraw, vision calls (free on Claude Code)
   biome: 0.09, // three medium background planes, medium piece sheets, a low ground, labelling
   room: 0.005,
   props: 0.004,
@@ -227,6 +231,32 @@ export function gameArtPlan(project: ProjectSpec, options: GameArtOptions = {}):
         reason: "incomplete",
         description: `animate ${c.name}: ${[...missing, ...missingWeapon].join(", ")}`,
         request: { stage: "animate", characterId: c.id, slots: missing, ...(missingWeapon.length ? { clips: missingWeapon } : {}) },
+        estimatedCost: ART_COST_ESTIMATES.animate,
+      });
+    }
+  }
+
+  // Objects the game uses (props, effects, projectiles): drawn and animated with every clip they play.
+  for (const asset of usedObjects(project)) {
+    if (!asset.rig) {
+      steps.push({
+        id: `object:${asset.id}`,
+        kind: "object",
+        reason: "missing",
+        description: `draw and animate ${asset.name}`,
+        request: { stage: "auto", objectId: asset.id },
+        estimatedCost: ART_COST_ESTIMATES.object,
+      });
+      continue;
+    }
+    const missing = wantedObjectClips(project, asset.id).filter((clip) => !asset.clips[clip]);
+    if (missing.length > 0) {
+      steps.push({
+        id: `object:${asset.id}`,
+        kind: "object",
+        reason: "incomplete",
+        description: `animate ${asset.name}: ${missing.join(", ")}`,
+        request: { stage: "animate", objectId: asset.id, clips: missing },
         estimatedCost: ART_COST_ESTIMATES.animate,
       });
     }

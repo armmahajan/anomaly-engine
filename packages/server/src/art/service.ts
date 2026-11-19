@@ -2,6 +2,7 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   gameArtPlan,
+  isObjectAsset,
   ArtJobRequest,
   ArtJobSummary,
   fail,
@@ -194,6 +195,7 @@ export class ArtService {
       id: r.id,
       stage: r.request.stage,
       characterId: r.request.characterId,
+      objectId: r.request.objectId,
       biomeId: r.biomeId,
       weaponId: r.request.weaponId,
       worldRoomId: r.request.worldRoomId,
@@ -220,8 +222,8 @@ export class ArtService {
       pending: this.queue.flatMap(({ request }) => {
         const parsed = ArtJobRequest.safeParse(request);
         if (!parsed.success) return [];
-        const { stage, characterId, biomeId, weaponId, worldRoomId, modalId } = parsed.data;
-        return [{ stage, characterId, biomeId, weaponId, worldRoomId, modalId }];
+        const { stage, characterId, objectId, biomeId, weaponId, worldRoomId, modalId } = parsed.data;
+        return [{ stage, characterId, objectId, biomeId, weaponId, worldRoomId, modalId }];
       }),
       totalCost: this.totalCost,
     };
@@ -232,7 +234,7 @@ export class ArtService {
     return () => this.listeners.delete(listener);
   }
 
-  /** A request that can run now, or why not (malformed, no models, an unknown character/weapon/biome). */
+  /** A request that can run now, or why not (malformed, no models, an unknown character/object/weapon/biome). */
   private check(request: unknown): { ok: true; request: Parsed } | { ok: false; error: OperationError } {
     const parsed = ArtJobRequest.safeParse(request);
     if (!parsed.success) return fail("invalid_request", "malformed art job request", toIssues(parsed.error));
@@ -240,9 +242,15 @@ export class ArtService {
       return fail("unavailable", this.options.unavailableReason ?? "art generation is not configured (no model API key)");
     }
     const project = this.store.getState().project;
-    const { characterId, biomeId, weaponId } = parsed.data;
+    const { characterId, objectId, biomeId, weaponId } = parsed.data;
     if (characterId !== undefined && !project.characters.some((c) => c.id === characterId)) {
       return fail("not_found", `no character "${characterId}"`);
+    }
+    if (objectId !== undefined) {
+      const asset = project.art.assets.find((a) => a.id === objectId);
+      if (!asset) return fail("not_found", `no object "${objectId}"`);
+      const what = asset.kind === "character" ? "a character's look" : `a ${asset.kind}`;
+      if (!isObjectAsset(asset)) return fail("invalid_request", `"${objectId}" is not an object asset (it is ${what}); objectId takes an object (createObject makes one)`);
     }
     if (weaponId !== undefined && !project.weapons.list.some((w) => w.id === weaponId)) {
       return fail("not_found", `no weapon "${weaponId}"`);
@@ -341,7 +349,7 @@ export class ArtService {
     const key = (r: unknown) => {
       const parsed = ArtJobRequest.safeParse(r);
       if (!parsed.success) return JSON.stringify(r);
-      return parsed.data.stage === "auto" ? `auto:${parsed.data.characterId}` : JSON.stringify(parsed.data);
+      return parsed.data.stage === "auto" ? `auto:${parsed.data.objectId ? `object:${parsed.data.objectId}` : parsed.data.characterId}` : JSON.stringify(parsed.data);
     };
     const k = key(request);
     return this.queue.some((q) => key(q.request) === k) || [...this.active.values()].some((r) => key(r.request) === k);
@@ -349,8 +357,13 @@ export class ArtService {
 
   private drawn(request: unknown): boolean {
     const parsed = ArtJobRequest.safeParse(request);
-    if (!parsed.success || !parsed.data.characterId) return false;
+    if (!parsed.success) return false;
     const project = this.store.getState().project;
+    if (parsed.data.objectId) {
+      const object = project.art.assets.find((a) => a.id === parsed.data.objectId);
+      return isObjectAsset(object) && object.rig !== null;
+    }
+    if (!parsed.data.characterId) return false;
     const character = project.characters.find((c) => c.id === parsed.data.characterId);
     const asset = project.art.assets.find((a) => a.id === character?.appearance);
     return asset?.kind === "character" && asset.rig !== undefined;
@@ -398,6 +411,7 @@ export class ArtService {
       id: `art_${Date.now().toString(36)}_${(++this.seq).toString(36)}`,
       stage: parsed.success ? parsed.data.stage : "concepts",
       characterId: parsed.success ? parsed.data.characterId : undefined,
+      objectId: parsed.success ? parsed.data.objectId : undefined,
       biomeId: parsed.success ? parsed.data.biomeId : undefined,
       at: new Date().toISOString(),
       outcome: "failed",
@@ -468,11 +482,12 @@ export class ArtService {
           add("artDirection", () => artDirectionStage(ctx), true);
           break;
         case "auto": {
-          const c = { characterId: r.characterId! };
-          // Pick up where the character stands (a job stopped part-way, the creator's own sheets): concept
+          const c = r.objectId ? { objectId: r.objectId } : { characterId: r.characterId! };
+          // Pick up where the character (or object) stands (a job stopped part-way, the creator's own sheets): concept
           // sheets already drawn are chosen from, a chosen design is built on; only what's missing is drawn.
           const character = project.characters.find((ch) => ch.id === r.characterId);
-          const asset = character?.appearance ? project.art.assets.find((a) => a.id === character.appearance) : undefined;
+          const assetId = r.objectId ?? character?.appearance;
+          const asset = assetId ? project.art.assets.find((a) => a.id === assetId) : undefined;
           const drawn = asset?.kind === "character" ? asset : undefined;
           const sheets = (drawn?.concepts.length ?? 0) > 0;
           const chosen = !!drawn?.chosen;
@@ -483,7 +498,7 @@ export class ArtService {
           break;
         }
         case "animate":
-          add("animate", () => animate(ctx, { characterId: r.characterId!, ...(r.slots ? { slots: r.slots } : {}), ...(r.clips ? { clips: r.clips } : {}) }), true);
+          add("animate", () => animate(ctx, { ...(r.objectId ? { objectId: r.objectId } : { characterId: r.characterId! }), ...(r.slots ? { slots: r.slots } : {}), ...(r.clips ? { clips: r.clips } : {}) }), true);
           break;
         case "weaponArt":
           add("weaponArt", () => weaponArtStage(ctx, { weaponId: r.weaponId! }), true);
@@ -612,6 +627,7 @@ export class ArtService {
     };
 
     const stages: Step[] = [];
+    // A character stage's subject: the object when the request names one, else the character.
     const character = { ...request, characterId: request.characterId ?? "" };
     const conceptStep = { stage: "concepts" as const, run: () => generateConcepts(ctx, character) };
     const chooseStep = { stage: "choose" as const, run: () => chooseConcept(ctx, character) };
@@ -681,7 +697,7 @@ export class ArtService {
         break;
       case "auto": {
         // Auto takes the AI's picks; feedback and sheet/cell choices apply to the first stage only.
-        const plain = { characterId: request.characterId ?? "", rigMode: request.rigMode };
+        const plain = { characterId: request.characterId ?? "", objectId: request.objectId, rigMode: request.rigMode };
         stages.push(
           conceptStep,
           { stage: "choose", run: () => chooseConcept(ctx, plain) },
@@ -740,6 +756,7 @@ export class ArtService {
       id: running.id,
       stage: request.stage,
       characterId: request.characterId,
+      objectId: request.objectId,
       biomeId: running.biomeId,
       at: running.startedAt,
       outcome,
@@ -753,7 +770,7 @@ export class ArtService {
     this.totalCost += running.cost;
     this.jobs = [...this.jobs, summary].slice(-RECENT_JOBS);
     await this.append(summary);
-    console.info(`[art] ${request.stage} ${request.characterId ?? request.weaponId ?? running.biomeId ?? "new biome"}: ${outcome}, ~$${running.cost.toFixed(4)}${error ? ` (${error})` : ""}`);
+    console.info(`[art] ${request.stage} ${request.characterId ?? request.objectId ?? request.weaponId ?? running.biomeId ?? "new biome"}: ${outcome}, ~$${running.cost.toFixed(4)}${error ? ` (${error})` : ""}`);
     this.pump();
   }
 

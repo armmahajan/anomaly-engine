@@ -832,6 +832,16 @@ Anything with a rig can play its clips on cue (`packages/core/src/art/animation.
   same pipeline as characters (concepts, choose, flat redraw, rig, clips; the rig plans parts and hinges,
   not limbs) and edited with the same animation list and bone editor. Operations: `createObject {id, name,
   brief}`; `deleteAsset` refuses an object still in use (`objectUses`).
+- **Object art** (`packages/art/src/objects.ts`): art jobs take `objectId` instead of `characterId`
+  (concepts, choose, rig, animate, auto; it must be an object asset). Prompts say what it is, with no
+  turnaround, limbs, hands or weapon rules; the rig is planned as parts on hinges (a lever's arm, a
+  trap's jaws), the default rig mode as for characters. Clips: `idle` plus every clip the game plays
+  (`wantedObjectClips`), written from the name and any `direction`; a prop's idle and a projectile's
+  charge/fly loop, handler-played clips, effects and bursts play once. The model proposes markers for
+  one-shot clips (told which names the game listens for); code keeps them inside 0..1, in order, at most
+  16, and puts impact-like ones (strike, click, impact, slam...) where the motion lands. The game-art
+  plan adds `object:<id>` for every object in use that lacks a rig or a clip; jobs on different objects
+  run side by side (`jobKeys` `object:<id>`).
 - **Props** draw with a kit piece (`art: {biome, piece}`) or an object (`art: {object, idle, scale}`),
   which loops its `idle` clip.
 - **Effects** (any handler): `playAnimation {target, clip, then}` plays a clip on `self` (the prop or spawn
@@ -1149,7 +1159,7 @@ player is behind them.
 - **Storage:** images live in `<project>/files/` under content hashes; the
   project only references them, so undo is exact. Each finished stage is one
   AI change (one undo step). The job log is `<project>/art-jobs.jsonl`.
-- **API:** `POST /api/art/jobs {stage, characterId? | biomeId?, brief?, feedback?, ...}`
+- **API:** `POST /api/art/jobs {stage, characterId? | objectId? | biomeId?, brief?, feedback?, ...}`
   (character stages `concepts`, `choose`, `rig`, `animate`, `auto`; world
   stages `worldKit`, `worldCompose`, `worldRepaint`; game stages `propArt {worldRoomId}`,
   `modalArt {modalId}`, `itemArt`, `weaponArt {weaponId}`; `animate {clip, direction}` redoes one clip), `GET /api/art`,

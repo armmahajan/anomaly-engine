@@ -3,7 +3,7 @@ import { newBiomeName } from "@anomaly/art";
 
 /**
  * Which art jobs may run at the same time. A job "touches" things (its keys):
- * a character family (an original and its variants), a character's art asset,
+ * a character family (an original and its variants), a character's art asset, an object,
  * a weapon, a biome, a world room, a modal, the item icons. Two jobs conflict
  * when they share a key; jobs that write things everything depends on (the art
  * direction) or that plan over the whole game (gameArt) touch everything (`*`)
@@ -16,7 +16,7 @@ export const EVERYTHING = "*";
 /** What jobKeys reads from a request: an art job request, or a game-art plan step's request. */
 export type KeyedRequest = Pick<
   ArtStepRequest,
-  "characterId" | "biomeId" | "biomeStep" | "dressRoom" | "worldRoomId" | "modalId" | "weaponId" | "clips" | "brief" | "name"
+  "characterId" | "objectId" | "biomeId" | "biomeStep" | "dressRoom" | "worldRoomId" | "modalId" | "weaponId" | "clips" | "brief" | "name"
 > & { stage: string; roomId?: string; clip?: string };
 
 const CHARACTER_STAGES = new Set(["concepts", "choose", "rig", "animate", "auto"]);
@@ -26,7 +26,11 @@ const ANIMATING = new Set(["animate", "auto"]);
 export function jobKeys(request: KeyedRequest, project: ProjectSpec): string[] {
   const keys = new Set<string>();
   if (request.stage === "artDirection" || request.stage === "gameArt") return [EVERYTHING];
-  if (CHARACTER_STAGES.has(request.stage) && request.characterId) characterKeys(request, project, keys);
+  if (CHARACTER_STAGES.has(request.stage) && request.objectId) {
+    // An object is drawn like a character, on its own asset (no variants, no weapons).
+    keys.add(`object:${request.objectId}`);
+    keys.add(`asset:${request.objectId}`);
+  } else if (CHARACTER_STAGES.has(request.stage) && request.characterId) characterKeys(request, project, keys);
   if (request.weaponId) keys.add(`weapon:${request.weaponId}`);
   switch (request.stage) {
     case "worldKit":
