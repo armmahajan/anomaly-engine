@@ -29,7 +29,7 @@ import { CutoutPlan, cutCharacter, cutoutRig, isolateFigure, jointPivots, labelP
 import { assemblePuppet, drawnParts, partAnchors, piecesView, PieceMatch, PieceNudge, PuppetPlan, sheetPieces } from "./puppet.ts";
 import { fitClips, limitsText, motionLimits } from "./motionLimits.ts";
 import { tracedRig } from "./traced.ts";
-import { buildLayered, nativeDesign, paintHidden, type LayeredBuild, type PaintLookup } from "./layered.ts";
+import { buildLayered, nativeDesign, paintHidden, softenEdge, type LayeredBuild, type PaintLookup } from "./layered.ts";
 import { findObject, heardMarkers, objectClipBriefs, objectClipModes, ObjectClips, ObjectClipsReply, settleObjectClips } from "./objects.ts";
 import { fitBounds, fitFrame, frameForCanvas, pngSize, toCanvasSpace, toRigSpace, type Frame } from "./frame.ts";
 import { parseReply } from "./json.ts";
@@ -833,7 +833,8 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
   let native: { cut: Cutout; k: number; image: Pixels } | null = null;
   if (mode === "layered") {
     const found = await nativeDesign(ctx, asset, decodePng(input.concept));
-    const nativeCut = found.k === 1 ? cut : cutCharacter(found.image);
+    const rawCut = found.k === 1 ? cut : cutCharacter(found.image);
+    const nativeCut = rawCut && found.k > 1 ? softenEdge(rawCut, Math.ceil(found.k)) : rawCut;
     native = nativeCut ? { cut: nativeCut, k: found.k, image: found.image } : { cut, k: 1, image: decodePng(input.concept) };
     ctx.log({ text: `layers: ${nativeCut ? found.note : "the full-resolution design has no plain background: the chosen design as it is"}` });
   }
@@ -952,12 +953,13 @@ async function paintLayers(
       plan,
       k: input.native.k,
       brief: input.asset.brief,
-      design: encodePng(input.native.image),
+      image: input.native.image,
       object: isDrawnObject(input.character),
     });
     if (!painted) return best;
-    ctx.log({ text: "the layers pulled apart, hidden stretches in magenta", file: await ctx.files.put(painted.sent, "png") });
+    ctx.log({ text: `the design with ${painted.removed.join(", ")} marked to paint behind`, file: await ctx.files.put(painted.sent, "png") });
     ctx.log({ text: "the painting", file: await ctx.files.put(painted.painted, "png") });
+    if (!painted.lookup) return best;
     const built = await input.build(plan, painted.lookup);
     const layers = built.layered?.layers ?? [];
     const sum = (f: (l: (typeof layers)[number]) => number) => layers.reduce((s, l) => s + f(l), 0);

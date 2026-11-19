@@ -692,21 +692,21 @@ export function paintOverPrompt(brief: string, strict = false): string {
 }
 
 /** Marks the layered rig's paint-in request (fake.ts answers it). */
-export const LAYER_PAINT_MARK = "Magenta (#FF00FF) marks where each piece was hidden";
+export const LAYER_PAINT_MARK = "painted over in flat magenta (#FF00FF)";
 
 /**
- * Layered rigs: the design's pieces pulled apart, each piece's hidden stretches in magenta; the
- * image model paints the magenta as the piece continuing there (layered.ts paintHidden).
+ * Layered rigs: the design with the parts in front painted magenta; the image model paints what
+ * was behind them, the rest unchanged (layered.ts paintHidden).
  */
-export function layerPaintPrompt(brief: string, object: boolean): string {
+export function layerPaintPrompt(brief: string, object: boolean, removed: string[]): string {
   const what = object ? "2D game object" : "2D game character";
-  const examples = object
-    ? "the rest of a panel behind a strut, the end of a leg under the body, a hinge plate under the part it holds"
-    : "the rest of the torso behind an arm, the top of a leg under a tunic, the far arm behind the body, the neck under the head";
+  const behind = object
+    ? "the rest of the body, base and parts behind them, and the far-side parts"
+    : "the rest of the body and clothing behind them, the neck, and the far-side arm or leg where one was behind";
   return [
-    `The first image shows the pieces of a ${what} (${brief}), cut from its design along its joints and pulled apart on a plain flat light-grey background, like a paper-doll puppet laid out flat. ${LAYER_PAINT_MARK} behind another piece in the design. The second image is the whole design.`,
-    `Paint every magenta area: continue the piece it belongs to as it would look where it was hidden (${examples}), in exactly the design's style, colours, line work, shading and texture, so each piece looks whole on its own. Where the piece would not reach into a magenta area, paint that bit plain light-grey background.`,
-    "Keep everything that is not magenta exactly as it is, pixel for pixel: the same pieces in the same places, sizes, colours and outlines, the same gaps and the same plain light-grey background. Do not move, join, add or remove pieces, and do not draw an assembled figure. No magenta may remain. No text, labels, shadows, ground or frame.",
+    `The first image is a ${what} design (${brief}) with some of its parts ${LAYER_PAINT_MARK}: ${removed.join(", ")}. The second image is the same design unmarked.`,
+    `Redraw the first image with the magenta parts taken away: paint what was behind them (${behind}), continuing the visible shapes naturally, in exactly the design's style, colours, line work, shading and texture. Do not paint the removed parts back: no arm, leg, hand, head or other part where the magenta was, unless it is one that was hidden behind the removed part.`,
+    "Everything that is not magenta stays exactly as it is, pixel for pixel: the same pose, position, size, colours, outlines and plain flat background. Where nothing was behind a removed part, paint the plain background. No magenta may remain. No text, labels, shadows, ground or frame.",
   ].join("\n");
 }
 

@@ -390,7 +390,7 @@ export function composePixels(request: { width: number; height: number; backgrou
 }
 
 /**
- * The fake painter for layered rigs: the pulled-apart layers sent back with every magenta pixel
+ * The fake painter for layered rigs: the marked design sent back with every magenta pixel
  * painted in the colour of the nearest piece pixel (a perfect, if plain, paint-in).
  */
 export function fakeLayerPaint(sent: Buffer): Buffer {

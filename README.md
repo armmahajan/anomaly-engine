@@ -1001,6 +1001,16 @@ vertex toward `bendTo` (0 = follows `bone`, 1 = follows `bendTo`; without weight
 weights by position along the bone as for vector parts). The texture travels with its vertices, so
 the bone editor can move, turn and scale a mesh. Meshes draw no fill, outline or boil, and can't
 clip or be clipped to.
+The rig stage builds one (`packages/art/src/layered.ts`) on the cutout plan and critique loop: the
+chosen design's sheet cell is cropped at the sheet's own resolution (not the 512 px pick; mirrored
+like the pick), the plan's parts become layers of the design's own pixels, and **one image edit**
+paints in what each part hides (the layers on each bone pulled apart, the hidden stretches marked
+magenta, the paint lined up and colour-matched per group and taken only where the part was hidden,
+so the rest pose stays the design; an edge ring and the joints are always filled from the edge
+colours). Each layer becomes a mesh: its outline traced from its alpha, interior points on a
+staggered grid, twice as dense near joints, triangulated inside the outline; uv point into one
+atlas of the layers at native resolution (at most 1000 px a side); a part bends toward its parent
+bone with weights falling off across its pivot. The finished rig is measured like the others.
 
 **Rig looks on trial** (`dressRig {look}` in `packages/art/src/dress.ts`, opt-in, no default flow
 calls it; compared blind by `node scripts/rig-ab4.ts <round3> <out>` then

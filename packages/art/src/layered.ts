@@ -4,7 +4,7 @@ import { decodePng, encodePng, type Pixels } from "./match.ts";
 import { cleanPolygon, convexHull, densify, isSimple, outlineDistance, pointInPolygon, polygonArea, triangulate, untangle, type Vec } from "./mesh.ts";
 import { layerPaintPrompt, isRigReadySheet } from "./prompts.ts";
 import { sheetCell, StageError, type ArtContext } from "./stages.ts";
-import { applySim, explode, figureMask, packAtlas, refinePiece, registerMasks, resizePremultiplied, sample, type Atlas, type PartBake, type Similarity } from "./texture.ts";
+import { applySim, figureMask, packAtlas, resizePremultiplied, sample, type Atlas, type PartBake, type Similarity } from "./texture.ts";
 import { distanceTo } from "./traced.ts";
 
 /**
@@ -24,8 +24,10 @@ import { distanceTo } from "./traced.ts";
 
 /** The most an atlas can be a side: mesh uv are rig Points (|v| <= 1000). */
 export const LAYER_ATLAS_MAX = 1000;
-/** Hidden pixels a layer may take: within this share of the figure's height of its own pixels. */
-const REACH = 0.25;
+/** Hidden pixels a layer may take: within this many of its own thicknesses of its pixels... */
+const REACH = 1.5;
+/** ...and never further than this share of the figure's height. */
+const MAX_REACH = 0.25;
 /** A design pixel this opaque is inside the figure (hidden pixels never touch the soft outer edge). */
 const INTERIOR_ALPHA = 250;
 /** Interior points per mesh, roughly (before the denser points near joints). */
@@ -119,6 +121,48 @@ export async function nativeDesign(ctx: Pick<ArtContext, "files" | "renderer">, 
   return { image: native, k, note: `the design at ${native.width}x${native.height} px (${k.toFixed(2)}x the chosen design)` };
 }
 
+/**
+ * A full-resolution cutout's outer edge un-mixed from the background over a band `width` px deep:
+ * a big image's soft edge spans several px where cutCharacter un-mixes one, which would leave a
+ * rim of background colour around the figure. Each opaque pixel in the band takes the alpha of
+ * how far its colour is from the background, against the figure just inside it.
+ */
+export function softenEdge(cut: Cutout, width: number): Cutout {
+  if (width <= 1) return cut;
+  const { width: W, height: H, data } = cut.image;
+  const bg = cut.background;
+  const outside = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) outside[i] = data[i * 4 + 3]! === 0 ? 1 : 0;
+  const depth = distanceTo(outside, W, H);
+  const fromBg = (i: number) => Math.hypot(data[i * 4]! - bg[0], data[i * 4 + 1]! - bg[1], data[i * 4 + 2]! - bg[2]);
+  const out = data.slice();
+  const r = Math.ceil(width) + 1;
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (data[i * 4 + 3]! < 255 || depth[i]! > width) continue;
+      let ref = 0;
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (depth[j]! > width) ref = Math.max(ref, fromBg(j));
+        }
+      if (ref < 1) continue;
+      const a = Math.min(1, fromBg(i) / ref);
+      if (a >= 0.98) continue;
+      if (a * 255 < 16) {
+        out.fill(0, i * 4, i * 4 + 4);
+        continue;
+      }
+      for (let c = 0; c < 3; c++) out[i * 4 + c] = Math.max(0, Math.min(255, Math.round((data[i * 4 + c]! - (1 - a) * bg[c]!) / a)));
+      out[i * 4 + 3] = Math.round(a * 255);
+    }
+  return { ...cut, image: { width: W, height: H, data: out } };
+}
+
 /** A plan (canvas px) scaled to native px. */
 export function scalePlan(plan: CutoutPlan, k: number): CutoutPlan {
   const p = (q: readonly [number, number]): [number, number] => [q[0] * k, q[1] * k];
@@ -179,7 +223,6 @@ export function planLayers(cut: Cutout, plan: CutoutPlan): LayerPlan {
   order.forEach((k, r) => (rank[k] = r));
   const boneOf = plan.parts.map((p) => p.bone);
   const figureHeight = Math.max(1, cut.bounds.maxY - cut.bounds.minY);
-  const reach = Math.max(4, Math.round(figureHeight * REACH));
   const ring = Math.max(2, Math.round(figureHeight * 0.006));
   const vis: Uint8Array[] = [];
   const hidden: Uint8Array[] = [];
@@ -207,19 +250,28 @@ export function planLayers(cut: Cutout, plan: CutoutPlan): LayerPlan {
     if (count === 0) continue;
     const dist = distanceTo(v, W, H);
     const thickness = count / Math.max(1, x1 - x0 + 1, y1 - y0 + 1);
-    const jr = Math.max(2 * ring, Math.min(0.12 * figureHeight, 0.75 * thickness));
-    const joints = partJoints(plan, bones, k, cut.offset).filter(([px, py]) => {
-      const ix = Math.max(0, Math.min(W - 1, Math.floor(px)));
-      const iy = Math.max(0, Math.min(H - 1, Math.floor(py)));
-      return dist[iy * W + ix]! <= jr;
-    });
+    const jr = Math.max(2 * ring, Math.min(0.08 * figureHeight, 0.6 * thickness));
+    // A thin limb may take a band about as wide as it is (its continuation), a torso the limbs in front of it.
+    const reach = Math.max(jr, 3 * ring, Math.min(MAX_REACH * figureHeight, REACH * thickness));
+    // Its joints, each with the bone on the other side: a joint disk fills only under that bone's parts.
+    const own = bones.find((b) => b.id === boneOf[k])!;
+    const joints = [
+      ...(own.parent !== null ? [{ at: own.pivot, partner: own.parent }] : []),
+      ...bones.filter((b) => b.parent === own.id).map((b) => ({ at: b.pivot, partner: b.id })),
+    ]
+      .map((j) => ({ ...j, at: [j.at[0] - cut.offset[0], j.at[1] - cut.offset[1]] as [number, number] }))
+      .filter(({ at: [px, py] }) => {
+        const ix = Math.max(0, Math.min(W - 1, Math.floor(px)));
+        const iy = Math.max(0, Math.min(H - 1, Math.floor(py)));
+        return dist[iy * W + ix]! <= jr;
+      });
     for (let i = 0; i < W * H; i++) {
       const l = label[i]!;
       if (l < 0 || boneOf[l] === boneOf[k] || rank[l]! <= rank[k]! || data[i * 4 + 3]! < INTERIOR_ALPHA || dist[i]! > reach) continue;
       h[i] = 1;
       const x = (i % W) + 0.5;
       const y = Math.floor(i / W) + 0.5;
-      if (dist[i]! <= ring || joints.some(([px, py]) => Math.hypot(x - px, y - py) <= jr)) m[i] = 1;
+      if (dist[i]! <= ring || joints.some((j) => j.partner === boneOf[l] && Math.hypot(x - j.at[0], y - j.at[1]) <= jr)) m[i] = 1;
     }
   }
   return { W, H, label, bones, rank, vis, hidden, must, ring, figureHeight };
@@ -325,6 +377,30 @@ export function fillLayer(cut: Cutout, lp: LayerPlan, k: number, paint?: PaintLo
     data.set(data.subarray(from[i]! * 4, from[i]! * 4 + 3), i * 4);
     data[i * 4 + 3] = 255;
     set[i] = 3;
+  }
+  // Edge colours carried inward come out streaky: soften them (extended pixels only, from every known one).
+  for (let pass = 0; pass < 3; pass++) {
+    const next = data.slice();
+    for (let i = 0; i < w * h; i++) {
+      if (set[i] !== 3) continue;
+      const x = i % w;
+      const y = (i - x) / w;
+      let [r, g, b, n] = [0, 0, 0, 0];
+      for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const j = ny * w + nx;
+          if (!set[j] || data[j * 4 + 3]! < 200) continue;
+          r += data[j * 4]!;
+          g += data[j * 4 + 1]!;
+          b += data[j * 4 + 2]!;
+          n++;
+        }
+      if (n > 0) next.set([Math.round(r / n), Math.round(g / n), Math.round(b / n)], i * 4);
+    }
+    data.set(next);
   }
   // Only fills that connect to the part's own pixels.
   const reached = new Uint8Array(w * h);
@@ -676,31 +752,29 @@ export function buildLayered(native: Cutout, plan: CutoutPlan, k: number, paint?
 // --- painting in what each part hides ------------------------------------------------------------
 
 export interface PaintResult {
-  lookup: PaintLookup;
-  /** The layers pulled apart with their hidden stretches marked (sent), and the painting (back, at the sent size). */
+  /** Null when the painting doesn't line up (the hidden stretches keep their edge colours). */
+  lookup: PaintLookup | null;
+  /** The design with the parts in front marked (sent), and the painting (back, at the design's size). */
   sent: Buffer;
   painted: Buffer;
-  /** How well the painting lines up with what was sent (0-1 overlap of the visible pieces). */
+  /** How well the painting lines up with the design where nothing was removed (0-1 correlation). */
   registration: number;
+  /** Plan part ids taken out (marked) for the painting. */
+  removed: string[];
   cost: number;
   model: string;
 }
 
-/** The painting lines up worse than this: it is not used. */
-const PAINT_MIN_OVERLAP = 0.5;
-/** Gap between pulled-apart groups (share of the design's size). */
-const LAYOUT_GAP = 0.03;
+/** The painting's drawing correlates with the design (where nothing was removed) less than this: it is not used. */
+const PAINT_MIN_MATCH = 0.6;
+/** A painted pixel this close (RGB) to the design's pixel in front of it is that piece painted back: not taken. */
+const GHOST = 20;
+/** A part in front hiding less than this share of the figure isn't taken out. */
+const MIN_OCCLUSION = 0.002;
+/** Colour bins (per channel) for "does this paint look like this part". */
+const BINS = 16;
 
 const isMagenta = (r: number, g: number, b: number) => r > 150 && b > 150 && g < 110 && Math.abs(r - b) < 90;
-
-/** Downsample a mask by an integer factor (a cell is set when any of its pixels is). */
-function shrinkAny(mask: Uint8Array, W: number, H: number, f: number): Uint8Array {
-  const w = Math.floor(W / f);
-  const h = Math.floor(H / f);
-  const out = new Uint8Array(w * h);
-  for (let y = 0; y < h * f; y++) for (let x = 0; x < w * f; x++) if (mask[y * W + x]) out[Math.floor(y / f) * w + Math.floor(x / f)] = 1;
-  return out;
-}
 
 /** Resample to exactly W x H (area average down, bilinear up). */
 export function resample(img: Pixels, W: number, H: number): Pixels {
@@ -715,7 +789,7 @@ export function resample(img: Pixels, W: number, H: number): Pixels {
   return { width: W, height: H, data };
 }
 
-/** Per channel: design = gain * paint + offset, fitted over a group's visible pixels (so the paint matches what shows next to it). */
+/** Per channel: design = gain * paint + offset, fitted where both show the design (so the paint matches what shows next to it). */
 interface ColorFit {
   gain: number[];
   offset: number[];
@@ -741,128 +815,241 @@ function fitColors(pairs: { paint: number[]; design: number[] }[]): ColorFit {
   return { gain, offset };
 }
 
+const bin = (r: number, g: number, b: number) => {
+  const q = (v: number) => Math.max(0, Math.min(BINS - 1, Math.floor((v * BINS) / 256)));
+  return (q(r) * BINS + q(g)) * BINS + q(b);
+};
+
+/** The colours a part shows (binned, each bin grown by one), so paint can be checked against them. */
+function palette(cut: Cutout, vis: Uint8Array): Uint8Array {
+  const seen = new Uint32Array(BINS * BINS * BINS);
+  const d = cut.image.data;
+  let n = 0;
+  for (let i = 0; i < vis.length; i++)
+    if (vis[i] && d[i * 4 + 3]! >= 200) {
+      seen[bin(d[i * 4]!, d[i * 4 + 1]!, d[i * 4 + 2]!)]!++;
+      n++;
+    }
+  const out = new Uint8Array(BINS * BINS * BINS);
+  const min = Math.max(1, n * 0.002);
+  for (let r = 0; r < BINS; r++)
+    for (let g = 0; g < BINS; g++)
+      for (let b = 0; b < BINS; b++) {
+        if (seen[(r * BINS + g) * BINS + b]! < min) continue;
+        for (let dr = -1; dr <= 1; dr++)
+          for (let dg = -1; dg <= 1; dg++)
+            for (let db = -1; db <= 1; db++) {
+              const [R, G, B] = [r + dr, g + dg, b + db];
+              if (R >= 0 && G >= 0 && B >= 0 && R < BINS && G < BINS && B < BINS) out[(R * BINS + G) * BINS + B] = 1;
+            }
+      }
+  return out;
+}
+
 /**
- * One image edit paints in what each part hides: the parts on each bone are pulled apart (nothing
- * overlaps), each shown as the design draws it with its hidden stretches in magenta, and the image
- * model paints the magenta as the part continuing there, in the design's style. The painting is
- * lined up with what was sent (as a whole, then per group) and colour-matched per group to the
- * design's own pixels next to it. Null when the painting doesn't line up.
+ * One image edit paints in what the parts hide: the design with the parts in front (the ones that
+ * hide others: a near arm, a near leg, the head over the neck; never the biggest part) painted
+ * flat magenta, and the image model paints what was behind them, the rest of the design unchanged.
+ * The painting is lined up with the design where nothing was marked and colour-matched to it; each
+ * hidden pixel of a part takes the paint there when it looks like that part (its own colours) and
+ * not like the piece that was in front (painted back instead of removed). Null when nothing is hidden.
  */
 export async function paintHidden(
   ctx: ArtContext,
-  input: { native: Cutout; plan: CutoutPlan; k: number; brief: string; design: Buffer; object?: boolean },
+  input: { native: Cutout; image: Pixels; plan: CutoutPlan; k: number; brief: string; object?: boolean },
 ): Promise<PaintResult | null> {
-  const { native } = input;
+  const { native, image } = input;
   const nativePlan = scalePlan(input.plan, input.k);
   const lp = planLayers(native, nativePlan);
   const { W, H, label } = lp;
-  const src = native.image.data;
-  const bonesUsed = [...new Set(nativePlan.parts.map((p) => p.bone))];
-  const groupOfBone = new Map(bonesUsed.map((b, g) => [b, g]));
-  const groupOf = nativePlan.parts.map((p) => groupOfBone.get(p.bone)!);
-  const G = bonesUsed.length;
-  // Each group's zone: what it shows and what it may take.
-  const zone = Array.from({ length: G }, () => new Uint8Array(W * H));
-  nativePlan.parts.forEach((_, k) => {
-    const z = zone[groupOf[k]!]!;
-    const v = lp.vis[k]!;
-    const h = lp.hidden[k]!;
-    for (let i = 0; i < W * H; i++) if (v[i] || h[i]) z[i] = 1;
-  });
-  if (!lp.hidden.some((h) => h.some((v) => v))) return null;
-  // Pull the groups apart on small masks.
-  const f = Math.max(1, Math.ceil(Math.max(W, H) / 256));
-  const sw = Math.floor(W / f);
-  const sh = Math.floor(H / f);
-  const offsets = explode(zone.map((z) => shrinkAny(z, W, H, f)), sw, sh, Math.max(2, Math.round((LAYOUT_GAP * Math.max(W, H)) / f))).map(([x, y]) => [x * f, y * f] as Vec);
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
-  zone.forEach((z, g) => {
-    for (let i = 0; i < W * H; i++)
-      if (z[i]) {
-        const x = (i % W) + offsets[g]![0];
-        const y = Math.floor(i / W) + offsets[g]![1];
-        x0 = Math.min(x0, x);
-        x1 = Math.max(x1, x + 1);
-        y0 = Math.min(y0, y);
-        y1 = Math.max(y1, y + 1);
-      }
-  });
-  const extent = Math.max(x1 - x0, y1 - y0, 1);
-  const P = Math.max(1024, Math.min(2048, Math.round(extent / 0.84 / 256) * 256));
-  const ps = (0.84 * P) / extent;
-  const toLayout: Similarity = { s: ps, tx: P / 2 - ((x0 + x1) / 2) * ps, ty: P / 2 - ((y0 + y1) / 2) * ps };
-  // The layout: each group's own pixels over the background, its hidden stretches magenta.
-  const layout = new Uint8Array(P * P * 4);
-  const owner = new Int16Array(P * P).fill(-1);
-  const shown = new Uint8Array(P * P);
-  const groupShown = Array.from({ length: G }, () => new Uint8Array(P * P));
-  for (let y = 0; y < P; y++)
-    for (let x = 0; x < P; x++) {
-      const o = y * P + x;
-      layout.set([...BACKGROUND, 255], o * 4);
-      const qx = (x + 0.5 - toLayout.tx) / ps;
-      const qy = (y + 0.5 - toLayout.ty) / ps;
-      for (let g = 0; g < G; g++) {
-        const lx = Math.floor(qx - offsets[g]![0]);
-        const ly = Math.floor(qy - offsets[g]![1]);
-        if (lx < 0 || ly < 0 || lx >= W || ly >= H) continue;
-        const i = ly * W + lx;
-        if (!zone[g]![i]) continue;
-        owner[o] = g;
-        if (!(label[i]! >= 0 && groupOf[label[i]!] === g)) layout.set([...MAGENTA, 255], o * 4);
-        else {
-          const a = src[i * 4 + 3]! / 255;
-          for (let c = 0; c < 3; c++) layout[o * 4 + c] = Math.round(src[i * 4 + c]! * a + BACKGROUND[c]! * (1 - a));
-          if (a >= 0.5) (shown[o] = 1), (groupShown[g]![o] = 1);
+  const [ox, oy] = native.offset;
+  const n = nativePlan.parts.length;
+  // Which parts hide others, and how much.
+  const hides = new Float64Array(n);
+  for (let i = 0; i < W * H; i++) {
+    const l = label[i]!;
+    if (l >= 0 && lp.hidden.some((h) => h[i])) hides[l] = hides[l]! + 1;
+  }
+  const visible = lp.vis.map((v) => v.reduce((s, x) => s + x, 0));
+  const figure = visible.reduce((s, v) => s + v, 0);
+  const biggest = visible.indexOf(Math.max(...visible));
+  const occluders = nativePlan.parts.map((_, k) => k).filter((k) => hides[k]! >= MIN_OCCLUSION * figure);
+  // The near side: parts drawn in front of the body's hubs (bones two or more moving bones hang
+  // from: a chest, a pelvis), so the edit shows the body and the far side whole behind them.
+  const used = new Set(nativePlan.parts.map((p) => p.bone));
+  const hubs = new Set(nativePlan.bones.filter((b) => nativePlan.bones.filter((c) => c.parent === b.id && used.has(c.id)).length >= 2).map((b) => b.id));
+  const hubZ = Math.max(-Infinity, ...nativePlan.parts.filter((p) => hubs.has(p.bone)).map((p) => p.z));
+  const front = occluders.filter((k) => nativePlan.parts[k]!.z > hubZ);
+  const removed = front.length > 0 ? front : occluders.filter((k) => k !== biggest);
+  if (removed.length === 0) return null;
+  const gone = new Set(removed);
+  // The design with the removed parts magenta (their soft edges too).
+  const IW = image.width;
+  const IH = image.height;
+  const marked = new Uint8Array(IW * IH);
+  for (let i = 0; i < W * H; i++) {
+    if (label[i]! < 0 || !gone.has(label[i]!)) continue;
+    const x = (i % W) + ox;
+    const y = Math.floor(i / W) + oy;
+    if (x >= 0 && y >= 0 && x < IW && y < IH) marked[y * IW + x] = 1;
+  }
+  const grow = Math.max(1, Math.round(input.k));
+  const markedWide = new Uint8Array(IW * IH);
+  for (let y = 0; y < IH; y++)
+    for (let x = 0; x < IW; x++) {
+      if (!marked[y * IW + x]) continue;
+      for (let dy = -grow; dy <= grow; dy++)
+        for (let dx = -grow; dx <= grow; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= IW || ny >= IH) continue;
+          // Grows over the background and the removed parts, never over a part that stays.
+          const lx = nx - ox;
+          const ly = ny - oy;
+          const l = lx >= 0 && ly >= 0 && lx < W && ly < H ? label[ly * W + lx]! : -1;
+          if (l < 0 || gone.has(l)) markedWide[ny * IW + nx] = 1;
         }
-        break;
-      }
     }
-  const sent = encodePng({ width: P, height: P, data: layout });
+  const sentPixels: Pixels = { width: IW, height: IH, data: image.data.slice() };
+  for (let i = 0; i < IW * IH; i++) if (markedWide[i]) sentPixels.data.set([...MAGENTA, 255], i * 4);
+  const sent = encodePng(sentPixels);
   if (ctx.signal?.aborted) throw new StageError("cancelled");
-  const generated = await ctx.image.generate({ prompt: layerPaintPrompt(input.brief, input.object ?? false), references: [sent, input.design], signal: ctx.signal });
+  const names = removed.map((k) => nativePlan.parts[k]!.id.replace(/_/g, " "));
+  const generated = await ctx.image.generate({ prompt: layerPaintPrompt(input.brief, input.object ?? false, names), references: [sent, encodePng(image)], signal: ctx.signal });
   ctx.spend(generated.usage);
-  ctx.log({ text: `painting in what the parts hide (${generated.model})`, cost: generated.usage.cost });
+  ctx.log({ text: `painting in what the parts hide: behind ${names.join(", ")} (${generated.model})`, cost: generated.usage.cost });
   const png = generated.image[0] === 0x89 && generated.image[1] === 0x50 ? generated.image : await ctx.renderer.crop(generated.image, { x: 0, y: 0, width: 1, height: 1 }, 4096);
-  const painting = resample(decodePng(png), P, P);
+  const painting = resample(decodePng(png), IW, IH);
   const pd = painting.data;
   const fg = figureMask(painting);
-  for (let i = 0; i < P * P; i++) if (fg[i] && isMagenta(pd[i * 4]!, pd[i * 4 + 1]!, pd[i * 4 + 2]!)) fg[i] = 0;
-  const global = registerMasks(shown, P, P, fg, P, P, { scaleRange: 0.08, shiftRange: Math.round(P * 0.05), start: { s: 1, tx: 0, ty: 0 } });
-  ctx.log({ text: `the painting lines up with the layers at ${Math.round(global.iou * 100)}% overlap` });
+  for (let i = 0; i < IW * IH; i++) if (fg[i] && isMagenta(pd[i * 4]!, pd[i * 4 + 1]!, pd[i * 4 + 2]!)) fg[i] = 0;
   const painted = encodePng(painting);
-  if (global.iou < PAINT_MIN_OVERLAP) {
-    ctx.log({ text: "the painting does not line up: hidden stretches keep their edge colours" });
-    return null;
+  // Line it up with the design where nothing was marked (the figure there should be untouched).
+  const kept = new Uint8Array(IW * IH);
+  for (let i = 0; i < W * H; i++) {
+    const x = (i % W) + ox;
+    const y = Math.floor(i / W) + oy;
+    if (label[i]! >= 0 && !gone.has(label[i]!) && x < IW && y < IH && !markedWide[y * IW + x] && native.image.data[i * 4 + 3]! >= 250) kept[y * IW + x] = 1;
   }
-  const fits = groupShown.map((m) => refinePiece(m, P, P, fg, P, P, global.t, { shift: Math.round(P * 0.012), scale: 0.04 }));
-  // Colour-match each group's paint to the design where it shows.
-  const colors: ColorFit[] = fits.map((fit, g) => {
-    const pairs: { paint: number[]; design: number[] }[] = [];
-    const m = groupShown[g]!;
-    for (let o = 0; o < P * P; o += 3) {
-      if (!m[o]) continue;
-      const [px, py] = applySim(fit.t, (o % P) + 0.5, Math.floor(o / P) + 0.5);
-      const c = sample(painting, px, py);
-      if (!c || c[3] < 200) continue;
-      pairs.push({ paint: [c[0], c[1], c[2]], design: [layout[o * 4]!, layout[o * 4 + 1]!, layout[o * 4 + 2]!] });
-    }
-    return fitColors(pairs);
-  });
+  const lumD = luminanceOf(image.data, IW * IH);
+  const lumP = luminanceOf(pd, IW * IH);
+  const fit = alignByDrawing(lumD, lumP, IW, IH, kept, { s: 1, tx: 0, ty: 0 }, { shift: Math.round(Math.max(IW, IH) * 0.03), step: 2, scales: [0.98, 0.99, 1, 1.01, 1.02] });
+  ctx.log({ text: `the painting lines up with the design at ${Math.round(fit.score * 100)}% (drawing correlation)` });
+  const base = { sent, painted, registration: Math.round(fit.score * 1000) / 1000, removed: removed.map((k) => nativePlan.parts[k]!.id), cost: generated.usage.cost, model: generated.model };
+  if (fit.score < PAINT_MIN_MATCH) {
+    ctx.log({ text: "the painting does not line up: hidden stretches keep their edge colours" });
+    return { ...base, lookup: null };
+  }
+  const pairs: { paint: number[]; design: number[] }[] = [];
+  for (let i = 0; i < IW * IH; i += 7) {
+    if (!kept[i]) continue;
+    const [px, py] = applySim(fit.t, (i % IW) + 0.5, Math.floor(i / IW) + 0.5);
+    const c = sample(painting, px, py);
+    if (c && c[3] >= 200) pairs.push({ paint: [c[0], c[1], c[2]], design: [image.data[i * 4]!, image.data[i * 4 + 1]!, image.data[i * 4 + 2]!] });
+  }
+  const colors = fitColors(pairs);
+  const palettes = lp.vis.map((v) => palette(native, v));
   const lookup: PaintLookup = (k, x, y) => {
-    const g = groupOf[k]!;
-    const [lx, ly] = applySim(toLayout, x + offsets[g]![0], y + offsets[g]![1]);
-    if (lx < 0 || ly < 0 || lx >= P || ly >= P || owner[Math.floor(ly) * P + Math.floor(lx)] !== g) return null;
-    const [px, py] = applySim(fits[g]!.t, lx, ly);
-    const ix = Math.floor(px);
-    const iy = Math.floor(py);
-    if (ix < 0 || iy < 0 || ix >= P || iy >= P || !fg[iy * P + ix]) return null;
+    const ix = x + ox;
+    const iy = y + oy;
+    const [px, py] = applySim(fit.t, ix, iy);
+    const qx = Math.floor(px);
+    const qy = Math.floor(py);
+    if (qx < 0 || qy < 0 || qx >= IW || qy >= IH || !fg[qy * IW + qx]) return null;
     const c = sample(painting, px, py);
     if (!c || c[3] < 200 || isMagenta(c[0], c[1], c[2])) return null;
-    const fit = colors[g]!;
-    return [0, 1, 2].map((ch) => Math.max(0, Math.min(255, fit.gain[ch]! * c[ch]! + fit.offset[ch]!))) as [number, number, number];
+    const rgb = [0, 1, 2].map((ch) => Math.max(0, Math.min(255, colors.gain[ch]! * c[ch]! + colors.offset[ch]!))) as [number, number, number];
+    // Not this part (another one, or the background), or the piece in front painted back.
+    if (!palettes[k]![bin(rgb[0], rgb[1], rgb[2])]) return null;
+    const o = (Math.floor(iy) * IW + Math.floor(ix)) * 4;
+    if (Math.hypot(rgb[0] - image.data[o]!, rgb[1] - image.data[o + 1]!, rgb[2] - image.data[o + 2]!) < GHOST) return null;
+    return rgb;
   };
-  return { lookup, sent, painted, registration: Math.round(global.iou * 1000) / 1000, cost: generated.usage.cost, model: generated.model };
+  return { ...base, lookup };
+}
+
+function luminanceOf(data: Uint8Array, n: number): Float32Array {
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = 0.2126 * data[i * 4]! + 0.7152 * data[i * 4 + 1]! + 0.0722 * data[i * 4 + 2]!;
+  return out;
+}
+
+/**
+ * The similarity (scale about the mask's centre, then shift) that best lines the painting's
+ * luminance up with the layout's over `mask`: normalized cross-correlation on a sample of the
+ * mask's pixels, a coarse grid then 1 px steps.
+ */
+function alignByDrawing(
+  lumL: Float32Array,
+  lumP: Float32Array,
+  P: number,
+  PH: number,
+  mask: Uint8Array,
+  start: Similarity,
+  options: { shift: number; step: number; scales: number[] },
+): { t: Similarity; score: number } {
+  let count = 0;
+  for (let i = 0; i < P * PH; i++) if (mask[i]) count++;
+  if (count < 16) return { t: start, score: 0 };
+  const stride = Math.max(1, Math.round(count / 6000));
+  const idx: number[] = [];
+  let n = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < P * PH; i++)
+    if (mask[i] && n++ % stride === 0) {
+      idx.push(i);
+      cx += (i % P) + 0.5;
+      cy += Math.floor(i / P) + 0.5;
+    }
+  cx /= idx.length;
+  cy /= idx.length;
+  const a = idx.map((i) => lumL[i]!);
+  const ma = a.reduce((s, v) => s + v, 0) / a.length;
+  const da = a.map((v) => v - ma);
+  const na = Math.sqrt(da.reduce((s, v) => s + v * v, 0));
+  if (na < 1e-6) return { t: start, score: 0 };
+  const [pcx, pcy] = applySim(start, cx, cy);
+  const at = (k: number, dx: number, dy: number): Similarity => {
+    const s = start.s * k;
+    return { s, tx: pcx - cx * s + dx, ty: pcy - cy * s + dy };
+  };
+  const ncc = (t: Similarity) => {
+    let sum = 0;
+    let sum2 = 0;
+    let cross = 0;
+    for (let j = 0; j < idx.length; j++) {
+      const i = idx[j]!;
+      const qx = Math.floor(((i % P) + 0.5) * t.s + t.tx);
+      const qy = Math.floor((Math.floor(i / P) + 0.5) * t.s + t.ty);
+      const v = qx >= 0 && qy >= 0 && qx < P && qy < PH ? lumP[qy * P + qx]! : 0;
+      sum += v;
+      sum2 += v * v;
+      cross += da[j]! * v;
+    }
+    const varB = sum2 - (sum * sum) / idx.length;
+    return varB <= 1e-6 ? 0 : cross / (na * Math.sqrt(varB));
+  };
+  let best = { t: at(1, 0, 0), score: ncc(at(1, 0, 0)), k: 1, dx: 0, dy: 0 };
+  for (const k of options.scales)
+    for (let dx = -options.shift; dx <= options.shift; dx += options.step)
+      for (let dy = -options.shift; dy <= options.shift; dy += options.step) {
+        const t = at(k, dx, dy);
+        const v = ncc(t);
+        if (v > best.score) best = { t, score: v, k, dx, dy };
+      }
+  for (let improved = true, guard = 0; improved && guard < 200; guard++) {
+    improved = false;
+    for (const [ddx, ddy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const t = at(best.k, best.dx + ddx, best.dy + ddy);
+      const v = ncc(t);
+      if (v > best.score + 1e-6) {
+        best = { t, score: v, k: best.k, dx: best.dx + ddx, dy: best.dy + ddy };
+        improved = true;
+      }
+    }
+  }
+  return { t: best.t, score: best.score };
 }
 
 // --- drawing a layered rig (tests and checks; the game draws it in rig_view.gd) ---------------------
