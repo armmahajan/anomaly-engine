@@ -62,6 +62,23 @@ export function markerChoices(project: ProjectSpec, event: Record<string, unknow
   return names.length ? names : null;
 }
 
+/**
+ * Behavior states a stateEntered event can wait for: on a spawn, its own enemy's states; elsewhere
+ * (`from` a spawn of the room: that spawn's enemy's) every enemy's states. Null when none (free text).
+ */
+export function stateChoices(project: ProjectSpec, event: Record<string, unknown>, place: HandlerPlace): string[] | null {
+  const statesOf = (characterId: string | undefined) => {
+    const c = project.characters.find((x) => x.id === characterId);
+    return c?.kind === "enemy" ? Object.keys(c.behavior.states) : [];
+  };
+  const from = event.from as AnimTarget | undefined;
+  const spawnId = place.self?.kind === "spawn" ? place.self.id : from?.kind === "spawn" ? from.spawn : undefined;
+  const names = spawnId
+    ? statesOf(place.room?.spawns.find((s) => s.id === spawnId)?.characterId)
+    : [...new Set(project.characters.flatMap((c) => statesOf(c.id)))];
+  return names.length ? names : null;
+}
+
 /** The prop art picker's value: "" (its colour), "kit:<biome>/<piece>" or "object:<id>". */
 export function propArtValue(art: PropArt | null): string {
   if (!art) return "";

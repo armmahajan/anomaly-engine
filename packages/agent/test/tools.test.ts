@@ -25,8 +25,8 @@ describe("tool definitions", () => {
     // 40k before the game-world tools (+7.6k), handlers (+1.7k), props, modals, combat and controls; weapons +11k
     // (setWeaponAttack carries the attack schema once; createWeapon stays small); animation +3.5k (the projectile
     // look in setBehavior's shoot and setWeaponAttack's projectile, createObject, setClipMarkers); looks +2.4k (a
-    // behavior state's look, with its emitter, in setBehavior). Keep new domains this lean.
-    expect(JSON.stringify(definitions).length).toBeLessThan(78_400);
+    // behavior state's look, with its emitter, in setBehavior; updateBehavior's look stays a compact record). Keep new domains this lean.
+    expect(JSON.stringify(definitions).length).toBeLessThan(78_700);
     expect(JSON.stringify(toolDefinitions(NARRATIVE_TOOLS)).length).toBeLessThan(40_000);
   });
 

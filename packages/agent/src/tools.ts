@@ -113,9 +113,9 @@ const writeDescriptions: Record<BuildOperation, string> = {
   deleteCharacter: "Delete an enemy type and all its spawns. The player cannot be deleted.",
   updateCharacter: "Change a character's name, color, size or stats (and, for the player, movement ability tuning). Applies to every spawn of it.",
   updateBehavior:
-    "Targeted edit of one behavior state (action params, transitions by index) and/or the behavior's interrupts by index. Prefer this over setBehavior for tweaks.",
+    "Targeted edit of one behavior state (action params, transitions by index, its look) and/or the behavior's interrupts by index. Prefer this over setBehavior for tweaks.",
   setBehavior:
-    "Replace an enemy's whole behavior state machine. Use for new or restructured behaviors (adding/removing states or transitions).",
+    "Replace an enemy's whole behavior state machine. Use for new or restructured behaviors (adding/removing states or transitions). A state's look shows while the enemy is in it.",
   setArtDirection: "Change the project-wide art direction (style words, palette, outline color/width, line boil, rig mode vector|cutout).",
   updateAsset: "Rename an art asset or change its brief (the description concept art is generated from).",
   deleteAsset: "Delete an art asset; characters drawn with it go back to colored boxes.",
@@ -180,7 +180,8 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
   duplicateCharacter: DuplicateCharacterInput,
   deleteCharacter: CharacterRef,
   updateCharacter: UpdateCharacterInput,
-  updateBehavior: UpdateBehaviorInput,
+  // The look's full schema is setBehavior's (a state's look); repeating it here would double it.
+  updateBehavior: UpdateBehaviorInput.extend({ look: z.record(z.string(), z.unknown()).nullable().optional().describe("The state's look as setBehavior takes it (null removes it).") }),
   setBehavior: z.strictObject({ characterId: Id, behavior: Behavior }),
   setArtDirection: SetArtDirectionInput,
   updateAsset: UpdateAssetInput,

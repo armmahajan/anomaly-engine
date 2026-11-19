@@ -208,7 +208,7 @@ test("a prop drawn with an object; handlers play its clips and spawn effects wit
   await expect(trap.getByLabel("prop trap 1 event name")).toHaveValue("strike");
   await expect(trap.getByLabel("prop trap 1 event from")).toHaveCount(0);
   const spawn = page.getByTestId("handlers-charger_1");
-  await expect(spawn.getByLabel("charger_1 0 event", { exact: true }).locator("option")).toHaveText(["enemyKilled", "marker"]);
+  await expect(spawn.getByLabel("charger_1 0 event", { exact: true }).locator("option")).toHaveText(["enemyKilled", "marker", "stateEntered"]);
   await expect(spawn.getByLabel("charger_1 0 event", { exact: true })).toHaveValue("marker");
   await expect(spawn.getByLabel("charger_1 0 event name")).toHaveValue("impact");
   await expect(spawn.getByLabel("charger_1 0 effect 0 at", { exact: true })).toHaveValue("self");

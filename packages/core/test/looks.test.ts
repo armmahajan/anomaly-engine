@@ -187,3 +187,21 @@ describe("the checker and stateEntered", () => {
     expect(actions(harmful).some((a) => a === `spawn charger_1 enters its state "glow", then die`)).toBe(true);
   });
 });
+
+describe("updateBehavior and a state's look", () => {
+  it("sets a state's look (with defaults), keeps it through other edits, and null removes it", () => {
+    let p = createDefaultProject();
+    expect(applyOperation(p, "updateBehavior", { characterId: "charger", look: { brightness: 2 } }).ok).toBe(false); // needs stateId
+    expect(applyOperation(p, "updateBehavior", { characterId: "charger", stateId: "nope", look: { brightness: 2 } }).ok).toBe(false);
+    p = op(p, "updateBehavior", { characterId: "charger", stateId: "windup", look: { brightness: 2, aura: { color: "#ff0000" } } });
+    const windup = () => {
+      const c = p.characters.find((x) => x.id === "charger");
+      return c?.kind === "enemy" ? c.behavior.states.windup : undefined;
+    };
+    expect(windup()?.look).toEqual({ brightness: 2, aura: { color: "#ff0000", size: 12, pulse: 0.3 } });
+    p = op(p, "updateBehavior", { characterId: "charger", stateId: "windup", transitions: [{ index: 0, when: { seconds: 0.7 } }] });
+    expect(windup()?.look?.brightness).toBe(2);
+    p = op(p, "updateBehavior", { characterId: "charger", stateId: "windup", look: null });
+    expect(windup() && "look" in windup()!).toBe(false);
+  });
+});
