@@ -418,12 +418,14 @@ event happens and every condition holds, the effects run in order.
 
 - **Events:** gameStarted, roomEntered, roomSettled (first safe ground in a room),
   roomCleared, enemyKilled (any, a spawn, or a character), playerDied,
-  hazardTouched, timer, and a prop's touch, interact (Up / W), hit and destroyed.
+  hazardTouched, timer, marker, stateEntered (an enemy enters a behavior state), and a
+  prop's touch, interact (Up / W), hit and destroyed.
 - **Conditions:** flag, item (at least n), ability, visited, and all / any / not.
 - **Effects:** setFlag, giveItem, takeItem, grantAbility, heal, damage, respawn
   (at entry, start or checkpoint), returnToSafeGround, setCheckpoint, saveRun,
   startTimer; showModal, endGame, revealMap (modal.gd); shake, flash, hitStop,
-  slowMotion (fx.gd).
+  slowMotion, playAnimation, spawnEffect, setLook, clearLook, emit, dissolve,
+  cameraZoom (fx.gd).
 - **Conditional spawns:** a spawn's `when` (setSpawnCondition) keeps an enemy out of
   the room while it fails, e.g. `not flag x_beaten` for an enemy that stays beaten.
 - **Where handlers live:** the world (any event), a room (its own events), a prop
@@ -862,6 +864,48 @@ Anything with a rig can play its clips on cue (`packages/core/src/art/animation.
 - **Runtime** (protocol 17): `game/scripts/art/object_view.gd` draws objects; state reports what props,
   spawns and the player are `playing`, live `effects`, fired `markers` and `projectiles` (with `charging`).
   The stage `{mode: "object", assetId, ...}` shows one object, like the character stage.
+
+## Looks and effects
+
+Game feel is built from generic visual primitives (`packages/core/src/art/animation.ts`); there is no
+"teleport", "enrage" or "power-up" feature, only pieces handlers and behavior states combine. All of it is
+visual: gameplay, collisions and the logic model are unchanged.
+
+- **Emitter:** code-drawn particles (no art): `shape` dot | spark | ring | smoke | star, `color` (and
+  `colorEnd`), `rate` per s, `burst` at the start, `lifetime`, `speed`, `spread` and `direction` (degrees,
+  -90 = up), `gravity`, `size` (and `sizeEnd`), `additive` (glow) or painted.
+- **Look:** a visual state on an enemy, a prop or the player, every field optional: `tint {color, amount}`,
+  `brightness` (1 = normal), `opacity`, `scale`, `aura {color, size, pulse}` (a glow around the silhouette),
+  `afterimages {count, interval, fade, color?}` (fading copies of the pose left behind as it moves) and an
+  `emitter` (from its body while the look lasts).
+- **Effects:** `setLook {target, look, seconds (null = until clearLook or the room changes), fade}` (a new one
+  replaces the target's last), `clearLook {target, fade}`, `emit {at, offset, emitter, seconds (0 = burst
+  only), layer}` (particles at a place; at a target they follow it), `dissolve {target, to: out | in,
+  seconds, color}` (a noise dissolve with a bright edge; out stays invisible until in) and `cameraZoom
+  {amount, seconds}` (punch in, ease back). Targets and places are playAnimation's and spawnEffect's.
+- **A behavior state's look** (`BehaviorState.look`) shows while the enemy is in that state, fading in and
+  out (0.15 s), under any setLook (a field the setLook doesn't set shows the state's). The behavior
+  inspector edits it, and the character stage shows the selected state's look (stage `look`).
+- **stateEntered {state?, from?}:** an enemy enters a behavior state (its first one, and interrupts such
+  as healthBelow, included). A spawn's handlers hear its own enemy's; world and room handlers hear every
+  enemy's, filtered by `state` and `from` (a spawn).
+- **Compositions** (examples, not templates): a second phase is a state entered through healthBelow whose
+  look adds a red aura and an ember emitter, with a shake and cameraZoom on its stateEntered; a teleport
+  dissolves out on its windup's marker, leaves afterimages, and dissolves in at its arrival marker; a
+  windup glows with brightness and an aura on its state; a pickup sparkles with an `emit` burst on touch.
+- **The checker** takes looks as visual (they change nothing) and lets an enemy's stateEntered fire
+  whenever it is alive (it can change state at any time), so damage in its handler is a hazard while it
+  lives. **Lint:** `anim_target_unknown` / `anim_self_outside` for setLook, clearLook, dissolve and emit;
+  `anim_state_unknown` for a stateEntered waiting for a state its spawn's enemy doesn't have.
+- **Runtime** (protocol 18): `game/scripts/art/look_view.gd` puts looks on what a host draws (its rig, its
+  box, a prop's object or colour): tint, brightness and opacity through the drawing's `self_modulate` (the
+  hit flash wins while it shows), scale on the drawing, the aura as a CanvasGroup around it whose shader
+  glows around the silhouette (also used for opacity, so parts don't show through each other),
+  afterimages as rig copies posed like it (rectangles for boxes), the dissolve as the drawing's shader;
+  `art/particles.gd` draws emitters (CPUParticles2D with textures drawn in code); the play camera takes
+  a `punch`. State: `entities[].look` (the look's keys) and `dissolved`, the same on `props`, `playerLook`,
+  `playerDissolved` and `emitters` (live particle systems). Tests: `game/test/looks.test.ts` (headless,
+  `game/tests/look_probe.gd`), `e2e/looks-play.spec.ts` (pixels in the web export), core `looks.test.ts`.
 
 ## Enemy combat primitives
 
