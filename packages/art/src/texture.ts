@@ -761,7 +761,7 @@ export function movedGroups(rig: Rig, groups: string[][], offsets: [number, numb
     const [dx, dy] = by.get(p.id) ?? [0, 0];
     const pt = ([x, y]: readonly [number, number]): [number, number] => [x + dx, y + dy];
     const s = p.shape;
-    const shape = s.type === "ellipse" ? { ...s, center: pt(s.center) } : { ...s, points: s.points.map(pt) };
+    const shape = s.type === "ellipse" ? { ...s, center: pt(s.center) } : s.type === "mesh" ? { ...s, points: s.points.map(pt), inner: s.inner.map(pt) } : { ...s, points: s.points.map(pt) };
     const t = p.texture;
     return { ...p, shape, ...(t ? { texture: { ...t, rect: [t.rect[0] + dx, t.rect[1] + dy, t.rect[2], t.rect[3]] as [number, number, number, number] } } : {}) } as Part;
   };

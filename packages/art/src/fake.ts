@@ -1,9 +1,10 @@
 import { crc32, deflateSync } from "node:zlib";
 import { CLIP_SLOTS, exampleClips, exampleRig } from "@anomaly/core";
 import { pngSize } from "./frame.ts";
-import { encodePng } from "./match.ts";
+import { decodePng, encodePng, type Pixels } from "./match.ts";
+import { resizePremultiplied, sample } from "./texture.ts";
 import { creaturePlan, drawCreatureSheet } from "./rigFixtures.ts";
-import { OBJECT_CLIPS_MARK } from "./prompts.ts";
+import { LAYER_PAINT_MARK, OBJECT_CLIPS_MARK } from "./prompts.ts";
 import type { ImageModel, ImageRequest, GeneratedImage, VisionModel, VisionReply, VisionRequest } from "./models.ts";
 
 /**
@@ -39,10 +40,18 @@ export function solidPng(width: number, height: number, rgb: [number, number, nu
 
 const TINY_PNG = solidPng(64, 64);
 
-/** Renderer stand-in: answers with solid PNGs of the right size. */
+/**
+ * Renderer stand-in: answers with solid PNGs of the right size. With `pixels`, crops and composes
+ * really work on the pixels (in code), so a design can be cut from its sheet at any resolution.
+ */
 export class FakeRenderer {
   renders = 0;
   readonly crops: { x: number; y: number; width: number; height: number }[] = [];
+  private readonly pixels: boolean;
+
+  constructor(options: { pixels?: boolean } = {}) {
+    this.pixels = options.pixels ?? false;
+  }
 
   async renderRig(request: { cellWidth: number; cellHeight: number; columns: number; frames: unknown[] }) {
     // The real renderer's limit (game/scripts/art/render_service.gd MAX_FRAMES).
@@ -52,12 +61,14 @@ export class FakeRenderer {
     return { png: solidPng(request.cellWidth * request.columns, request.cellHeight * rows, [this.renders % 256, 90, 90]), warnings: [] };
   }
 
-  async crop(_image: Buffer, region: { x: number; y: number; width: number; height: number }, maxSize: number) {
+  async crop(image: Buffer, region: { x: number; y: number; width: number; height: number }, maxSize: number) {
     this.crops.push(region);
+    if (this.pixels) return encodePng(cropPixels(decodePng(image), region, maxSize));
     return solidPng(Math.min(maxSize, 32), Math.min(maxSize, 32), [9, 9, 9]);
   }
 
-  async compose(request: { width: number; height: number }) {
+  async compose(request: { width: number; height: number; background?: string; layers?: { image: Buffer; alpha?: number; flipX?: boolean }[] }) {
+    if (this.pixels) return encodePng(composePixels(request));
     return solidPng(request.width, request.height);
   }
 
@@ -92,7 +103,9 @@ export class FakeImageModel implements ImageModel {
     this.requests.push(request);
     // Each request gets different pixels (like a real model), unless a fixed image was given.
     const image =
-      this.image !== TINY_PNG ? this.image : isConceptSheet(request.prompt)
+      this.image !== TINY_PNG ? this.image : request.prompt.includes(LAYER_PAINT_MARK) && request.references?.[0]
+        ? fakeLayerPaint(request.references[0])
+        : isConceptSheet(request.prompt)
           ? fakeConceptSheet(this.requests.length)
           : request.transparent && request.aspectRatio === "3:2"
             ? fakeSilhouettes(this.requests.length)
@@ -327,4 +340,84 @@ function fakeSilhouettes(n: number): Buffer {
     for (let y = top; y < height; y++) data.set([30 + (n % 5) * 20, 40, 60, 255], (y * width + x) * 4);
   }
   return encodePng({ width, height, data });
+}
+
+// --- pixel work for the fake renderer and painter ---------------------------------------------------
+
+/** A region (fractions of the image) cut out and shrunk to at most `maxSize` a side (never enlarged), like the real renderer's crop. */
+export function cropPixels(img: Pixels, region: { x: number; y: number; width: number; height: number }, maxSize: number): Pixels {
+  const sx = Math.round(region.x * img.width);
+  const sy = Math.round(region.y * img.height);
+  const sw = Math.max(1, Math.round(region.width * img.width));
+  const sh = Math.max(1, Math.round(region.height * img.height));
+  const data = new Uint8Array(sw * sh * 4);
+  for (let y = 0; y < sh; y++)
+    for (let x = 0; x < sw; x++) {
+      const gx = sx + x;
+      const gy = sy + y;
+      if (gx < 0 || gy < 0 || gx >= img.width || gy >= img.height) continue;
+      data.set(img.data.subarray((gy * img.width + gx) * 4, (gy * img.width + gx) * 4 + 4), (y * sw + x) * 4);
+    }
+  const cut = { width: sw, height: sh, data };
+  const fit = Math.min(1, maxSize / Math.max(sw, sh));
+  return fit < 1 ? resizePremultiplied(cut, Math.max(1, Math.round(sw * fit)), Math.max(1, Math.round(sh * fit))) : cut;
+}
+
+/** Layers stretched to width x height (optionally mirrored, at partial strength) over a background. */
+export function composePixels(request: { width: number; height: number; background?: string; layers?: { image: Buffer; alpha?: number; flipX?: boolean }[] }): Pixels {
+  const { width: W, height: H } = request;
+  const out = new Uint8Array(W * H * 4);
+  if (request.background) {
+    const n = parseInt(request.background.slice(1, 7), 16);
+    for (let i = 0; i < W * H; i++) out.set([(n >> 16) & 255, (n >> 8) & 255, n & 255, 255], i * 4);
+  }
+  for (const layer of request.layers ?? []) {
+    const img = decodePng(layer.image);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const u = ((layer.flipX ? W - 1 - x : x) + 0.5) * (img.width / W);
+        const c = sample(img, u, (y + 0.5) * (img.height / H));
+        if (!c || c[3] <= 0) continue;
+        const sa = (c[3] / 255) * (layer.alpha ?? 1);
+        const o = (y * W + x) * 4;
+        const da = out[o + 3]! / 255;
+        const oa = sa + da * (1 - sa);
+        for (let ch = 0; ch < 3; ch++) out[o + ch] = Math.round((c[ch]! * sa + out[o + ch]! * da * (1 - sa)) / oa);
+        out[o + 3] = Math.round(oa * 255);
+      }
+  }
+  return { width: W, height: H, data: out };
+}
+
+/**
+ * The fake painter for layered rigs: the pulled-apart layers sent back with every magenta pixel
+ * painted in the colour of the nearest piece pixel (a perfect, if plain, paint-in).
+ */
+export function fakeLayerPaint(sent: Buffer): Buffer {
+  const img = decodePng(sent);
+  const { width: W, height: H, data } = img;
+  const magenta = (i: number) => data[i * 4]! > 150 && data[i * 4 + 2]! > 150 && data[i * 4 + 1]! < 110;
+  const from = new Int32Array(W * H).fill(-1);
+  const queue: number[] = [];
+  const bg = [data[0]!, data[1]!, data[2]!];
+  for (let i = 0; i < W * H; i++) {
+    const isBg = Math.hypot(data[i * 4]! - bg[0]!, data[i * 4 + 1]! - bg[1]!, data[i * 4 + 2]! - bg[2]!) < 12;
+    if (!magenta(i) && !isBg) (from[i] = i), queue.push(i);
+  }
+  for (let head = 0; head < queue.length; head++) {
+    const i = queue[head]!;
+    const x = i % W;
+    const y = (i - x) / W;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const j = ny * W + nx;
+      if (from[j]! >= 0 || !magenta(j)) continue;
+      from[j] = from[i]!;
+      queue.push(j);
+    }
+  }
+  for (let i = 0; i < W * H; i++) if (magenta(i)) data.set(from[i]! >= 0 ? data.subarray(from[i]! * 4, from[i]! * 4 + 4) : [bg[0]!, bg[1]!, bg[2]!, 255], i * 4);
+  return encodePng(img);
 }

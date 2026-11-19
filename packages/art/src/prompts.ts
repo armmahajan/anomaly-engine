@@ -691,6 +691,25 @@ export function paintOverPrompt(brief: string, strict = false): string {
     .join("\n");
 }
 
+/** Marks the layered rig's paint-in request (fake.ts answers it). */
+export const LAYER_PAINT_MARK = "Magenta (#FF00FF) marks where each piece was hidden";
+
+/**
+ * Layered rigs: the design's pieces pulled apart, each piece's hidden stretches in magenta; the
+ * image model paints the magenta as the piece continuing there (layered.ts paintHidden).
+ */
+export function layerPaintPrompt(brief: string, object: boolean): string {
+  const what = object ? "2D game object" : "2D game character";
+  const examples = object
+    ? "the rest of a panel behind a strut, the end of a leg under the body, a hinge plate under the part it holds"
+    : "the rest of the torso behind an arm, the top of a leg under a tunic, the far arm behind the body, the neck under the head";
+  return [
+    `The first image shows the pieces of a ${what} (${brief}), cut from its design along its joints and pulled apart on a plain flat light-grey background, like a paper-doll puppet laid out flat. ${LAYER_PAINT_MARK} behind another piece in the design. The second image is the whole design.`,
+    `Paint every magenta area: continue the piece it belongs to as it would look where it was hidden (${examples}), in exactly the design's style, colours, line work, shading and texture, so each piece looks whole on its own. Where the piece would not reach into a magenta area, paint that bit plain light-grey background.`,
+    "Keep everything that is not magenta exactly as it is, pixel for pixel: the same pieces in the same places, sizes, colours and outlines, the same gaps and the same plain light-grey background. Do not move, join, add or remove pieces, and do not draw an assembled figure. No magenta may remain. No text, labels, shadows, ground or frame.",
+  ].join("\n");
+}
+
 // --- weapons: the held sprite, its grip and tip, attack clips ------------------------------------
 
 /** One held object for a 2D side-view game, pointing right, in the project's look (weaponArtStage). */

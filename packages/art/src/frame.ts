@@ -62,7 +62,9 @@ function mapRig(rig: Rig, k: number, t: readonly [number, number]): Rig {
                 width: round(Math.max(0.5, s.width * length)),
                 ...(s.widthEnd !== undefined ? { widthEnd: round(s.widthEnd * length) } : {}),
               }
-            : { ...s, points: s.points.map(point) };
+            : s.type === "mesh"
+              ? { ...s, points: s.points.map(point), inner: s.inner.map(point) }
+              : { ...s, points: s.points.map(point) };
       // A texture's rectangle maps like the shape (finer rounding: it places every texel).
       const r = part.texture?.rect;
       const rect = r && ([r2(r[0] * k + t[0]), r2(r[1] * k + t[1]), Math.max(0.01, r2(r[2] * k)), Math.max(0.01, r2(r[3] * k))] as [number, number, number, number]);

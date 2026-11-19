@@ -703,7 +703,7 @@ export async function dressRig(ctx: ArtContext, input: DressInput): Promise<Stag
   if (!character) throw new StageError(`no character "${input.characterId}"`);
   const asset = project.art.assets.find((a) => a.id === character.appearance);
   if (!asset || asset.kind !== "character" || !asset.rig || !asset.chosen) throw new StageError(`"${character.name}" needs a rig first`);
-  if ((asset.rig.mode ?? "vector") === "cutout") throw new StageError("a cutout rig already shows its design: dressing is for vector rigs");
+  if (asset.rig.mode === "cutout" || asset.rig.mode === "layered") throw new StageError(`a ${asset.rig.mode} rig already shows its design: dressing is for vector rigs`);
   const chosen = await ctx.files.get(asset.chosen.file);
   const canvas = pngSize(chosen);
   const frame = asset.preview?.frame ?? frameForCanvas(asset.rig, canvas);

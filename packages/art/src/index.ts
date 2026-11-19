@@ -18,3 +18,5 @@ export * from "./texture.ts";
 export * from "./dress.ts";
 export * from "./weapons.ts";
 export * from "./objects.ts";
+export * from "./mesh.ts";
+export * from "./layered.ts";

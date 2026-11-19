@@ -13,6 +13,7 @@ import {
   Clip,
   Id,
   Rig,
+  type Bone,
   rigFiles,
   uniqueId,
   type CharacterAsset,
@@ -28,6 +29,7 @@ import { CutoutPlan, cutCharacter, cutoutRig, isolateFigure, jointPivots, labelP
 import { assemblePuppet, drawnParts, partAnchors, piecesView, PieceMatch, PieceNudge, PuppetPlan, sheetPieces } from "./puppet.ts";
 import { fitClips, limitsText, motionLimits } from "./motionLimits.ts";
 import { tracedRig } from "./traced.ts";
+import { buildLayered, nativeDesign, paintHidden, type LayeredBuild, type PaintLookup } from "./layered.ts";
 import { findObject, heardMarkers, objectClipBriefs, objectClipModes, ObjectClips, ObjectClipsReply, settleObjectClips } from "./objects.ts";
 import { fitBounds, fitFrame, frameForCanvas, pngSize, toCanvasSpace, toRigSpace, type Frame } from "./frame.ts";
 import { parseReply } from "./json.ts";
@@ -661,14 +663,15 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
     operations.push(...redrawn.operations);
     chosen = { ...chosen, file: choice.file, original: chosen.file };
   }
-  const concept = await ctx.files.get(chosen.file);
+  // A layered rig takes the design as drawn, never a flat redraw of it.
+  const concept = await ctx.files.get(mode === "layered" ? (chosen.original ?? chosen.file) : chosen.file);
   const size = pngSize(concept);
   // The design cut out of its background: the cutout rig's image, and what every attempt is measured against.
   const cut = cutCharacter(decodePng(concept));
   const reference = cut ? flatten(placeCutout(cut, size), BACKGROUND) : null;
   const options = {
     // Objects have hinges, not limbs.
-    limbJoints: input.limbJoints ?? (full && !object ? true : undefined),
+    limbJoints: input.limbJoints ?? ((full || mode === "layered") && !object ? true : undefined),
     cleanTrace: input.cleanTrace,
     review: input.review,
     rounds: input.rounds ?? (full && ctx.rigRounds === undefined ? VECTOR_RIG_ROUNDS : undefined),
@@ -676,7 +679,7 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
   };
   const best = input.puppet
     ? await puppetAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), ...options })
-    : mode === "cutout" || mode === "traced"
+    : mode === "cutout" || mode === "traced" || mode === "layered"
       ? await cutoutAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), mode, ...options })
       : await vectorAttempts(ctx, { character, asset, concept, size, reference, feedback: input.feedback?.trim(), ...options });
 
@@ -815,7 +818,7 @@ function flexClip(rig: Rig): Clip {
  * and the bones bent, and may move pivots or regions; an attempt that looks less like the
  * design never wins.
  */
-async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cutout | null; mode: "cutout" | "traced" }): Promise<Attempt> {
+async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cutout | null; mode: "cutout" | "traced" | "layered" }): Promise<Attempt> {
   const { character, asset, size, cut, reference, mode } = input;
   if (!cut || !reference) throw new StageError("could not find the character on the design's background (it needs a plain, flat background)");
   const frame = fitBounds(cut.bounds, character.size);
@@ -826,9 +829,22 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
     file = await ctx.files.put(sourcePng, "png");
     images = { [file]: sourcePng.toString("base64") };
   }
+  // Layered: the design at the concept sheet's own resolution, cut out (the layers' pixels).
+  let native: { cut: Cutout; k: number; image: Pixels } | null = null;
+  if (mode === "layered") {
+    const found = await nativeDesign(ctx, asset, decodePng(input.concept));
+    const nativeCut = found.k === 1 ? cut : cutCharacter(found.image);
+    native = nativeCut ? { cut: nativeCut, k: found.k, image: found.image } : { cut, k: 1, image: decodePng(input.concept) };
+    ctx.log({ text: `layers: ${nativeCut ? found.note : "the full-resolution design has no plain background: the chosen design as it is"}` });
+  }
   const direction = ctx.project().art.direction;
-  const build = (plan: CutoutPlan) =>
-    mode === "cutout" ? cutoutRig(cut, plan, file) : tracedRig(cut, plan, direction, { canvasPerGamePx: 1 / frame.scale, clean: input.cleanTrace });
+  const build = async (plan: CutoutPlan, paint?: PaintLookup): Promise<{ rig: Rig; warnings: string[]; labels: Int32Array; bones: Bone[]; layered?: LayeredBuild }> => {
+    if (mode === "cutout") return cutoutRig(cut, plan, file);
+    if (mode === "traced") return tracedRig(cut, plan, direction, { canvasPerGamePx: 1 / frame.scale, clean: input.cleanTrace });
+    const layered = buildLayered(native!.cut, plan, native!.k, paint);
+    const atlas = await ctx.files.put(layered.atlas.png, "png");
+    return { rig: layered.rigFor(atlas), warnings: layered.warnings, labels: labelParts(cut, plan), bones: layered.bones, layered };
+  };
   const review = input.review === true && mode === "traced";
   const gridded = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(reference) }], grid: GRID });
   const system = cutoutSystemPrompt(size, isDrawnObject(character));
@@ -855,8 +871,9 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
   let best: Attempt | null = null;
   let feedback = input.feedback;
   for (let round = 0; round < rounds; round++) {
-    const built = build(plan);
+    const built = await build(plan);
     const rig = toRigSpace(built.rig, frame);
+    if (mode === "layered") images = await rigImages(ctx, rig);
     const views = await canvasViews(ctx, built.rig, frame, input.concept, size, reference);
     for (const w of built.warnings) ctx.log({ text: w });
     const parts = await ctx.renderer.compose({ ...size, layers: [{ image: encodePng(partsView(cut, built.labels, { ...plan, bones: built.bones }, size)) }], grid: GRID });
@@ -908,7 +925,52 @@ async function cutoutAttempts(ctx: ArtContext, input: AttemptInput & { cut: Cuto
     plan = revised.data;
   }
   if (!best) throw new StageError("no rig was produced");
+  if (mode === "layered" && native && best.plan) best = await paintLayers(ctx, best, { ...input, cut, reference, frame, native, build });
   return best;
+}
+
+/**
+ * Layered rigs, after the plan is settled: one image edit paints in what each part hides, and the
+ * rig is built again with the paint (the design's own pixels unchanged) and measured. Without a
+ * usable painting the hidden stretches keep their edge colours (the attempt as it was).
+ */
+async function paintLayers(
+  ctx: ArtContext,
+  best: Attempt,
+  input: AttemptInput & {
+    cut: Cutout;
+    reference: Pixels;
+    frame: Frame;
+    native: { cut: Cutout; k: number; image: Pixels };
+    build: (plan: CutoutPlan, paint?: PaintLookup) => Promise<{ rig: Rig; warnings: string[]; layered?: LayeredBuild }>;
+  },
+): Promise<Attempt> {
+  const plan = best.plan!;
+  try {
+    const painted = await paintHidden(ctx, {
+      native: input.native.cut,
+      plan,
+      k: input.native.k,
+      brief: input.asset.brief,
+      design: encodePng(input.native.image),
+      object: isDrawnObject(input.character),
+    });
+    if (!painted) return best;
+    ctx.log({ text: "the layers pulled apart, hidden stretches in magenta", file: await ctx.files.put(painted.sent, "png") });
+    ctx.log({ text: "the painting", file: await ctx.files.put(painted.painted, "png") });
+    const built = await input.build(plan, painted.lookup);
+    const layers = built.layered?.layers ?? [];
+    const sum = (f: (l: (typeof layers)[number]) => number) => layers.reduce((s, l) => s + f(l), 0);
+    ctx.log({ text: `layers: ${sum((l) => l.painted)} hidden px painted, ${sum((l) => l.extended)} extended from the edges` });
+    const rig = toRigSpace(built.rig, input.frame);
+    const views = await canvasViews(ctx, built.rig, input.frame, input.concept, input.size, input.reference);
+    ctx.log({ text: `painted layers (${matchText(views.match)})`, file: await ctx.files.put(views.overlay, "png") });
+    return { ...best, rig, match: views.match ?? best.match };
+  } catch (error) {
+    if (error instanceof BudgetExceeded || ctx.signal?.aborted) throw error;
+    ctx.log({ text: `hidden stretches not painted (${error instanceof Error ? error.message : String(error)})` });
+    return best;
+  }
 }
 
 const PuppetMatches = z.object({ parts: z.array(PieceMatch) });
@@ -1160,9 +1222,9 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
 
   const rest = asset.preview ? await ctx.files.get(asset.preview.file) : (await renderRest(ctx, rig)).png;
   const system = animSystemPrompt();
-  const limbJoints = input.limbJoints ?? (rig.mode ?? "vector") === "vector";
+  const limbJoints = input.limbJoints ?? ((rig.mode ?? "vector") === "vector" || rig.mode === "layered");
   // Rigs cut from the drawing come apart past their joints' overlap: their clips are fitted to per-bone limits.
-  const limits = rig.mode === "cutout" || rig.mode === "traced" ? motionLimits(rig, { joint: input.jointLimits }) : null;
+  const limits = rig.mode === "cutout" || rig.mode === "traced" || rig.mode === "layered" ? motionLimits(rig, { joint: input.jointLimits ?? (rig.mode === "layered" ? true : undefined) }) : null;
   const fit = (clips: Record<string, Clip>) => (limits ? fitClips(clips, limits) : clips);
   const limitsLine = limits && limits.size > 0 ? limitsText(limits) : undefined;
   const directions = Object.fromEntries(slots.flatMap((s) => (direction(s) && direction(s) !== input.feedback?.trim() ? [[s, direction(s)!]] : [])));
@@ -1313,7 +1375,7 @@ async function animateObject(ctx: ArtContext, input: AnimateInput, object: Drawn
 
   const rest = asset.preview ? await ctx.files.get(asset.preview.file) : (await renderRest(ctx, rig)).png;
   const system = animSystemPrompt();
-  const limits = rig.mode === "cutout" || rig.mode === "traced" ? motionLimits(rig, { joint: input.jointLimits }) : null;
+  const limits = rig.mode === "cutout" || rig.mode === "traced" || rig.mode === "layered" ? motionLimits(rig, { joint: input.jointLimits ?? (rig.mode === "layered" ? true : undefined) }) : null;
   const fit = (clips: Record<string, Clip>) => (limits ? fitClips(clips, limits) : clips);
   const limitsLine = limits && limits.size > 0 ? limitsText(limits) : undefined;
   const write = async (list: ObjectClipBrief[], label: string) =>
