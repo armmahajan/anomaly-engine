@@ -907,6 +907,48 @@ visual: gameplay, collisions and the logic model are unchanged.
   `playerDissolved` and `emitters` (live particle systems). Tests: `game/test/looks.test.ts` (headless,
   `game/tests/look_probe.gd`), `e2e/looks-play.spec.ts` (pixels in the web export), core `looks.test.ts`.
 
+## Natural motion
+
+Runtime primitives that make clips move like animation rather than keyframes (`clip.ts`, `rig.ts`; evaluated
+in `game/scripts/art/rig_view.gd`, mirrored for the art pipeline's poses in `core/src/art/motion.ts`). Old
+clips and rigs parse unchanged and play exactly as before (no migration).
+
+- **Eases** (tracks, looks, IK): smooth, linear, step, `overshoot` (passes the key and settles back),
+  `anticipate` (pulls back first), `elastic` (wobbles about the key), `bounce` (lands and bounces).
+- **Crossfade:** every clip switch (behavior states, hurt, death, playAnimation, the player's movement)
+  blends from the pose shown at the switch over the new clip's `blendIn` seconds (default 0.12, 0 = a hard
+  cut): rotations the short way, positions and scales lerped, looks too. A view that was never playing a
+  clip (renders, a rig just built) starts clean; the character stage crossfades only while playing (not
+  when posed by time).
+- **Look tracks** (`Clip.looks`, max 32): `{part? (absent = every part), property: opacity | brightness |
+  glow | tint, color?, keys: [[t, value]], ease}` inside the rig, per part: opacity 0..1, brightness 0..4,
+  tint 0..1 of `color`, glow 0..1 (a soft halo in `color`, the part's silhouette scaled about its centre,
+  drawn under it). Opacity and brightness multiply; glow and tint take the strongest. Flat layers take the
+  tint in their vertex colours; image and mesh layers are drawn as silhouettes (a small shader on the rig
+  view, set only while a tint or glow shows and never over another material such as a dissolve; without
+  it the tint multiplies). Entity-level looks (setLook, above) wrap the whole drawing; these are per part.
+- **IK** (`Clip.ik`, max 4): `{bone (the lower bone: a shin), tip (its child: the foot), keys: [[t, x, y]] (rig
+  space, rest frame), bend: cw | ccw, ease}`. The upper bone (bone's parent) and `bone` turn so the tip's
+  pivot reaches the target, solved after tracks and motions; out of reach the limb is straight and points
+  at it. Their clip rotations are overridden, and the tip keeps the angle it has without them (a planted
+  foot stays level) plus its own track. cw puts the joint clockwise of the hip-to-target line (a
+  right-facing knee in front). `setClip` refuses IK whose bones don't fit the rig; lint `clip_bad_ik`
+  (advisory) flags IK a later rig edit broke; `removeBone` drops IK on the bone.
+- **Springs** (`Bone.spring {stiffness 0.01..1 = 0.3, damping 0..1 = 0.5}`): follow-through. A point at what
+  the bone carries (its children's pivots, else its parts' farthest point) is pulled toward where the
+  parent's motion puts it and lags behind; the angle between them turns the bone on top of its clip
+  (0.5..8 Hz by stiffness, damping ratio = damping). Fixed 120 Hz steps whatever the frame rate, the
+  target moving evenly between frames; at most 75° and two reach lengths from the target; reset when the
+  rig is rebuilt; posed frames (renders, the stage timeline, a jump in time) start settled and are warmed
+  up over the last 1.5 s of a looping clip (from the start of a one-shot), so a render shows the swing.
+  The rest pose is unaffected. Order per frame: tracks and motions, IK, crossfade, aim turn, springs
+  (parents first).
+- Protocol unchanged (clips and rigs carry the data). Tests: `game/test/naturalMotion.test.ts` (headless
+  probes: crossfade continuity, planted feet and straight limbs, springs at 30 vs 60 fps, determinism,
+  rest; look pixels in the web export), core `naturalMotion.test.ts`. `node scripts/motion-demo.ts <layered
+  dir> <out>` plays a layered rig before and after hand-written springs, IK and a crossfade through the
+  runtime and draws the frames.
+
 ## Enemy combat primitives
 
 Any enemy fights with the same behavior primitives (`behavior.ts`,

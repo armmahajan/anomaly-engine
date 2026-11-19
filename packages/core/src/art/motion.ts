@@ -118,7 +118,8 @@ const det = (m: PoseMat | undefined) => (m ? m[0] * m[3] - m[2] * m[1] : 1);
 /**
  * Solve the clip's IK tracks at normalized time t on `channels` (changed in place): each track
  * turns its upper bone (bone's parent) and `bone` so the tip's pivot reaches the target (straight
- * toward it when out of reach), and turns the tip back so it keeps the angle the clip gave it.
+ * toward it when out of reach), and turns the tip so it keeps the angle it has without those two
+ * bones' rotations (its own track still turns it).
  * Tracks on bones the rig lacks are skipped. Mirrors rig_view.gd _solve_ik.
  */
 export function solveIk(rig: Pick<Rig, "bones">, clip: Pick<Clip, "ik">, t: number, channels: Map<string, BoneChannels>): void {
@@ -133,8 +134,12 @@ export function solveIk(rig: Pick<Rig, "bones">, clip: Pick<Clip, "ik">, t: numb
     const lower = byId.get(track.bone)!;
     const upper = byId.get(lower.parent!)!;
     const [tx, ty] = keysAt(track.keys, t, track.ease) as [number, number];
+    // The tip keeps the angle it has with the limb's two rotations left out (they are overridden): a
+    // planted foot stays level with the hips unless its own track turns it.
+    const unturned = new Map(channels);
+    for (const id of [upper.id, lower.id]) unturned.set(id, { ...get(id), rotate: 0 });
+    const tipAngle0 = angleOf(posesFrom(rig, unturned).get(track.tip)!);
     let poses = posesFrom(rig, channels);
-    const tipAngle0 = angleOf(poses.get(track.tip)!);
     for (let pass = 0; pass < 2; pass++) {
       const s = origin(poses.get(upper.id)!);
       const e = origin(poses.get(lower.id)!);

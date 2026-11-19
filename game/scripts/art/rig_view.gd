@@ -726,8 +726,9 @@ func _pose_from(channels: Dictionary) -> Dictionary:
 # --- IK (core art/motion.ts solveIk) -----------------------------------------------------------
 
 ## Each IK track turns its upper bone (bone's parent) and `bone` so the tip's pivot reaches the
-## target (straight toward it when out of reach), then turns the tip back to the angle the clip
-## gave it. Tracks whose bones don't fit the rig are skipped (lint: clip_bad_ik).
+## target (straight toward it when out of reach), then turns the tip to the angle it has without
+## those two rotations (its own track still turns it). Tracks whose bones don't fit the rig are
+## skipped (lint: clip_bad_ik).
 func _solve_ik(channels: Dictionary, tracks: Array, t: float) -> void:
 	for track in tracks:
 		if typeof(track) != TYPE_DICTIONARY:
@@ -744,8 +745,13 @@ func _solve_ik(channels: Dictionary, tracks: Array, t: float) -> void:
 			continue
 		var target := Vector2(at[0], at[1])
 		var cw := str(track.get("bend", "cw")) != "ccw"
+		# The tip keeps the angle it has with the limb's two rotations left out (they are overridden):
+		# a planted foot stays level with the hips unless its own track turns it.
+		var unturned := channels.duplicate()
+		unturned[upper] = [0.0, channels[upper][1], channels[upper][2], channels[upper][3], channels[upper][4]]
+		unturned[lower] = [0.0, channels[lower][1], channels[lower][2], channels[lower][3], channels[lower][4]]
+		var tip_angle0: float = (_pose_from(unturned)[tip] as Transform2D).x.angle()
 		var poses := _pose_from(channels)
-		var tip_angle0: float = (poses[tip] as Transform2D).x.angle()
 		for _pass in 2:
 			var s: Vector2 = poses[upper].origin
 			var e: Vector2 = poses[lower].origin
@@ -788,7 +794,7 @@ static func two_bone(s: Vector2, l1: float, l2: float, target: Vector2, cw: bool
 # --- springs (rig.ts Bone.spring) --------------------------------------------------------------
 
 ## Spring bones: what each carries (its child pivots' middle, else the farthest point of its parts)
-## sets the lever; stiffness sets how fast it swings (0.5..8 Hz), damping how soon it settles.
+## sets its reach; stiffness sets how fast it swings (0.5..8 Hz), damping how soon it settles.
 func _build_springs(raw_bones: Variant, raw_parts: Variant) -> void:
 	_springs.clear()
 	_spring_acc = 0.0
@@ -857,7 +863,7 @@ func _spring_turn(s: Dictionary, base: Transform2D, steps: int) -> float:
 			var goal := from.lerp(target, float(i + 1) / steps)
 			v += ((goal - x) * k - v * c) * SPRING_STEP
 			x += v * SPRING_STEP
-		# Big jumps (a teleport, a snap) can't fling it: it stays within two levers of the target.
+		# Big jumps (a snap, a jump cut) can't fling it: it stays within two reaches of the target.
 		var limit: float = 2.0 * s.length
 		if x.distance_to(target) > limit:
 			x = target + (x - target).normalized() * limit

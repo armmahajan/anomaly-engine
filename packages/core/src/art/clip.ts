@@ -117,7 +117,8 @@ export type IkBend = z.infer<typeof IkBend>;
 /**
  * Two-bone IK: `bone` (the lower bone: a shin, a forearm) and its parent turn so that the pivot of
  * `tip` (bone's child: the foot, the hand) reaches the keyed target; a target out of reach leaves
- * the limb straight, pointing at it. Overrides those two bones' rotations for the clip.
+ * the limb straight, pointing at it. Overrides those two bones' rotations for the clip; the tip
+ * keeps the angle it has without them (a planted foot stays level), plus its own track.
  */
 export const IkTrack = z.strictObject({
   bone: Id.describe("The lower bone (shin, forearm); its parent is the upper bone."),
@@ -147,7 +148,7 @@ export const Clip = z.strictObject({
   markers: z.array(ClipMarker).max(16).default([]).describe("Named moments that fire marker events in play (a strike landing, a lever clicking)."),
   blendIn: z.number().min(0).max(1).optional().describe("Seconds to crossfade from the pose before (default 0.12; 0 = a hard cut)."),
   looks: z.array(LookTrack).max(MAX_LOOK_TRACKS).optional().describe("Per-part opacity, brightness, glow and tint over time."),
-  ik: z.array(IkTrack).max(MAX_IK_TRACKS).optional().describe("Limbs whose tip reaches keyed targets (planted feet, a hand on a lever)."),
+  ik: z.array(IkTrack).max(MAX_IK_TRACKS).optional().describe("Limbs whose tip reaches keyed targets (planted feet, a hand on a handle)."),
 });
 export type Clip = z.infer<typeof Clip>;
 

@@ -123,9 +123,8 @@ describe.skipIf(!hasGodot)("natural motion (headless Godot)", () => {
       const [hx, hy] = b.thigh!;
       const [kx, ky] = b.shin!;
       expect((kx - hx) * (0 - hy) - (ky - hy) * (4 - hx), `knee side at t ${time}`).toBeGreaterThan(0);
-      // The foot keeps the angle the clip gave it (here the thigh track's turn) while the shin turns.
-      const unsolved = bonePoses(legRig, { ...legClips.plant, ik: [] }, time).get("foot")!;
-      expect(Math.abs(wrap(b.foot![2] - (Math.atan2(unsolved[1], unsolved[0]) * 180) / Math.PI))).toBeLessThan(1e-3);
+      // The foot stays level (its angle without the thigh's and shin's turns, overridden by IK) while the shin turns.
+      expect(Math.abs(wrap(b.foot![2]))).toBeLessThan(1e-3);
       // The TypeScript pose (art pipeline: grips, limits) is the runtime's.
       const ts = bonePoses(legRig, legClips.plant, time);
       for (const id of ["thigh", "shin", "foot"]) {
