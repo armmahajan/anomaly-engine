@@ -76,17 +76,19 @@ describe("near/far check", () => {
     ]);
   });
 
-  it("tints exactly the two branches' parts on the design", () => {
+  it("tints the two branches only where they stick out past the body", () => {
     const tinted = tintBranches(design, rig, frame, "near_upper_arm", "far_upper_arm", [
       [255, 140, 0],
       [0, 200, 255],
     ]);
     const at = (x: number, y: number) => Array.from(tinted.data.slice((y * 100 + x) * 4, (y * 100 + x) * 4 + 3));
-    expect(at(50 - 8, 90 - 40)).not.toEqual([128, 128, 128]); // the near-named upper arm
-    expect(at(50 - 8, 90 - 28)).not.toEqual([128, 128, 128]); // its forearm comes along
-    expect(at(50 + 8, 90 - 40)).not.toEqual(at(50 - 8, 90 - 40)); // the other branch, the other colour
-    expect(at(50, 90 - 50)).toEqual([128, 128, 128]); // the torso between them, untouched
-    expect(at(50 - 4, 90 - 10)).toEqual([128, 128, 128]); // a thigh, untouched
+    const grey = [128, 128, 128];
+    expect(at(50 - 11, 90 - 40)).not.toEqual(grey); // the near-named upper arm, past the torso's edge
+    expect(at(50 - 11, 90 - 25)).not.toEqual(grey); // its forearm comes along
+    expect(at(50 + 11, 90 - 40)).not.toEqual(at(50 - 11, 90 - 40)); // the other branch, the other colour
+    expect(at(50 - 8, 90 - 40)).toEqual(grey); // where an arm lies on the torso: the design's own drawing
+    expect(at(50, 90 - 50)).toEqual(grey); // the torso
+    expect(at(50 - 4, 90 - 10)).toEqual(grey); // a thigh
   });
 
   it("swaps a pair only when both answers say the far-named limb is in front", async () => {

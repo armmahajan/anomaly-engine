@@ -9,7 +9,7 @@ import { askJson, BudgetExceeded, type ArtContext } from "./stages.ts";
  * Near/far check: a rig planned with two limbs labelled the wrong way round (the arm drawn in front
  * of the body named the far one) draws the wrong one in front and animates each with the other's
  * clips. Each near/far pair of limbs (bones named alike but for near/far, at the top of their
- * branch) is shown on the design, one tinted orange and one cyan, and the vision model says which is
+ * branch) is shown on the design, one tinted orange and one cyan where it sticks out past the body, and the vision model says which is
  * in front of the body; asked twice with the colours swapped, and only when both answers agree that
  * the limb named far is the near one are the two swapped (core swapRigBones: names and draw order
  * trade places, nothing moves). Free on Claude Code; never fails the rig.
@@ -47,32 +47,50 @@ function branch(rig: Rig, top: string): Set<string> {
   return out;
 }
 
-/** The design with the parts of two branches tinted (canvas px, the rig's frame). */
+/** A part's outline as a polygon (canvas px); a stroke as a chain of discs. */
+function polygonsOf(part: Rig["parts"][number]): [number, number][][] {
+  const s = part.shape;
+  const circle = (x: number, y: number, rx: number, ry: number, n: number): [number, number][] =>
+    Array.from({ length: n }, (_, i) => [x + rx * Math.cos((i / n) * Math.PI * 2), y + ry * Math.sin((i / n) * Math.PI * 2)]);
+  if (s.type === "ellipse") return [circle(s.center[0], s.center[1], s.rx, s.ry, 24)];
+  if (s.type === "stroke") return s.points.map(([x, y]) => circle(x, y, s.width / 2, s.width / 2, 12));
+  return [s.points as [number, number][]];
+}
+
+/**
+ * The design with two branches tinted (canvas px, the rig's frame): only where a limb sticks out past
+ * the body it hangs from (the parts of its ancestor bones), so its joint disk and painted-in hidden
+ * stretch never sit on the body, and the overlap keeps the design's own drawing for the model to read.
+ */
 export function tintBranches(design: Pixels, rig: Rig, frame: Frame, first: string, second: string, colors: [[number, number, number], [number, number, number]]): Pixels {
   const canvas = toCanvasSpace(rig, frame);
   const out: Pixels = { width: design.width, height: design.height, data: Uint8Array.from(design.data) };
+  const parentOf = new Map(canvas.bones.map((b) => [b.id, b.parent]));
+  const ancestors = new Set<string>();
+  for (const top of [first, second]) for (let at = parentOf.get(top) ?? null; at !== null; at = parentOf.get(at) ?? null) ancestors.add(at);
+  const body = new Uint8Array(design.width * design.height);
+  for (const part of canvas.parts) if (ancestors.has(part.bone)) for (const polygon of polygonsOf(part)) scan(design.width, design.height, polygon, (i) => (body[i] = 1));
   [first, second].forEach((top, k) => {
     const bones = branch(canvas, top);
+    const color = colors[k]!;
     for (const part of canvas.parts) {
       if (!bones.has(part.bone)) continue;
-      const s = part.shape;
-      const polygon: [number, number][] =
-        s.type === "ellipse"
-          ? Array.from({ length: 24 }, (_, i) => [s.center[0] + s.rx * Math.cos((i / 24) * Math.PI * 2), s.center[1] + s.ry * Math.sin((i / 24) * Math.PI * 2)])
-          : (s.points as [number, number][]);
-      if (s.type === "stroke") {
-        for (const [x, y] of s.points) fillPolygon(out, Array.from({ length: 12 }, (_, i) => [x + (s.width / 2) * Math.cos((i / 12) * Math.PI * 2), y + (s.width / 2) * Math.sin((i / 12) * Math.PI * 2)]), colors[k]!);
-      } else fillPolygon(out, polygon, colors[k]!);
+      for (const polygon of polygonsOf(part)) {
+        scan(design.width, design.height, polygon, (i) => {
+          if (body[i] || out.data[i * 4 + 3]! < 16) return;
+          for (let ch = 0; ch < 3; ch++) out.data[i * 4 + ch] = Math.round(design.data[i * 4 + ch]! * 0.45 + color[ch]! * 0.55);
+        });
+      }
     }
   });
   return out;
 }
 
-/** Tint the opaque design pixels inside a polygon (half the colour, so the drawing still shows). */
-function fillPolygon(image: Pixels, polygon: [number, number][], color: [number, number, number]) {
+/** Visit the pixel indexes inside a polygon (scanline, pixel centres). */
+function scan(width: number, height: number, polygon: [number, number][], visit: (i: number) => void) {
   if (polygon.length < 3) return;
   const ys = polygon.map((p) => p[1]);
-  for (let y = Math.max(0, Math.floor(Math.min(...ys))); y < Math.min(image.height, Math.ceil(Math.max(...ys))); y++) {
+  for (let y = Math.max(0, Math.floor(Math.min(...ys))); y < Math.min(height, Math.ceil(Math.max(...ys))); y++) {
     const cuts: number[] = [];
     for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
       const [xi, yi] = polygon[i]!;
@@ -81,11 +99,7 @@ function fillPolygon(image: Pixels, polygon: [number, number][], color: [number,
     }
     cuts.sort((a, b) => a - b);
     for (let c = 0; c + 1 < cuts.length; c += 2) {
-      for (let x = Math.max(0, Math.ceil(cuts[c]! - 0.5)); x < Math.min(image.width, Math.floor(cuts[c + 1]! + 0.5)); x++) {
-        const i = (y * image.width + x) * 4;
-        if (image.data[i + 3]! < 16) continue;
-        for (let ch = 0; ch < 3; ch++) image.data[i + ch] = Math.round(image.data[i + ch]! * 0.45 + color[ch]! * 0.55);
-      }
+      for (let x = Math.max(0, Math.ceil(cuts[c]! - 0.5)); x < Math.min(width, Math.floor(cuts[c + 1]! + 0.5)); x++) visit(y * width + x);
     }
   }
 }
