@@ -1,4 +1,5 @@
 import { detailLook } from "./dress.ts";
+import { fixNearFar } from "./nearFar.ts";
 import { attackTiming, checkWeaponClip, fitWeaponClip, gripBones, heldLength, weaponClipBrief, withHandGrip } from "./weapons.ts";
 import { z } from "zod";
 import {
@@ -686,8 +687,12 @@ export async function buildRig(ctx: ArtContext, input: RigInput): Promise<StageR
       ? await cutoutAttempts(ctx, { character, asset, concept, size, cut, reference, feedback: input.feedback?.trim(), mode, ...options })
       : await vectorAttempts(ctx, { character, asset, concept, size, reference, feedback: input.feedback?.trim(), ...options });
 
-  // The finish: detail shapes (shading, highlights, folds, seams) from the design as drawn, on each part's bone.
+  // Near/far limbs labelled the wrong way round are swapped (names and draw order) before anything builds on the names.
   let rig = best.rig;
+  if (!revising) rig = (await fixNearFar(ctx, { rig, frame: best.frame, design: concept, name: character.name })).rig;
+  best.rig = rig;
+
+  // The finish: detail shapes (shading, highlights, folds, seams) from the design as drawn, on each part's bone.
   let finish = "";
   if (full && (input.detail ?? true) && !revising) {
     try {

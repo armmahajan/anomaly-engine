@@ -313,9 +313,19 @@ export function swapBones(project: ProjectSpec, input: unknown): OperationResult
   if (!found.ok) return found;
   const missing = findBone(found, a) ?? findBone(found, b);
   if (missing) return missing;
-  const { rig } = found;
-  if (a === b) return fail("invalid_input", "pick two different bones to swap");
-  if (boneSubtree(rig, a).has(b) || boneSubtree(rig, b).has(a)) return fail("invalid_input", `"${a}" and "${b}" are on the same branch: swap two separate limbs`);
+  const swapped = swapRigBones(found.rig, a, b);
+  if (typeof swapped === "string") return fail("invalid_input", swapped);
+  const result = save(project, found, swapped);
+  if (!result.ok || found.asset.clipsFor !== rigFingerprint(found.rig)) return result;
+  // The clips were current and still are (they name bones by what they are): keep them current.
+  const assets = result.project.art.assets.map((x, i) => (i === found.index ? { ...x, clipsFor: rigFingerprint(swapped) } : x));
+  return { ...result, project: { ...result.project, art: { ...result.project.art, assets } } };
+}
+
+/** swapBones on a rig (both bones must exist): the swapped rig, or why it can't be done. */
+export function swapRigBones(rig: Rig, a: string, b: string): Rig | string {
+  if (a === b) return "pick two different bones to swap";
+  if (boneSubtree(rig, a).has(b) || boneSubtree(rig, b).has(a)) return `"${a}" and "${b}" are on the same branch: swap two separate limbs`;
   const swap = new Map<string, string>();
   for (const [x, y] of bonePairs(rig, a, b)) swap.set(x, y).set(y, x);
   const rename = (id: string) => swap.get(id) ?? id;
@@ -336,17 +346,12 @@ export function swapBones(project: ProjectSpec, input: unknown): OperationResult
       z,
     };
   });
-  const swapped: Rig = {
+  return {
     ...rig,
     bones: rig.bones.map((bone) => ({ ...bone, id: rename(bone.id), parent: bone.parent === null ? null : rename(bone.parent) })),
     parts,
     ...(rig.grips && { grips: rig.grips.map((g) => ({ ...g, bone: rename(g.bone) })) }),
   };
-  const result = save(project, found, swapped);
-  if (!result.ok || found.asset.clipsFor !== rigFingerprint(rig)) return result;
-  // The clips were current and still are (they name bones by what they are): keep them current.
-  const assets = result.project.art.assets.map((x, i) => (i === found.index ? { ...x, clipsFor: rigFingerprint(swapped) } : x));
-  return { ...result, project: { ...result.project, art: { ...result.project.art, assets } } };
 }
 
 /** Add a bone under `parent`. */

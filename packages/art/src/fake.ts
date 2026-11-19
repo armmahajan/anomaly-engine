@@ -4,7 +4,7 @@ import { pngSize } from "./frame.ts";
 import { decodePng, encodePng, type Pixels } from "./match.ts";
 import { resizePremultiplied, sample } from "./texture.ts";
 import { creaturePlan, drawCreatureSheet } from "./rigFixtures.ts";
-import { LAYER_PAINT_MARK, OBJECT_CLIPS_MARK } from "./prompts.ts";
+import { LAYER_PAINT_MARK, NEAR_FAR_MARK, OBJECT_CLIPS_MARK } from "./prompts.ts";
 import type { ImageModel, ImageRequest, GeneratedImage, VisionModel, VisionReply, VisionRequest } from "./models.ts";
 
 /**
@@ -136,6 +136,7 @@ export class FakeVisionModel implements VisionModel {
     else if (prompt.includes("Pick the single best design")) reply = { cell: 1, reason: "clearest silhouette" };
     else if (prompt.includes("Which way is this character facing")) reply = { facing: "left" };
     else if (prompt.includes("Which way does this object point")) reply = { facing: "right" };
+    else if (prompt.includes(NEAR_FAR_MARK)) reply = { near: "unsure" };
     else if (prompt.includes(OBJECT_CLIPS_MARK)) reply = { clips: fakeObjectClips(prompt), notes: "ok" };
     else if (prompt.includes("Build the rig")) reply = { rig: exampleRig(), notes: "beetle" };
     else if (prompt.includes("Score how well the render matches")) reply = { score: 8, issues: ["horn a bit small"], rig: exampleRig() };
