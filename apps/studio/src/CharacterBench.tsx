@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ArtState, Character, CharacterAsset, ProjectSpec } from "@anomaly/core";
+import { artStaleness, type ArtState, type Character, type CharacterAsset, type ProjectSpec } from "@anomaly/core";
 import { fileBase64, fileUrl } from "./api.ts";
 import type { Session } from "./session.ts";
 import { AnimationList } from "./characters/AnimationList.tsx";
@@ -31,10 +31,14 @@ export function characterAsset(project: ProjectSpec, character: Character): Char
   return asset && asset.kind === "character" ? asset : null;
 }
 
+/**
+ * The step to show: with a rig, the rig until it is up to date and animated, then the clips (a rig may
+ * come without a chosen design, made by hand or by the build assistant); without one, the rig once a
+ * design is chosen, else the concepts.
+ */
 function defaultStep(asset: CharacterAsset | null): Step {
-  if (asset?.rig && Object.keys(asset.clips).length > 0) return "animation";
-  if (asset?.chosen) return "rig";
-  return "concepts";
+  if (asset?.rig) return artStaleness(asset).rigStale || Object.keys(asset.clips).length === 0 ? "rig" : "animation";
+  return asset?.chosen ? "rig" : "concepts";
 }
 
 export function CharacterBench({ character, project, art, session, locked }: Props) {
@@ -60,15 +64,27 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
   const duration = currentClip && asset ? asset.clips[currentClip]!.duration : 1;
   const loop = currentClip && asset ? asset.clips[currentClip]!.loop : true;
 
-  // Follow the pipeline: when a stage's result lands (design chosen, rig built, clips written), show the next step.
-  const progress = `${asset?.chosen?.file ?? ""}|${asset?.preview?.file ?? ""}|${clipIds.join(",")}`;
+  // Follow the pipeline: when a stage's result lands (design chosen, rig built, clips written), show the
+  // next step; a new concept sheet shows the concepts, at the newest sheet.
+  const sheetCount = asset?.concepts.length ?? 0;
+  const progress = `${asset?.chosen?.file ?? ""}|${asset?.preview?.file ?? ""}|${asset?.clipsFor ?? ""}|${clipIds.join(",")}`;
   const lastProgress = useRef(progress);
+  const lastSheets = useRef(sheetCount);
   useEffect(() => {
+    if (sheetCount > lastSheets.current) {
+      lastSheets.current = sheetCount;
+      lastProgress.current = progress;
+      setSheet(null);
+      setStep("concepts");
+      return;
+    }
+    lastSheets.current = sheetCount;
     if (progress !== lastProgress.current) {
       lastProgress.current = progress;
       setStep(defaultStep(asset));
     }
-  }, [progress, asset]);
+  }, [progress, sheetCount, asset]);
+  const { rigStale, clipsStale } = asset ? artStaleness(asset) : { rigStale: false, clipsStale: false };
 
   // Local playhead while playing (the runtime plays on its own clock at the same speed).
   useEffect(() => {
@@ -131,10 +147,18 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
     {
       id: "rig",
       label: "② Rig",
-      status: asset?.preview?.match ? `${percent(asset.preview.match.silhouette)} match` : asset?.preview?.score !== undefined ? `${asset.preview.score}/10` : asset?.rig ? "built" : "none yet",
+      status: rigStale
+        ? "out of date"
+        : asset?.preview?.match
+          ? `${percent(asset.preview.match.silhouette)} match`
+          : asset?.preview?.score !== undefined
+            ? `${asset.preview.score}/10`
+            : asset?.rig
+              ? "built"
+              : "none yet",
       ready: Boolean(asset?.chosen || asset?.rig),
     },
-    { id: "animation", label: "③ Animation", status: clipIds.length ? `${clipIds.length} clips` : "none yet", ready: Boolean(asset?.rig) },
+    { id: "animation", label: "③ Animation", status: clipIds.length ? (rigStale || clipsStale ? "out of date" : `${clipIds.length} clips`) : "none yet", ready: Boolean(asset?.rig) },
   ];
 
   return (
@@ -235,6 +259,16 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
 
         {editing && asset?.rig && (
           <BoneEditor asset={{ ...asset, rig: asset.rig }} direction={project.art.direction} session={session} locked={locked} pose={pose} setPose={setPose} />
+        )}
+        {step === "rig" && !editing && rigStale && (
+          <p className="bench-stale" data-testid="rig-stale" role="status">
+            The rig on the right was built from an earlier design. Rebuild it from the chosen design in the sidebar (Rig), then re-animate.
+          </p>
+        )}
+        {step === "animation" && !rigStale && clipsStale && (
+          <p className="bench-stale" data-testid="clips-stale" role="status">
+            These clips were written for an earlier rig. Re-animate in the sidebar (Animation) so they fit the current one.
+          </p>
         )}
         {step === "rig" && !editing &&
           (asset?.chosen ? (

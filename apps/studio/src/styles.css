@@ -1144,6 +1144,15 @@ body.resizing iframe {
   margin: 4px 0 0;
 }
 
+.bench-stale {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--warn, #c9a227);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn, #c9a227) 14%, transparent);
+  font-size: 12.5px;
+}
+
 .bench-figure {
   margin: 0 auto;
   max-width: min(100%, 72vh);

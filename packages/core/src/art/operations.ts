@@ -1,3 +1,4 @@
+import { rigFingerprint } from "./rig.ts";
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import type { OperationError, OperationResult } from "../operations.ts";
@@ -232,6 +233,8 @@ export function setRig(project: ProjectSpec, input: unknown): OperationResult {
     ...found.asset,
     rig: rig.data,
     ...(p.data.preview !== undefined && { preview: p.data.preview }),
+    // What it was built from: the design chosen now (a redraw saved in the same batch is chosen by then).
+    ...(found.asset.chosen ? { rigFrom: found.asset.chosen.file } : {}),
   };
   return replaceAsset(project, found.index, next, `asset "${p.data.assetId}"`);
 }
@@ -293,7 +296,9 @@ export function setClip(project: ProjectSpec, input: unknown): OperationResult {
     else if (preview !== undefined) clipPreviews[clipId] = preview;
   }
   const stateClips = Object.fromEntries(Object.entries(found.asset.stateClips).filter(([, c]) => clips[c] !== undefined));
-  return replaceAsset(project, found.index, { ...found.asset, clips, clipPreviews, stateClips }, `asset "${assetId}"`);
+  // Writing a clip records the rig it was written for (artStaleness).
+  const clipsFor = p.data.clip !== null && found.asset.rig ? rigFingerprint(found.asset.rig) : found.asset.clipsFor;
+  return replaceAsset(project, found.index, { ...found.asset, clips, clipPreviews, stateClips, ...(clipsFor ? { clipsFor } : {}) }, `asset "${assetId}"`);
 }
 
 export const SetStateClipInput = z.strictObject({

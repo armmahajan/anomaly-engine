@@ -55,6 +55,44 @@ test("art: concepts -> pick -> rig -> animate in the Characters workbench, then 
   expect(consoleErrors).toEqual([]);
 });
 
+test("art: with a character already built, new concepts show, and another design marks the rig out of date until rebuilt", async ({ page }) => {
+  test.setTimeout(150_000);
+  const consoleErrors = collectConsoleErrors(page);
+  await openStudio(page);
+  await page.getByTestId("character-charger").click();
+  await page.getByRole("tab", { name: "Characters" }).click();
+  const panel = page.getByTestId("art-panel");
+  const bench = page.getByTestId("character-bench");
+  // Build it all: concepts, a design, the rig, the clips.
+  await panel.getByLabel("What should Charger look like?").fill("a horned beetle that charges");
+  await panel.getByRole("button", { name: "Generate concepts" }).click();
+  await bench.getByRole("button", { name: "design 2 of sheet 1" }).click({ timeout: 30_000 });
+  await expect(bench.getByRole("img", { name: "chosen design" })).toBeVisible({ timeout: 30_000 });
+  await panel.getByRole("button", { name: "Build rig" }).click();
+  await expect(bench.getByTestId("rig-preview")).toBeAttached({ timeout: 60_000 });
+  await panel.getByRole("button", { name: "Animate" }).click();
+  await expect(bench.getByTestId("clip-walk")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("art-next")).toHaveCount(0); // nothing left to do
+
+  // New concepts from the Animation step: the workbench shows the new sheet.
+  await panel.getByRole("button", { name: "Generate concepts" }).click();
+  await expect(bench.getByTestId("sheet-1")).toBeVisible({ timeout: 30_000 });
+
+  // Another design: the rig step, saying the rig is from an earlier design; the sidebar says to rebuild.
+  await bench.getByRole("button", { name: "design 1 of sheet 2" }).click();
+  await expect(bench.getByTestId("rig-stale")).toBeVisible({ timeout: 30_000 });
+  await expect(panel).toContainText("from an earlier design: rebuild");
+  await expect(panel).toContainText("after the rig is rebuilt");
+  await expect(page.getByTestId("art-next")).toContainText("rebuild the rig");
+  await expect(bench.getByRole("button", { name: /② Rig/ })).toContainText("out of date");
+
+  // Rebuilding clears it (the scripted rig keeps the same bones, so the clips still fit).
+  await panel.getByRole("button", { name: "Rebuild rig" }).click();
+  await expect(bench.getByTestId("rig-stale")).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.getByTestId("art-next")).toHaveCount(0);
+  expect(consoleErrors).toEqual([]);
+});
+
 test("art: auto runs every stage in one go", async ({ page }) => {
   await openStudio(page);
   await page.getByTestId("character-crawler").click();

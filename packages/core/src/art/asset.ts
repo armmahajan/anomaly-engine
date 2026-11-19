@@ -1,3 +1,4 @@
+import { rigFingerprint } from "./rig.ts";
 import { z } from "zod";
 import { Color, Id } from "../common.ts";
 import { Clip } from "./clip.ts";
@@ -84,8 +85,23 @@ export const CharacterAsset = z.strictObject({
     .record(Id, Id)
     .default({})
     .describe("Behavior state id -> clip name, overriding the automatic slot for that state."),
+  /** The design the rig was built from (setRig records the chosen design's file): choosing another makes the rig out of date. */
+  rigFrom: FileRef.optional(),
+  /** The rig the clips were written for (setClip records rigFingerprint): rebuilding or editing the bones makes them out of date. */
+  clipsFor: z.string().max(64).optional(),
 });
 export type CharacterAsset = z.infer<typeof CharacterAsset>;
+
+/**
+ * Which later steps of a character's art no longer match an earlier one: a rig built from a design
+ * that is no longer the chosen one, clips written for a rig whose bones have changed since. Assets
+ * from before these were recorded count as up to date.
+ */
+export function artStaleness(asset: Pick<CharacterAsset, "chosen" | "rig" | "rigFrom" | "clips" | "clipsFor">): { rigStale: boolean; clipsStale: boolean } {
+  const rigStale = Boolean(asset.rig && asset.rigFrom && asset.chosen && asset.rigFrom !== asset.chosen.file);
+  const clipsStale = Boolean(asset.rig && asset.clipsFor && Object.keys(asset.clips).length > 0 && asset.clipsFor !== rigFingerprint(asset.rig));
+  return { rigStale, clipsStale };
+}
 
 /**
  * A biome: one place's art kit (backdrop, piece sheets, ground) and the rooms

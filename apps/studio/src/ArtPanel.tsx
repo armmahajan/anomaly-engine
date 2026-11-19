@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ArtActivityEntry, ArtJobRequest, ArtRunningJob, ArtState, Character, ProjectSpec, RigMode } from "@anomaly/core";
+import { artStaleness, type ArtActivityEntry, type ArtJobRequest, type ArtRunningJob, type ArtState, type Character, type ProjectSpec, type RigMode } from "@anomaly/core";
 import { fileUrl } from "./api.ts";
 import { characterAsset } from "./CharacterBench.tsx";
 import type { Session } from "./session.ts";
@@ -51,24 +51,44 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
 
   const start = (request: Omit<ArtJobRequest, "characterId">) => void session.startArtJob({ characterId: character.id, ...request });
 
-  // Where each step stands, and the one thing to do next.
+  // Where each step stands, and the one thing to do next. A later step built from an earlier
+  // version of the one before it (another design chosen since, the bones changed since) is out of date.
   const sheets = asset?.concepts.length ?? 0;
   const clips = asset ? Object.keys(asset.clips).length : 0;
+  const { rigStale, clipsStale } = asset ? artStaleness(asset) : { rigStale: false, clipsStale: false };
   const conceptState: StepState = asset?.chosen ? "done" : "next";
   const conceptStatus = asset?.chosen ? "design chosen" : sheets ? `${sheets} sheet${sheets > 1 ? "s" : ""}, none chosen` : "not started";
-  const rigState: StepState = !asset?.chosen ? "waiting" : asset.rig ? "done" : "next";
-  const rigStatus = !asset?.chosen ? "after a design is chosen" : asset.rig ? `built${asset.preview?.match ? `, ${Math.round(asset.preview.match.silhouette * 100)}% match` : ""}` : "not built";
-  const animState: StepState = !asset?.rig ? "waiting" : clips ? "done" : "next";
-  const animStatus = !asset?.rig ? "after the rig" : clips ? `${clips} clip${clips > 1 ? "s" : ""}` : "not animated";
+  const rigState: StepState = !asset?.chosen ? "waiting" : asset.rig && !rigStale ? "done" : "next";
+  const rigStatus = !asset?.chosen
+    ? "after a design is chosen"
+    : rigStale
+      ? "from an earlier design: rebuild"
+      : asset.rig
+        ? `built${asset.preview?.match ? `, ${Math.round(asset.preview.match.silhouette * 100)}% match` : ""}`
+        : "not built";
+  const animState: StepState = !asset?.rig || rigStale ? "waiting" : clips && !clipsStale ? "done" : "next";
+  const animStatus = !asset?.rig
+    ? "after the rig"
+    : rigStale
+      ? "after the rig is rebuilt"
+      : clipsStale
+        ? "for an earlier rig: re-animate"
+        : clips
+          ? `${clips} clip${clips > 1 ? "s" : ""}`
+          : "not animated";
   const next = !asset?.chosen
     ? sheets
       ? "Click a design in the workbench to build from it, or generate more."
       : `Describe ${character.name} and generate concepts (or tick Auto to do every step).`
     : !asset.rig
       ? "Build the rig from the chosen design."
-      : !clips
-        ? "Animate the rig."
-        : null;
+      : rigStale
+        ? "You chose another design: rebuild the rig from it, then re-animate."
+        : !clips
+          ? "Animate the rig."
+          : clipsStale
+            ? "The rig changed since these clips were written: re-animate."
+            : null;
 
   return (
     <section className="art-panel" data-testid="art-panel">

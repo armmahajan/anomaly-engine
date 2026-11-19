@@ -264,3 +264,14 @@ export function rigBounds(rig: Rig): { minX: number; minY: number; maxX: number;
   }
   return { minX, minY, maxX, maxY };
 }
+
+/** The skeleton's identity: its bones (ids, parents, pivots to the pixel), hashed. Clips written for one rig fit another with the same fingerprint. */
+export function rigFingerprint(rig: Pick<Rig, "bones">): string {
+  const text = rig.bones.map((b) => `${b.id}<${b.parent ?? ""}@${Math.round(b.pivot[0])},${Math.round(b.pivot[1])}`).join("|");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${rig.bones.length}-${h.toString(16)}`;
+}
