@@ -988,6 +988,17 @@ bone(s) (`clipTo`: shading bands, highlights and patterns that never leave their
 textures travel like a cutout's source (`rigFiles`: sent with `images`, bundled by the game
 export); until one arrives its parts show their flat fill.
 
+**Layered rigs** (`rigMode: "layered"`, rig round 6, on trial): the proven 2D route (Spine, Live2D):
+the design split into part layers at its full resolution, the stretches each part hides painted in,
+and each layer drawn on a triangle **mesh** that bends between bones. A `mesh` part is
+`{type: "mesh", points, inner, triangles, uv, weights?}`: outline and interior vertices (rig
+space), index triples into points then inner, the texture px of each vertex in the part's
+`texture` (required; its file is usually the character's layer atlas), and optionally a weight per
+vertex toward `bendTo` (0 = follows `bone`, 1 = follows `bendTo`; without weights the runtime
+weights by position along the bone as for vector parts). The texture travels with its vertices, so
+the bone editor can move, turn and scale a mesh. Meshes draw no fill, outline or boil, and can't
+clip or be clipped to.
+
 **Rig looks on trial** (`dressRig {look}` in `packages/art/src/dress.ts`, opt-in, no default flow
 calls it; compared blind by `node scripts/rig-ab4.ts <round3> <out>` then
 `node scripts/rig-ab4-page.ts <out>`): the same shapes, bones and clips, dressed from the design.

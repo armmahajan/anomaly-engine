@@ -37,6 +37,7 @@ import {
   type VisionModel,
 } from "@anomaly/art";
 import type { ProjectStore } from "../projectStore.ts";
+import type { RigMode } from "@anomaly/core";
 import { conflicts, EVERYTHING, jobKeys, lanesOf, runLanes } from "./scheduling.ts";
 
 const RECENT_JOBS = 20;
@@ -81,7 +82,7 @@ export interface ArtServiceOptions {
   animRounds?: number;
   roomRounds?: number;
   /** Rig mode when the art direction doesn't pick one: cutout for real models (it won the rig A/B, 2026-11-18). */
-  defaultRigMode?: "vector" | "cutout" | "traced";
+  defaultRigMode?: RigMode;
 }
 
 type Result = { ok: true; jobId: string; queued?: boolean } | { ok: false; error: OperationError };

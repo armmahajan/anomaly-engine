@@ -7,6 +7,7 @@ import {
   type VisionModel,
 } from "@anomaly/art";
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
+import { RIG_MODES, type RigMode } from "@anomaly/core";
 import { ClaudeCodeVisionModel, DEFAULT_CLAUDE_VISION_MODEL } from "./claudeCodeVision.ts";
 import { BrowserRenderer } from "./renderer.ts";
 import { DEFAULT_ART_CONCURRENCY, type ArtServiceOptions } from "./service.ts";
@@ -91,9 +92,9 @@ export function artConcurrencyFromEnv(env: Record<string, string | undefined>): 
 
 export type VisionBackend = "claude-code" | "openrouter";
 
-function rigModeFromEnv(value: string | undefined): "vector" | "cutout" | "traced" {
+function rigModeFromEnv(value: string | undefined): RigMode {
   const v = value?.trim();
-  return v === "traced" || v === "cutout" ? v : "vector";
+  return (RIG_MODES as readonly string[]).includes(v ?? "") ? (v as RigMode) : "vector";
 }
 
 /** The vision backend the environment asks for; null when STUDIO_ART_VISION_BACKEND is misspelled. */

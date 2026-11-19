@@ -6,7 +6,7 @@ import { ProjectSpec } from "../schema.ts";
 import { ArtDirection, Asset, ConceptSheet, FileRef, Preview, type CharacterAsset } from "./asset.ts";
 import { Clip, ClipMarker } from "./clip.ts";
 import { objectUses } from "./objects.ts";
-import { Part, Rig } from "./rig.ts";
+import { Part, RIG_MODES, Rig } from "./rig.ts";
 import { undress } from "./worldOperations.ts";
 
 /**
@@ -69,7 +69,7 @@ export const SetArtDirectionInput = z.strictObject({
     ink: z.string().optional(),
     inkWidth: z.number().optional(),
     boil: z.number().optional(),
-    rigMode: z.enum(["vector", "cutout", "traced"]).optional().describe("How characters are rigged: vector (flat shapes), cutout (pieces of the concept image) or traced (those pieces redrawn as flat shapes)."),
+    rigMode: z.enum(RIG_MODES).optional().describe("vector (flat shapes), cutout (concept pieces), traced (pieces as shapes) or layered (painted layers on meshes)."),
     imageModel: z.string().max(120).nullable().optional().describe("Image model id (null = default)."),
   }),
 });

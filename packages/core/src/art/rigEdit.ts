@@ -100,6 +100,9 @@ function moveShape(shape: Shape, t: Transform): Shape {
     case "blob":
     case "image":
       return { ...shape, points: shape.points.map(t.point) };
+    case "mesh":
+      // The texture travels with its vertices (uv per vertex), so a mesh can move, turn and scale.
+      return { ...shape, points: shape.points.map(t.point), inner: shape.inner.map(t.point) };
   }
 }
 

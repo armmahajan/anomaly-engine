@@ -3,6 +3,7 @@ import { Author } from "./history.ts";
 import type { OperationError } from "./operations.ts";
 import { ProjectSpec } from "./schema.ts";
 import { FileRef } from "./art/fileRef.ts";
+import { RIG_MODES } from "./art/rig.ts";
 import { Id } from "./common.ts";
 import { ArchitectStage } from "./architect/plan.ts";
 
@@ -213,7 +214,7 @@ export const ArtJobRequest = z
     /** gameArt: only these plan steps. */
     steps: z.array(z.string().max(120)).max(500).optional(),
     /** rig: vector, cutout or traced (default: the art direction's rigMode, else the backend's). */
-    rigMode: z.enum(["vector", "cutout", "traced"]).optional(),
+    rigMode: z.enum(RIG_MODES).optional(),
     brief: z.string().trim().max(2000).optional(),
   feedback: z.string().trim().max(1000).optional(),
   /** concepts: variations on the chosen design (it is sent as a reference image). */

@@ -82,6 +82,16 @@ export const Shape = z
         points: z.array(Point).min(3).max(128).describe("Polygon (rig space) cut out of the rig's source image."),
       })
       .describe("Cutout rigs: the rig's source image shown inside this polygon (no fill or outline drawn)."),
+    z
+      .strictObject({
+        type: z.literal("mesh"),
+        points: z.array(Point).min(3).max(128).describe("Outline."),
+        inner: z.array(Point).max(256).default([]),
+        triangles: z.array(z.number().int().min(0)).min(3).max(2304).describe("Index triples into points+inner."),
+        uv: z.array(Point).describe("Texture px per vertex."),
+        weights: z.array(z.number().min(0).max(1)).optional().describe("Per vertex, toward bendTo."),
+      })
+      .describe("Layered rigs: the part's texture on a triangle mesh."),
   ])
   .describe("Geometry of a part, in rest-pose rig space.");
 export type Shape = z.infer<typeof Shape>;
@@ -158,7 +168,7 @@ export type Grip = z.infer<typeof Grip>;
 
 export const MAX_GRIPS = 4;
 
-export const RIG_MODES = ["vector", "cutout", "traced"] as const;
+export const RIG_MODES = ["vector", "cutout", "traced", "layered"] as const;
 export type RigMode = (typeof RIG_MODES)[number];
 
 export const Rig = z
@@ -222,8 +232,21 @@ export const Rig = z
         if (!target) issue(`unknown part "${p.clipTo}" to clip to (parts: ${rig.parts.map((q) => q.id).join(", ")})`);
         else if (target.id === p.id) issue(`part "${p.id}" can't clip to itself`);
         else if (target.clipTo !== undefined) issue(`part "${p.id}" clips to "${target.id}", which is clipped itself: clip to "${target.clipTo}" instead`);
-        else if (target.shape.type === "image") issue(`part "${p.id}" can't clip to image part "${target.id}"`);
+        else if (target.shape.type === "image" || target.shape.type === "mesh") issue(`part "${p.id}" can't clip to ${target.shape.type} part "${target.id}"`);
         else if (target.bone !== p.bone || target.bendTo !== p.bendTo) issue(`part "${p.id}" clips to "${target.id}", which moves with other bones: both need the same bone and bendTo`);
+      }
+      if (p.shape.type === "mesh") {
+        const s = p.shape;
+        const n = s.points.length + s.inner.length;
+        const issue = (key: string, message: string) => ctx.addIssue({ code: "custom", path: ["parts", i, "shape", key], message: `mesh part "${p.id}": ${message}` });
+        if (!p.texture) ctx.addIssue({ code: "custom", path: ["parts", i, "texture"], message: `mesh part "${p.id}" needs a texture (its painted layer)` });
+        if (s.triangles.length % 3 !== 0) issue("triangles", `${s.triangles.length} triangle indices is not a multiple of 3`);
+        const past = s.triangles.find((t) => t >= n);
+        if (past !== undefined) issue("triangles", `index ${past} is past the last vertex (${n - 1})`);
+        if (s.uv.length !== n) issue("uv", `${s.uv.length} uv points for ${n} vertices`);
+        if (s.weights && s.weights.length !== n) issue("weights", `${s.weights.length} weights for ${n} vertices`);
+        if (s.weights && p.bendTo === undefined) issue("weights", "weights need a bendTo bone");
+        if (p.clipTo !== undefined) ctx.addIssue({ code: "custom", path: ["parts", i, "clipTo"], message: `mesh part "${p.id}" can't clip to another part` });
       }
       if (p.shape.type === "blob") {
         const n = p.shape.points.length;
