@@ -3,8 +3,11 @@ extends SceneTree
 ## rig is built, put in the tree and drawn at every pose (so a bad polygon would print its Godot
 ## ERROR), and each pose reports every part's drawn layers (posed vertices, triangle indices, uv).
 ##   godot --headless --path game --script res://tests/rig_pose_probe.gd -- in.json out.json
-## in.json: {"cases": [{"rig", "clips"?, "direction"?, "textures"?: {ref: [w, h]}, "poses": [{"clip", "time"}]}]}
-## out.json: {"cases": [{"warnings", "poses": [{part id: [{"points", "indices", "uv"}]}]}]}
+## in.json: {"cases": [{"rig", "clips"?, "direction"?, "textures"?: {ref: [w, h]}, "crossfade"?: false, "quick"?: false,
+##   "poses": [{"clip", "time", "restart"?: true, "continue"?: false}]}]}
+##   Each pose plays its clip (restarting it unless restart is false; not at all with continue) and is
+##   posed at `time`; crossfade lets clip switches blend (off by default); quick skips drawing and parts.
+## out.json: {"cases": [{"warnings", "poses": [{part id: [{"points", "indices", "uv"}], "bones": {id: [x, y, degrees]}}]}]}
 ## With "timing": {"frames": N, "views": M} instead, it draws M views of each case's rig N frames each
 ## (cycling its clips) and reports {"usPerFrame"} (the frame cost of drawing the rigs).
 
@@ -47,13 +50,24 @@ func _probe(c: Dictionary) -> Dictionary:
 	root.add_child(view)
 	view.setup(c.rig, c.get("direction", {}), c.get("clips", {}))
 	var poses := []
+	view.crossfade = bool(c.get("crossfade", false))
+	var quick := bool(c.get("quick", false))
 	for pose in c.get("poses", [{"clip": null, "time": 0}]):
 		var clip = pose.get("clip")
-		view.play(str(clip) if clip != null else "", true)
+		if not bool(pose.get("continue", false)):
+			view.play(str(clip) if clip != null else "", bool(pose.get("restart", true)))
 		view.pose_at(float(pose.get("time", 0.0)))
-		await process_frame
-		await process_frame  # drawn
-		var parts := {}
+		if not quick:
+			await process_frame
+			await process_frame  # drawn
+		var bones := {}
+		for id in view._bone_order:
+			var xf: Transform2D = view._pose[id]
+			bones[id] = [xf.origin.x, xf.origin.y, rad_to_deg(xf.x.angle())]
+		if quick:
+			poses.append({"bones": bones})
+			continue
+		var parts := {"bones": bones}
 		for part in c.rig.parts:
 			var layers := []
 			for layer in view.posed_mesh(str(part.id)):

@@ -16,6 +16,41 @@ const BOIL_VARIANTS := 3
 const BOIL_FPS := 8.0
 ## Halo layers: [growth as a fraction of the part's size, alpha].
 const GLOW_LAYERS := [[0.18, 0.28], [0.4, 0.13], [0.7, 0.06]]
+## A clip's look glow (clip.ts LookTrack): the part's silhouette scaled about its centre, [scale, alpha at glow 1].
+const LOOK_GLOW_LAYERS := [[1.06, 0.34], [1.14, 0.22], [1.24, 0.14], [1.36, 0.08], [1.5, 0.05]]
+## Crossfade into a clip without its own blendIn (seconds; core clip.ts DEFAULT_BLEND_IN).
+const DEFAULT_BLEND_IN := 0.12
+## Springs (rig.ts Bone.spring) step at this fixed rate whatever the frame rate.
+const SPRING_STEP := 1.0 / 120.0
+## A spring bone turns at most this far from where the clip puts it (radians, 75°).
+const SPRING_MAX_TURN := 1.309
+## pose_at moving back, or forward more than this, starts the springs again (settled), warmed up over
+## SPRING_WARMUP seconds of the clip so a render or a scrubbed stage shows them in their swing.
+const SPRING_JUMP := 0.25
+const SPRING_WARMUP := 1.5
+## Ease constants (core art/motion.ts easeAt).
+const EASE_C1 := 1.70158
+const EASE_C3 := EASE_C1 + 1.0
+const EASE_C4 := TAU / 3.0
+const EASE_N1 := 7.5625
+const EASE_D1 := 2.75
+## Draws a textured layer as its silhouette in the vertex colour (tint overlays and glow halos on
+## image and mesh parts), told apart by texture coordinates moved by +8 (normal draws are 0..1).
+const SILHOUETTE_SHADER := """
+shader_type canvas_item;
+varying vec4 vcolor;
+varying float silhouette;
+void vertex() {
+	vcolor = COLOR;
+	silhouette = UV.x > 4.0 ? 1.0 : 0.0;
+}
+void fragment() {
+	if (silhouette > 0.5) {
+		COLOR = vec4(vcolor.rgb, vcolor.a * texture(TEXTURE, UV - vec2(8.0)).a);
+	}
+}
+"""
+static var _silhouette_material: ShaderMaterial = null
 
 ## Problems found while building (bad shapes are skipped, not fatal).
 var warnings: Array[String] = []
@@ -61,6 +96,23 @@ var _shoulders := {}
 var _turn_bone := ""
 var _turn := 0.0
 
+## Crossfade into the next clip (clip.blendIn) from the pose before it. Off for stages posed by time.
+var crossfade := true
+## The pose being faded from (bone -> channels [rot, x, y, sx, sy]) and its looks; empty = none.
+var _blend_from := {}
+var _blend_looks := {}
+var _blend_in := 0.0
+## The last pose's channels (after IK and crossfade, before the aim turn and springs).
+var _channels := {}
+## The current looks (clip.looks): part id ("" = every part) -> look; empty = none.
+var _looks := {}
+## Spring bones: id -> {k, c, reach (rest offset from the pivot to what it carries), length,
+## x (the lagging point, rig space), v, prev (the target at the last step), live}.
+var _springs := {}
+var _spring_order: Array[String] = []
+## Seconds not yet stepped (less than one SPRING_STEP).
+var _spring_acc := 0.0
+
 ## Emitted after every pose is evaluated (the weapon view follows the grip with no frame of lag).
 signal posed
 ## The playing clip crossed one of its markers (core art/clip.ts Clip.markers): once per pass of the
@@ -88,6 +140,11 @@ func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
 	_build_grips(rig.get("grips", []))
 	_find_shoulders(rig.get("parts", []))
 	_rest_bounds = rest_bounds_of(rig)
+	_build_springs(rig.get("bones", []), rig.get("parts", []))
+	_blend_from = {}
+	_blend_looks = {}
+	_channels = {}
+	_looks = {}
 	# Images (a cutout's source, part textures) are drawn several times smaller than their pixels:
 	# sample their mipmaps (the shared textures have them) so edges don't shimmer as pieces turn.
 	if _parts.any(func(part): return part.tex_file != ""):
@@ -100,9 +157,20 @@ func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
 func play(clip_id: String, restart := false) -> void:
 	if clip_id == _clip_id and not restart:
 		return
+	var had_clip := not _clip.is_empty()
 	_clip_id = clip_id
 	_clip = _clips.get(clip_id, {}) if _clips.has(clip_id) else {}
 	_time = 0.0
+	# Crossfade from the pose shown now (a clip was playing; a view just built starts clean).
+	var blend := clampf(float(_clip.get("blendIn", DEFAULT_BLEND_IN)), 0.0, 1.0)
+	if crossfade and had_clip and blend > 0.0 and not _channels.is_empty():
+		_blend_from = _channels.duplicate(true)
+		_blend_looks = _looks.duplicate(true)
+		_blend_in = blend
+	else:
+		_blend_from = {}
+		_blend_looks = {}
+		_blend_in = 0.0
 	_marked = -1.0
 	_markers = []
 	for m in _clip.get("markers", []):
@@ -140,9 +208,13 @@ func clip_ended() -> bool:
 func pose_at(seconds: float, boil_frame := 0) -> void:
 	if seconds < _marked:
 		_marked = -1.0
+	var step := seconds - _time
 	_time = seconds
 	_boil = boil_frame % BOIL_VARIANTS
-	_evaluate()
+	if not _springs.is_empty() and (step < 0.0 or step > SPRING_JUMP or not _springs_live()):
+		_warm_springs()
+		step = 0.0
+	_evaluate(step)
 	_fire_markers()
 	queue_redraw()
 
@@ -157,7 +229,7 @@ func _process(delta: float) -> void:
 		if _boil_timer >= 1.0 / BOIL_FPS:
 			_boil_timer = 0.0
 			_boil = (_boil + 1) % BOIL_VARIANTS
-	_evaluate()
+	_evaluate(delta * speed)
 	queue_redraw()
 
 
@@ -288,14 +360,14 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 				var extent := _extent(outline)
 				for g in GLOW_LAYERS:
 					for poly in _clipped(Geo.grow(outline, maxf(0.5, extent * g[0])), inside):
-						layers.append(_layer(poly, _flat(poly, Color(fill, fill.a * g[1]))))
+						layers.append(_layer(poly, _flat(poly, Color(fill, fill.a * g[1])), PackedVector2Array(), "glow"))
 			if ink > 0.0:
 				var ink_c := Color(ink_color, ink_color.a * opacity)
 				for poly in _clipped(Geo.grow(outline, ink), inside):
-					layers.append(_layer(poly, _flat(poly, ink_c)))
+					layers.append(_layer(poly, _flat(poly, ink_c), PackedVector2Array(), "ink"))
 			var shapes := _clipped(fills, inside)
 			for poly in shapes:
-				layers.append(_layer(poly, _shaded(poly, fill, shade, opacity)))
+				layers.append(_layer(poly, _shaded(poly, fill, shade, opacity), PackedVector2Array(), "fill"))
 			# The texture: the same polygons again, over the fill, with texture coordinates (image px).
 			if not texture.is_empty():
 				var tint := Color(1, 1, 1, opacity * float(texture.opacity))
@@ -303,7 +375,7 @@ func _build_parts(raw: Variant, ink_color: Color, ink_width: float) -> void:
 					var uv := PackedVector2Array()
 					for q in poly:
 						uv.append(texture.uv_origin + (q - texture.rect_origin) * texture.per_px)
-					layers.append(_layer(poly, _flat(poly, tint), uv))
+					layers.append(_layer(poly, _flat(poly, tint), uv, "tex"))
 			part.variants.append(_with_weights(_triangulated(layers, part), part))
 		if part.variants.is_empty():
 			continue
@@ -330,7 +402,7 @@ func _build_image_part(part: Dictionary, shape: Dictionary, opacity: float) -> b
 		var px := PackedVector2Array()
 		for q in poly:
 			px.append(q / scale + anchor)
-		layers.append(_layer(poly, _flat(poly, Color(1, 1, 1, opacity)), px))
+		layers.append(_layer(poly, _flat(poly, Color(1, 1, 1, opacity)), px, "image"))
 	part.variants.append(_with_weights(_triangulated(layers, part), part))
 	return true
 
@@ -363,7 +435,7 @@ func _build_mesh_part(part: Dictionary, p: Dictionary, opacity: float) -> bool:
 		warnings.append("mesh part '%s' has malformed triangles or uv (not drawn)" % part.id)
 		return false
 	var tint := Color(1, 1, 1, opacity * clampf(float(raw_texture.get("opacity", 1.0)), 0.0, 1.0))
-	var layer := [verts, _flat(verts, tint), PackedFloat32Array(), uv, tris]
+	var layer := [verts, _flat(verts, tint), PackedFloat32Array(), uv, tris, "mesh"]
 	part.image = true
 	part.tex_file = file
 	_with_weights([layer], part)
@@ -431,9 +503,10 @@ func image_files() -> Array:
 	return out
 
 
-## A drawn layer: [polygon (rest pose), colors, bend weights, texture px, triangle indices].
-func _layer(poly: PackedVector2Array, colors: PackedColorArray, uv := PackedVector2Array()) -> Array:
-	return [poly, colors, PackedFloat32Array(), uv, PackedInt32Array()]
+## A drawn layer: [polygon (rest pose), colors, bend weights, texture px, triangle indices, kind
+## (glow, ink, fill, tex, image or mesh)].
+func _layer(poly: PackedVector2Array, colors: PackedColorArray, uv := PackedVector2Array(), kind := "fill") -> Array:
+	return [poly, colors, PackedFloat32Array(), uv, PackedInt32Array(), kind]
 
 
 ## `layers` with their triangles, computed once on the rest outline; a polygon that can't be
@@ -549,41 +622,440 @@ func _with_weights(layers: Array, part: Dictionary) -> Array:
 
 # --- animate -----------------------------------------------------------------
 
-func _evaluate() -> void:
+## Pose the current clip at `_time`: tracks and motions, then IK, then the crossfade from the pose
+## before, then the aim turn and springs (advanced by `step` seconds; 0 = not moved on).
+func _evaluate(step := 0.0) -> void:
 	var t := _normalized_time()
-	var duration := float(_clip.get("duration", 1.0))
-	var channels := {}  # bone -> [rot, x, y, sx, sy]
-	for id in _bone_order:
-		channels[id] = [0.0, 0.0, 0.0, 1.0, 1.0]
-	if not _clip.is_empty():
-		for track in _clip.get("tracks", []):
-			var bone = track.get("bone")
-			if channels.has(bone):
-				_apply_track(channels[bone], track, t)
-		for motion in _clip.get("motions", []):
-			var bone = motion.get("bone")
-			if channels.has(bone):
-				_apply_motion(channels[bone], motion, t, duration)
-	if _turn_bone != "" and channels.has(_turn_bone):
-		channels[_turn_bone][0] += rad_to_deg(_turn)
+	var channels := _clip_channels(_clip, t)
+	var looks := _clip_looks(_clip, t)
+	if not _blend_from.is_empty() or not _blend_looks.is_empty():
+		var w := clampf(_time / _blend_in, 0.0, 1.0) if _blend_in > 0.0 else 1.0
+		if w >= 1.0:
+			_blend_from = {}
+			_blend_looks = {}
+		else:
+			for id in channels:
+				var from = _blend_from.get(id)
+				if from == null:
+					continue
+				var c: Array = channels[id]
+				c[0] = from[0] + wrapf(c[0] - from[0], -180.0, 180.0) * w
+				for k in range(1, 5):
+					c[k] = lerpf(from[k], c[k], w)
+			looks = _blend_look_sets(_blend_looks, looks, w)
+	_channels = channels
+	_looks = looks
 	_hidden.clear()
 	if not _clip.is_empty():
 		for vis in _clip.get("visibility", []):
 			if not _visible_at(vis.get("keys", []), t):
 				_hidden[str(vis.get("part", ""))] = true
+	var steps := 0
+	if step > 0.0 and not _springs.is_empty():
+		_spring_acc += step
+		steps = int(floor(_spring_acc / SPRING_STEP))
+		_spring_acc -= steps * SPRING_STEP
+		steps = mini(steps, 120)
+	_pose = _build_pose(channels, steps)
+	_update_material()
+	posed.emit()
 
-	_pose.clear()
+
+## A clip's channels at normalized time t: bone -> [rot, x, y, sx, sy] from its tracks and motions,
+## then its IK.
+func _clip_channels(clip: Dictionary, t: float) -> Dictionary:
+	var duration := float(clip.get("duration", 1.0))
+	var channels := {}
+	for id in _bone_order:
+		channels[id] = [0.0, 0.0, 0.0, 1.0, 1.0]
+	if not clip.is_empty():
+		for track in clip.get("tracks", []):
+			var bone = track.get("bone")
+			if channels.has(bone):
+				_apply_track(channels[bone], track, t)
+		for motion in clip.get("motions", []):
+			var bone = motion.get("bone")
+			if channels.has(bone):
+				_apply_motion(channels[bone], motion, t, duration)
+		var ik = clip.get("ik")
+		if typeof(ik) == TYPE_ARRAY and not ik.is_empty():
+			_solve_ik(channels, ik, t)
+	return channels
+
+
+## Bone poses from channels (bone-local offset from its pivot -> rig space), with the aim turn and,
+## on spring bones, the spring's lag (stepped `steps` times first).
+func _build_pose(channels: Dictionary, steps := 0) -> Dictionary:
+	var pose := {}
+	for id in _bone_order:
+		var bone: Dictionary = _bones[id]
+		var c: Array = channels[id]
+		var parent = bone.parent
+		var rot: float = c[0]
+		if id == _turn_bone:
+			rot += rad_to_deg(_turn)
+		var base: Transform2D
+		var has_parent: bool = parent != null and pose.has(parent)
+		if has_parent:
+			var parent_pivot: Vector2 = _bones[parent].pivot
+			base = pose[parent] * Transform2D(0.0, bone.pivot - parent_pivot)
+		else:
+			base = Transform2D(0.0, bone.pivot)
+		if has_parent and _springs.has(id):
+			rot += rad_to_deg(_spring_turn(_springs[id], base, steps))
+		pose[id] = base * Transform2D(deg_to_rad(rot), Vector2(c[3], c[4]), 0.0, Vector2(c[1], c[2]))
+	return pose
+
+
+## Bone poses from channels alone (no turn, no springs): what IK solves on.
+func _pose_from(channels: Dictionary) -> Dictionary:
+	var pose := {}
 	for id in _bone_order:
 		var bone: Dictionary = _bones[id]
 		var c: Array = channels[id]
 		var parent = bone.parent
 		var local := Transform2D(deg_to_rad(c[0]), Vector2(c[3], c[4]), 0.0, Vector2(c[1], c[2]))
-		if parent != null and _pose.has(parent):
+		if parent != null and pose.has(parent):
 			var parent_pivot: Vector2 = _bones[parent].pivot
-			_pose[id] = _pose[parent] * Transform2D(0.0, bone.pivot - parent_pivot) * local
+			pose[id] = pose[parent] * Transform2D(0.0, bone.pivot - parent_pivot) * local
 		else:
-			_pose[id] = Transform2D(0.0, bone.pivot) * local
-	posed.emit()
+			pose[id] = Transform2D(0.0, bone.pivot) * local
+	return pose
+
+
+# --- IK (core art/motion.ts solveIk) -----------------------------------------------------------
+
+## Each IK track turns its upper bone (bone's parent) and `bone` so the tip's pivot reaches the
+## target (straight toward it when out of reach), then turns the tip back to the angle the clip
+## gave it. Tracks whose bones don't fit the rig are skipped (lint: clip_bad_ik).
+func _solve_ik(channels: Dictionary, tracks: Array, t: float) -> void:
+	for track in tracks:
+		if typeof(track) != TYPE_DICTIONARY:
+			continue
+		var lower := str(track.get("bone", ""))
+		var tip := str(track.get("tip", ""))
+		if not _bones.has(lower) or not _bones.has(tip) or _bones[tip].parent != lower:
+			continue
+		var upper = _bones[lower].parent
+		if upper == null or not _bones.has(upper):
+			continue
+		var at := _key_values(track.get("keys", []), t, str(track.get("ease", "smooth")))
+		if at.size() < 2:
+			continue
+		var target := Vector2(at[0], at[1])
+		var cw := str(track.get("bend", "cw")) != "ccw"
+		var poses := _pose_from(channels)
+		var tip_angle0: float = (poses[tip] as Transform2D).x.angle()
+		for _pass in 2:
+			var s: Vector2 = poses[upper].origin
+			var e: Vector2 = poses[lower].origin
+			var w: Vector2 = poses[tip].origin
+			var l1 := s.distance_to(e)
+			var l2 := e.distance_to(w)
+			if l1 < 1e-6 or l2 < 1e-6:
+				break
+			var solved := two_bone(s, l1, l2, target, cw, (w - s).angle())
+			var grand = _bones[upper].parent
+			var sign1 := _det_sign(poses[grand] if grand != null and poses.has(grand) else Transform2D.IDENTITY)
+			channels[upper][0] += rad_to_deg(sign1 * wrapf(float(solved[0]) - (e - s).angle(), -PI, PI))
+			poses = _pose_from(channels)
+			var e2: Vector2 = poses[lower].origin
+			var w2: Vector2 = poses[tip].origin
+			var sign2 := _det_sign(poses[upper])
+			channels[lower][0] += rad_to_deg(sign2 * wrapf(((solved[1] as Vector2) - e2).angle() - (w2 - e2).angle(), -PI, PI))
+			poses = _pose_from(channels)
+		var sign3 := _det_sign(poses[lower])
+		channels[tip][0] += rad_to_deg(sign3 * wrapf(tip_angle0 - (poses[tip] as Transform2D).x.angle(), -PI, PI))
+
+
+static func _det_sign(xf: Transform2D) -> float:
+	return -1.0 if xf.determinant() < 0.0 else 1.0
+
+
+## Two bones of lengths l1, l2 from `s` reaching for `target`: [the upper bone's angle, where the tip
+## lands] (the target, or the nearest point the limb reaches on the line to it). cw puts the joint
+## clockwise of the line (a right-facing knee in front). `fallback`: the direction when the target is on `s`.
+static func two_bone(s: Vector2, l1: float, l2: float, target: Vector2, cw: bool, fallback := PI / 2.0) -> Array:
+	var v := target - s
+	var d := v.length()
+	var base := v.angle() if d > 1e-6 else fallback
+	var dc := minf(maxf(d, absf(l1 - l2) + 1e-6), l1 + l2)
+	var cos_a := clampf((l1 * l1 + dc * dc - l2 * l2) / (2.0 * l1 * dc), -1.0, 1.0)
+	var a := acos(cos_a)
+	return [base - a if cw else base + a, s + Vector2(cos(base), sin(base)) * dc]
+
+
+# --- springs (rig.ts Bone.spring) --------------------------------------------------------------
+
+## Spring bones: what each carries (its child pivots' middle, else the farthest point of its parts)
+## sets the lever; stiffness sets how fast it swings (0.5..8 Hz), damping how soon it settles.
+func _build_springs(raw_bones: Variant, raw_parts: Variant) -> void:
+	_springs.clear()
+	_spring_acc = 0.0
+	if typeof(raw_bones) != TYPE_ARRAY:
+		return
+	for b in raw_bones:
+		if typeof(b) != TYPE_DICTIONARY or typeof(b.get("spring")) != TYPE_DICTIONARY or not _bones.has(str(b.get("id", ""))):
+			continue
+		var id := str(b.id)
+		if _bones[id].parent == null:
+			continue
+		var pivot: Vector2 = _bones[id].pivot
+		var reach := Vector2.ZERO
+		var children := 0
+		for other in _bones:
+			if _bones[other].parent == id:
+				reach += (_bones[other].pivot as Vector2) - pivot
+				children += 1
+		if children > 0:
+			reach /= children
+		elif typeof(raw_parts) == TYPE_ARRAY:
+			for p in raw_parts:
+				if typeof(p) != TYPE_DICTIONARY or str(p.get("bone", "")) != id or typeof(p.get("shape")) != TYPE_DICTIONARY:
+					continue
+				var pts: Array = p.shape.get("points", [])
+				if str(p.shape.get("type", "")) == "ellipse":
+					pts = [p.shape.get("center", [0, 0])]
+				for q in pts:
+					var off := Vector2(float(q[0]), float(q[1])) - pivot
+					if off.length() > reach.length():
+						reach = off
+		if reach.length() < 4.0:
+			reach = Vector2(0.0, 8.0)
+		var spring: Dictionary = b.spring
+		var omega := TAU * (0.5 + 7.5 * clampf(float(spring.get("stiffness", 0.3)), 0.01, 1.0))
+		var zeta := maxf(clampf(float(spring.get("damping", 0.5)), 0.0, 1.0), 0.04)
+		_springs[id] = {"k": omega * omega, "c": 2.0 * zeta * omega, "reach": reach, "length": reach.length(), "x": Vector2.ZERO, "v": Vector2.ZERO, "prev": Vector2.ZERO, "live": false}
+
+
+func _springs_live() -> bool:
+	for s in _springs.values():
+		if not s.live:
+			return false
+	return true
+
+
+## The turn (radians, in the bone's own frame) a spring adds: a point carried at `reach` from the
+## pivot is pulled toward where the parent's motion puts it (`base`: the parent's pose at this bone's
+## pivot, without the bone's own channels) and lags behind; the turn is the angle between them.
+## `steps` fixed steps move it on, the target moving evenly from where it was at the last step.
+func _spring_turn(s: Dictionary, base: Transform2D, steps: int) -> float:
+	var target: Vector2 = base * (s.reach as Vector2)
+	var pivot: Vector2 = base.origin
+	if not s.live:
+		s.x = target
+		s.v = Vector2.ZERO
+		s.prev = target
+		s.live = true
+	elif steps > 0:
+		var x: Vector2 = s.x
+		var v: Vector2 = s.v
+		var from: Vector2 = s.prev
+		var k: float = s.k
+		var c: float = s.c
+		for i in steps:
+			var goal := from.lerp(target, float(i + 1) / steps)
+			v += ((goal - x) * k - v * c) * SPRING_STEP
+			x += v * SPRING_STEP
+		# Big jumps (a teleport, a snap) can't fling it: it stays within two levers of the target.
+		var limit: float = 2.0 * s.length
+		if x.distance_to(target) > limit:
+			x = target + (x - target).normalized() * limit
+			v *= 0.5
+		s.x = x
+		s.v = v
+		s.prev = target
+	var turn := wrapf((s.x - pivot).angle() - (target - pivot).angle(), -PI, PI)
+	turn = clampf(turn, -SPRING_MAX_TURN, SPRING_MAX_TURN)
+	return turn * _det_sign(base)
+
+
+## Start the springs again on the current clip: settled where it was SPRING_WARMUP s ago (a looping
+## clip) or at its start, then run up to now, so a posed frame shows them in their swing.
+func _warm_springs() -> void:
+	for s in _springs.values():
+		s.live = false
+	_spring_acc = 0.0
+	if _clip.is_empty():
+		_build_pose(_clip_channels(_clip, 0.0), 0)
+		return
+	var duration := maxf(float(_clip.get("duration", 1.0)), 0.01)
+	var loops := bool(_clip.get("loop", true))
+	var start := _time - SPRING_WARMUP if loops else 0.0
+	var frames := int(ceil(maxf(_time - start, 0.0) * 60.0))
+	for i in frames + 1:
+		var at := start + (_time - start) * (float(i) / frames if frames > 0 else 1.0)
+		var t := fposmod(at, duration) / duration if loops else clampf(at / duration, 0.0, 1.0)
+		var steps := 0
+		if i > 0:
+			_spring_acc += (_time - start) / frames
+			steps = int(floor(_spring_acc / SPRING_STEP))
+			_spring_acc -= steps * SPRING_STEP
+		_build_pose(_clip_channels(_clip, t), steps)
+
+
+# --- eases (core art/motion.ts easeAt) ---------------------------------------------------------
+
+static func ease_at(ease: String, u: float) -> float:
+	match ease:
+		"smooth":
+			return smoothstep(0.0, 1.0, u)
+		"step":
+			return 0.0
+		"overshoot":
+			var o := u - 1.0
+			return 1.0 + EASE_C3 * o * o * o + EASE_C1 * o * o
+		"anticipate":
+			return EASE_C3 * u * u * u - EASE_C1 * u * u
+		"elastic":
+			if u <= 0.0:
+				return 0.0
+			if u >= 1.0:
+				return 1.0
+			return pow(2.0, -10.0 * u) * sin((u * 10.0 - 0.75) * EASE_C4) + 1.0
+		"bounce":
+			if u < 1.0 / EASE_D1:
+				return EASE_N1 * u * u
+			if u < 2.0 / EASE_D1:
+				var b := u - 1.5 / EASE_D1
+				return EASE_N1 * b * b + 0.75
+			if u < 2.5 / EASE_D1:
+				var b := u - 2.25 / EASE_D1
+				return EASE_N1 * b * b + 0.9375
+			var b := u - 2.625 / EASE_D1
+			return EASE_N1 * b * b + 0.984375
+	return u
+
+
+## Keyed values ([t, v...] keys) at t: the first key's before it, the last's after it, eased between.
+static func _key_values(keys: Array, t: float, ease: String) -> PackedFloat64Array:
+	var out := PackedFloat64Array()
+	if keys.is_empty() or typeof(keys[0]) != TYPE_ARRAY:
+		return out
+	var last: Array = keys[keys.size() - 1]
+	var k0: Array = keys[0]
+	var k1: Array = keys[0]
+	var u := 0.0
+	if t >= float(last[0]):
+		k0 = last
+		k1 = last
+	else:
+		for i in range(keys.size() - 1):
+			if t >= float(keys[i][0]) and t < float(keys[i + 1][0]):
+				k0 = keys[i]
+				k1 = keys[i + 1]
+				u = ease_at(ease, (t - float(k0[0])) / maxf(float(k1[0]) - float(k0[0]), 0.0001))
+				break
+	for j in range(1, mini(k0.size(), k1.size())):
+		out.append(lerpf(float(k0[j]), float(k1[j]), u))
+	return out
+
+
+# --- looks (clip.ts LookTrack) -----------------------------------------------------------------
+
+## A clip's looks at t: part id ("" = every part) -> {opacity, brightness, glow, glow_color, tint,
+## tint_color}. Tracks on the same thing combine: opacity and brightness multiply, glow and tint
+## take the strongest.
+func _clip_looks(clip: Dictionary, t: float) -> Dictionary:
+	var out := {}
+	var tracks = clip.get("looks")
+	if typeof(tracks) != TYPE_ARRAY:
+		return out
+	for track in tracks:
+		if typeof(track) != TYPE_DICTIONARY:
+			continue
+		var at := _key_values(track.get("keys", []), t, str(track.get("ease", "smooth")))
+		if at.is_empty():
+			continue
+		var part = track.get("part")
+		var key := str(part) if part != null else ""
+		if not out.has(key):
+			out[key] = _no_look()
+		var look: Dictionary = out[key]
+		var color := Color(str(track.get("color", "#ffffff")))
+		var value: float = at[0]
+		match str(track.get("property", "")):
+			"opacity":
+				look.opacity *= clampf(value, 0.0, 1.0)
+			"brightness":
+				look.brightness *= clampf(value, 0.0, 4.0)
+			"glow":
+				if value > look.glow:
+					look.glow = clampf(value, 0.0, 1.0)
+					look.glow_color = color
+			"tint":
+				if value > look.tint:
+					look.tint = clampf(value, 0.0, 1.0)
+					look.tint_color = color
+	return out
+
+
+static func _no_look() -> Dictionary:
+	return {"opacity": 1.0, "brightness": 1.0, "glow": 0.0, "glow_color": Color.WHITE, "tint": 0.0, "tint_color": Color.WHITE}
+
+
+## Looks part way (w) from `a` to `b`.
+static func _blend_look_sets(a: Dictionary, b: Dictionary, w: float) -> Dictionary:
+	var out := {}
+	for key in a.keys() + b.keys():
+		if out.has(key):
+			continue
+		var x: Dictionary = a.get(key, _no_look())
+		var y: Dictionary = b.get(key, _no_look())
+		out[key] = {
+			"opacity": lerpf(x.opacity, y.opacity, w),
+			"brightness": lerpf(x.brightness, y.brightness, w),
+			"glow": lerpf(x.glow, y.glow, w),
+			"glow_color": (x.glow_color as Color).lerp(y.glow_color, w) if x.glow > 0.0 and y.glow > 0.0 else (y.glow_color if y.glow > 0.0 else x.glow_color),
+			"tint": lerpf(x.tint, y.tint, w),
+			"tint_color": (x.tint_color as Color).lerp(y.tint_color, w) if x.tint > 0.0 and y.tint > 0.0 else (y.tint_color if y.tint > 0.0 else x.tint_color),
+		}
+	return out
+
+
+## A part's look: the whole rig's combined with its own; null when it is drawn as it is.
+func _look_for(part_id: String) -> Variant:
+	if _looks.is_empty():
+		return null
+	var all = _looks.get("")
+	var own = _looks.get(part_id)
+	if all == null and own == null:
+		return null
+	var look: Dictionary
+	if all == null or own == null:
+		look = all if own == null else own
+	else:
+		look = {
+			"opacity": all.opacity * own.opacity,
+			"brightness": all.brightness * own.brightness,
+			"glow": maxf(all.glow, own.glow),
+			"glow_color": own.glow_color if own.glow >= all.glow else all.glow_color,
+			"tint": maxf(all.tint, own.tint),
+			"tint_color": own.tint_color if own.tint >= all.tint else all.tint_color,
+		}
+	if look.opacity >= 1.0 and look.brightness == 1.0 and look.glow <= 0.0 and look.tint <= 0.0:
+		return null
+	return look
+
+
+## Tints and glows on image and mesh layers draw silhouettes, which need this view's material (only
+## while they show, and never over a material something else gave it, e.g. a dissolve).
+func _update_material() -> void:
+	var wanted := false
+	for key in _looks:
+		var look: Dictionary = _looks[key]
+		if look.glow > 0.0 or look.tint > 0.0:
+			wanted = true
+			break
+	if wanted and material == null:
+		if _silhouette_material == null:
+			var shader := Shader.new()
+			shader.code = SILHOUETTE_SHADER
+			_silhouette_material = ShaderMaterial.new()
+			_silhouette_material.shader = shader
+		material = _silhouette_material
+	elif not wanted and material != null and material == _silhouette_material:
+		material = null
 
 
 # --- grips (where weapons are held) ----------------------------------------------
@@ -726,26 +1198,10 @@ func _normalized_time() -> float:
 
 
 func _apply_track(c: Array, track: Dictionary, t: float) -> void:
-	var keys: Array = track.get("keys", [])
-	if keys.is_empty():
+	var at := _key_values(track.get("keys", []), t, str(track.get("ease", "smooth")))
+	if at.is_empty():
 		return
-	var value := float(keys[0][1])
-	if t >= float(keys[keys.size() - 1][0]):
-		value = float(keys[keys.size() - 1][1])
-	else:
-		for i in range(keys.size() - 1):
-			var k0: Array = keys[i]
-			var k1: Array = keys[i + 1]
-			if t >= float(k0[0]) and t < float(k1[0]):
-				var span := maxf(float(k1[0]) - float(k0[0]), 0.0001)
-				var u := (t - float(k0[0])) / span
-				match str(track.get("ease", "smooth")):
-					"step":
-						u = 0.0
-					"smooth":
-						u = smoothstep(0.0, 1.0, u)
-				value = lerpf(float(k0[1]), float(k1[1]), u)
-				break
+	var value: float = at[0]
 	match str(track.get("property", "")):
 		"rotate":
 			c[0] += value
@@ -814,6 +1270,10 @@ func _draw() -> void:
 			continue  # the source image (or a mesh's layer) has not arrived yet
 		var layers: Array = part.variants[mini(_boil, part.variants.size() - 1)]
 		var posed := _posed_layers(part, layers)
+		var look = _look_for(part.id)
+		if look != null:
+			_draw_looked(canvas, part, layers, posed, texture, look)
+			continue
 		for n in layers.size():
 			var layer: Array = layers[n]
 			var uv: PackedVector2Array = layer[3]
@@ -824,6 +1284,87 @@ func _draw() -> void:
 			elif texture != null:
 				RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], posed[n], layer[1], uv, no_bones, no_weights, texture.get_rid())
 			# else: a part texture that has not arrived yet (the flat fill shows meanwhile)
+
+
+## A part drawn with a clip's look (clip.ts LookTrack): a glow halo under it (its silhouette scaled
+## about its centre, in the glow colour), its colours tinted, brightened and faded. Flat layers take
+## the tint in their colours; textured layers are brightened and faded through their vertex colours
+## and take the tint as their silhouette drawn over them (the silhouette material; without it, the
+## tint multiplies them).
+func _draw_looked(canvas: RID, part: Dictionary, layers: Array, posed: Array, texture: Texture2D, look: Dictionary) -> void:
+	var no_bones := PackedInt32Array()
+	var no_weights := PackedFloat32Array()
+	var silhouettes: bool = material != null and material == _silhouette_material
+	var opacity: float = look.opacity
+	var brightness: float = look.brightness
+	var tint: float = look.tint
+	var tint_color: Color = look.tint_color
+	if look.glow > 0.0:
+		# The halo: the outline (ink) where the part has one, else everything it draws.
+		var kinds := ["ink"] if layers.any(func(l): return l[5] == "ink") else ["fill", "tex", "image", "mesh"]
+		var centre := Vector2.ZERO
+		var count := 0
+		for n in layers.size():
+			if layers[n][5] in kinds:
+				for q in posed[n]:
+					centre += q
+					count += 1
+		if count > 0:
+			centre /= count
+			for g in LOOK_GLOW_LAYERS:
+				var halo := Color(look.glow_color, float(g[1]) * float(look.glow) * opacity)
+				for n in layers.size():
+					var layer: Array = layers[n]
+					if not layer[5] in kinds:
+						continue
+					var grown := PackedVector2Array()
+					for q in posed[n]:
+						grown.append(centre + (q - centre) * float(g[0]))
+					var uv: PackedVector2Array = layer[3]
+					if uv.is_empty():
+						RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], grown, _alpha_scaled(layer[1], halo))
+					elif texture != null:
+						if silhouettes:
+							RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], grown, _alpha_scaled(layer[1], halo), _moved(uv), no_bones, no_weights, texture.get_rid())
+						else:
+							RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], grown, _alpha_scaled(layer[1], halo), uv, no_bones, no_weights, texture.get_rid())
+	for n in layers.size():
+		var layer: Array = layers[n]
+		var uv: PackedVector2Array = layer[3]
+		var colors := PackedColorArray()
+		colors.resize((layer[1] as PackedColorArray).size())
+		for i in colors.size():
+			var c: Color = layer[1][i]
+			if uv.is_empty():
+				c = Color(c.lerp(tint_color, tint), c.a)
+			elif not silhouettes and tint > 0.0:
+				c = Color(c * Color.WHITE.lerp(tint_color, tint), c.a)
+			colors[i] = Color(c.r * brightness, c.g * brightness, c.b * brightness, c.a * opacity)
+		if uv.is_empty():
+			RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], posed[n], colors)
+		elif texture != null:
+			RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], posed[n], colors, uv, no_bones, no_weights, texture.get_rid())
+			if silhouettes and tint > 0.0:
+				var over := Color(tint_color, tint * opacity)
+				RenderingServer.canvas_item_add_triangle_array(canvas, layer[4], posed[n], _alpha_scaled(layer[1], over), _moved(uv), no_bones, no_weights, texture.get_rid())
+
+
+## Colours of `color`, each with its alpha times the matching colour's alpha.
+static func _alpha_scaled(colors: PackedColorArray, color: Color) -> PackedColorArray:
+	var out := PackedColorArray()
+	out.resize(colors.size())
+	for i in colors.size():
+		out[i] = Color(color, color.a * colors[i].a)
+	return out
+
+
+## Texture coordinates moved by +8: drawn as a silhouette by SILHOUETTE_SHADER.
+static func _moved(uv: PackedVector2Array) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	out.resize(uv.size())
+	for i in uv.size():
+		out[i] = uv[i] + Vector2(8.0, 8.0)
+	return out
 
 
 ## A part's layers' vertices on the current pose (rig space): each follows `bone`, or for a part

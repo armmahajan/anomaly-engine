@@ -139,6 +139,8 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 	_rig.speed = float(stage.get("speed", 1.0))
 	_rig.show_bones = bool(stage.get("bones", false))
 	_holder.scale.x = -1.0 if bool(stage.get("flip", false)) else 1.0
+	# Posed by time (the timeline), a clip shows as it is; playing, a switch crossfades as in play.
+	_rig.crossfade = time == null
 	_rig.play(str(clip) if clip != null else "")
 	_rig.manual_time = time != null
 	_hold(project, stage.get("weapon"))
