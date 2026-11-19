@@ -88,6 +88,12 @@ export const BROWSER_KEY_CODES: Record<string, KeyName> = Object.fromEntries([
 /** The key a browser key press is (by KeyboardEvent.code), or null if it can't be bound. */
 export const keyFromBrowserCode = (code: string): KeyName | null => BROWSER_KEY_CODES[code] ?? null;
 
+/** Browser MouseEvent.button -> key name (0 left, 1 middle, 2 right; back and forward can't be bound). */
+export const BROWSER_MOUSE_BUTTONS: Record<string, KeyName> = { 0: "MouseLeft", 1: "MouseMiddle", 2: "MouseRight" };
+
+/** The key a browser mouse button is (by MouseEvent.button), or null if it can't be bound. */
+export const keyFromBrowserButton = (button: number): KeyName | null => BROWSER_MOUSE_BUTTONS[String(button)] ?? null;
+
 // --- actions -------------------------------------------------------------------------------
 
 export interface ControlActionInfo {
@@ -221,13 +227,14 @@ export const keysText = (keys: readonly string[]): string => keys.map(keyLabel).
 
 // --- the project section ---------------------------------------------------------------------
 
+/** How the player aims attacks: toward the mouse cursor (the aim keys still work), or with the aim keys only. */
+export const AimMode = z.enum(["mouse", "keys"]);
+export type AimMode = z.infer<typeof AimMode>;
+
 export const Controls = z
   .strictObject({
     bindings: ControlBindings.prefault({}).describe("Keys per action (the game's defaults; players may override them in their browser)."),
-    aim: z
-      .enum(["mouse", "keys"])
-      .default("mouse")
-      .describe(
+    aim: AimMode.default("mouse").describe(
         "How the player aims attacks. mouse: toward the cursor, any direction (the aim keys still aim up/forward/down when the mouse isn't used); keys: only the aim keys (up, forward, down).",
       ),
   })

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOperation,
   bindKey,
+  BROWSER_MOUSE_BUTTONS,
   cleanOverrides,
   CONTROL_ACTION_IDS,
   controlConflicts,
@@ -10,7 +11,10 @@ import {
   effectiveBindings,
   encodeStudioMessage,
   gameControlHelp,
+  keyFromBrowserButton,
   keyFromBrowserCode,
+  keyLabel,
+  keysText,
   migrateProject,
   ProjectSpec,
   renderHelp,
@@ -112,6 +116,33 @@ describe("controls operations", () => {
     expect(applyOperation(base, "setControlKeys", { action: "fly", keys: ["F"] })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(applyOperation(base, "setControlKeys", { action: "jump", keys: ["Hyper"] })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
   });
+
+  it("bind mouse buttons like keys, refused the same way", () => {
+    const base = createDefaultProject();
+    const p = ok(applyOperation(base, "setControlKeys", { action: "dash", keys: ["MouseMiddle", "C"] }));
+    expect(p.controls.bindings.dash).toEqual(["MouseMiddle", "C"]);
+    expect(applyOperation(base, "setControlKeys", { action: "attack", keys: ["MouseRight"] })).toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining("Right click is already Alt attack's key (alt_attack)") },
+    });
+    expect(applyOperation(base, "setControlKeys", { action: "attack", keys: ["MouseBack"] })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+  });
+
+  it("set how attacks aim (mouse or keys only), one undoable revision; the attack help follows", () => {
+    const base = createDefaultProject();
+    const p = ok(applyOperation(base, "setAimMode", { aim: "keys" }));
+    expect(p.revision).toBe(base.revision + 1);
+    expect(p.controls).toEqual({ bindings: TODAYS_MAP, aim: "keys" });
+    const attack = (project: ProjectSpec) => renderHelp(gameControlHelp(project).help.find((h) => h.action === "attack")!.template, project.controls.bindings);
+    expect(attack(p)).toBe("X/J/Left click (hold W/↑ or S/↓ to aim)");
+    expect(attack(base)).toBe("X/J/Left click, toward the mouse (or hold W/↑ or S/↓ to aim)");
+    const history: HistoryEntry[] = [{ revision: p.revision, at: "", author: "user", change: { kind: "operation", name: "setAimMode", input: {} }, before: base }];
+    const undone = undoLast(p, history);
+    expect(undone.ok && undone.project.controls.aim).toBe("mouse");
+    expect(ok(applyOperation(p, "setAimMode", { aim: "mouse" })).controls.aim).toBe("mouse");
+    expect(applyOperation(base, "setAimMode", { aim: "gamepad" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(applyOperation(base, "setAimMode", {})).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+  });
 });
 
 describe("player keys", () => {
@@ -127,10 +158,23 @@ describe("player keys", () => {
     expect(bindKey({ ...DEFAULT_BINDINGS, dash: ["C", "Shift", "K", "L"] }, "dash", "P", "add")).toMatchObject({ ok: false, message: expect.stringContaining("already has 4 keys") });
   });
 
+  it("bind a clicked mouse button (by MouseEvent.button) like a key", () => {
+    expect([0, 1, 2, 3, 4].map(keyFromBrowserButton)).toEqual(["MouseLeft", "MouseMiddle", "MouseRight", null, null]);
+    expect(BROWSER_MOUSE_BUTTONS).toEqual({ 0: "MouseLeft", 1: "MouseMiddle", 2: "MouseRight" });
+    expect(["MouseLeft", "MouseRight", "MouseMiddle"].map(keyLabel)).toEqual(["Left click", "Right click", "Middle click"]);
+    expect(bindKey(DEFAULT_BINDINGS, "attack", "MouseRight", "replace")).toEqual({ ok: false, message: "Right click is already Alt attack's key. Give Alt attack another key first." });
+    // Among only the actions a game uses (no alt attack), the right button is free for attack.
+    expect(bindKey(DEFAULT_BINDINGS, "attack", "MouseRight", "replace", ["attack", "jump"])).toEqual({ ok: true, keys: ["MouseRight"] });
+    expect(bindKey(DEFAULT_BINDINGS, "jump", "MouseMiddle", "add")).toEqual({ ok: true, keys: ["Space", "Z", "MouseMiddle"] });
+    expect(keysText(["X", "MouseLeft"])).toBe("X/Left click");
+  });
+
   it("override the game's keys per action; anything malformed a browser stored is dropped", () => {
     const overrides = cleanOverrides({ jump: ["L"], attack: [], fly: ["F"], dash: ["Hyper"], map: "M" });
     expect(overrides).toEqual({ jump: ["L"] });
     expect(cleanOverrides("nonsense")).toEqual({});
+    // Mouse buttons are keys too; buttons that can't be bound are dropped like unknown keys.
+    expect(cleanOverrides({ attack: ["MouseRight", "X"], alt_attack: ["MouseBack"] })).toEqual({ attack: ["MouseRight", "X"] });
     expect(effectiveBindings(DEFAULT_BINDINGS, overrides)).toEqual({ ...TODAYS_MAP, jump: ["L"] });
   });
 

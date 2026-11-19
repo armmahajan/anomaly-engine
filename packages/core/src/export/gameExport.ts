@@ -7,7 +7,7 @@ import { defaultArchitectPlan } from "../architect/plan.ts";
 import { PROTOCOL_VERSION, type WorldStart } from "../protocol.ts";
 import { toRuntimeProject, type RuntimeProject } from "../world/runtime.ts";
 import { exportBootPage } from "./bootPage.ts";
-import { BROWSER_KEY_CODES, controlAction, gameControlHelp, KEY_LABELS, MAX_KEYS_PER_ACTION, renderHelp } from "../controls/controls.ts";
+import { BROWSER_KEY_CODES, BROWSER_MOUSE_BUTTONS, controlAction, gameControlHelp, KEY_LABELS, MAX_KEYS_PER_ACTION, renderHelp } from "../controls/controls.ts";
 
 /**
  * Game export: what a standalone build of the game holds, as plain data (pure; the
@@ -47,9 +47,10 @@ export interface ExportControls {
   /** The actions this game uses, which players can rebind; `keys` are the game's (project.controls). */
   actions: { id: string; label: string; keys: string[]; context: string; shares: string[] }[];
   maxKeys: number;
-  /** Key name -> how it is shown; browser KeyboardEvent.code -> key name. */
+  /** Key name -> how it is shown; browser KeyboardEvent.code -> key name; browser MouseEvent.button -> key name. */
   keyLabels: Record<string, string>;
   browserCodes: Record<string, string>;
+  browserButtons: Record<string, string>;
 }
 
 /** game.json: everything the boot page needs. */
@@ -176,6 +177,7 @@ export function exportControls(project: ProjectSpec, storageKey = PLAYER_CONTROL
     maxKeys: MAX_KEYS_PER_ACTION,
     keyLabels: KEY_LABELS,
     browserCodes: BROWSER_KEY_CODES,
+    browserButtons: BROWSER_MOUSE_BUTTONS,
   };
 }
 
