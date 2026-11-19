@@ -24,7 +24,7 @@ import { Grip, MAX_BONES, MAX_GRIPS, Point, Rig, rigFingerprint, type Part, type
  * - addBone: a new bone under `parent` at `pivot` (ids unique; MAX_BONES).
  * - removeBone: removes a non-root bone; its parts and child bones go to its parent.
  * - setGrip: adds or replaces a grip by id; removeGrip removes one.
- * Clips keep working: tracks on a removed bone are dropped from the asset's clips.
+ * Clips keep working: tracks (and IK) on a removed bone are dropped from the asset's clips.
  *
  * Grips move with their bone like its parts (their angle turns with a rest rotation). Textures
  * move and scale with their part (a rest rotation turns where the texture sits, not the image).
@@ -384,7 +384,10 @@ export function removeBone(project: ProjectSpec, input: unknown): OperationResul
     ...(rig.grips && { grips: rig.grips.map((g) => (g.bone === bone ? { ...g, bone: parent } : g)) }),
   };
   const clips = Object.fromEntries(
-    Object.entries(found.asset.clips).map(([id, clip]) => [id, { ...clip, tracks: clip.tracks.filter((t) => t.bone !== bone), motions: clip.motions.filter((m) => m.bone !== bone) }]),
+    Object.entries(found.asset.clips).map(([id, clip]) => {
+      const ik = clip.ik?.filter((k) => k.bone !== bone && k.tip !== bone);
+      return [id, { ...clip, tracks: clip.tracks.filter((t) => t.bone !== bone), motions: clip.motions.filter((m) => m.bone !== bone), ...(ik && { ik }) }];
+    }),
   );
   return save(project, found, next, clips);
 }

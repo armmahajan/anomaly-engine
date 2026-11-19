@@ -28,6 +28,7 @@ const ADVISORY = new Set([
   // Art polish: the runtime ignores what these point at, so they never stop a build.
   "clip_unknown_bone",
   "clip_unknown_part",
+  "clip_bad_ik",
   "rig_size_mismatch",
   "clips_without_idle",
 ]);

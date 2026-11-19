@@ -5,6 +5,7 @@ import type { OperationError, OperationResult } from "../operations.ts";
 import { ProjectSpec } from "../schema.ts";
 import { ArtDirection, Asset, ConceptSheet, FileRef, Preview, type CharacterAsset } from "./asset.ts";
 import { Clip, ClipMarker } from "./clip.ts";
+import { ikProblem } from "./motion.ts";
 import { objectUses } from "./objects.ts";
 import { Part, RIG_MODES, Rig } from "./rig.ts";
 import { undress } from "./worldOperations.ts";
@@ -300,6 +301,9 @@ export function setClip(project: ProjectSpec, input: unknown): OperationResult {
   } else {
     const clip = Clip.safeParse(p.data.clip);
     if (!clip.success) return fail("invalid_input", `clip "${clipId}" is invalid`, issuesOf(clip.error, "clip."));
+    const rig = found.asset.rig;
+    const badIk = rig ? (clip.data.ik ?? []).map((track, k) => [k, ikProblem(rig, track)] as const).filter(([, problem]) => problem) : [];
+    if (badIk.length > 0) return fail("invalid_input", `clip "${clipId}" has IK the rig can't do: ${badIk.map(([k, problem]) => `ik[${k}]: ${problem}`).join("; ")}`);
     clips[clipId] = clip.data;
     if (preview === null) delete clipPreviews[clipId];
     else if (preview !== undefined) clipPreviews[clipId] = preview;

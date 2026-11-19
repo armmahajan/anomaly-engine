@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Clip, type Grip, type OperationCall, type Rig, type Weapon, type WeaponAttack } from "@anomaly/core";
+import { Clip, posesFrom, solveIk, type Grip, type OperationCall, type Rig, type Weapon, type WeaponAttack } from "@anomaly/core";
 import { channels } from "./motionLimits.ts";
 import { decodePng, encodePng, type Pixels } from "./match.ts";
 import { WEAPON_POINTS_SYSTEM, weaponPointsPrompt, weaponSpritePrompt, type WeaponClipBrief } from "./prompts.ts";
@@ -281,30 +281,13 @@ export function withHandGrip(rig: Rig): Rig {
 
 /** An affine transform [a, b, c, d, tx, ty]: x' = a x + c y + tx, y' = b x + d y + ty. */
 type Mat = [number, number, number, number, number, number];
-const mul = (m: Mat, n: Mat): Mat => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
-const move = (x: number, y: number): Mat => [1, 0, 0, 1, x, y];
 const apply = (m: Mat, [x, y]: readonly [number, number]): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 
-/** Each bone's pose at normalized time t of a clip (null = rest): bone-local offsets from its pivot -> rig space. */
+/** Each bone's pose at normalized time t of a clip (null = rest): bone-local offsets from its pivot -> rig space (tracks, motions, then IK). */
 export function bonePoses(rig: Rig, clip: Clip | null, t: number): Map<string, Mat> {
-  const poses = new Map<string, Mat>();
-  const byId = new Map(rig.bones.map((b) => [b.id, b]));
-  const place = (id: string, seen: Set<string>): Mat => {
-    const known = poses.get(id);
-    if (known) return known;
-    const bone = byId.get(id)!;
-    const c = clip ? channels(clip, id, t) : { rotate: 0, x: 0, y: 0, scaleX: 1, scaleY: 1 };
-    const r = (c.rotate * Math.PI) / 180;
-    const local: Mat = [Math.cos(r) * c.scaleX, Math.sin(r) * c.scaleX, -Math.sin(r) * c.scaleY, Math.cos(r) * c.scaleY, c.x, c.y];
-    const parent = bone.parent !== null && byId.has(bone.parent) && !seen.has(bone.parent) ? byId.get(bone.parent)! : null;
-    const pose = parent
-      ? mul(mul(place(parent.id, new Set([...seen, id])), move(bone.pivot[0] - parent.pivot[0], bone.pivot[1] - parent.pivot[1])), local)
-      : mul(move(bone.pivot[0], bone.pivot[1]), local);
-    poses.set(id, pose);
-    return pose;
-  };
-  for (const b of rig.bones) place(b.id, new Set());
-  return poses;
+  const all = new Map(rig.bones.map((b) => [b.id, clip ? channels(clip, b.id, t) : { rotate: 0, x: 0, y: 0, scaleX: 1, scaleY: 1 }]));
+  if (clip?.ik?.length) solveIk(rig, clip, t, all);
+  return posesFrom(rig, all) as Map<string, Mat>;
 }
 
 /** The grip on a pose: where the hand is (rig space) and the angle the weapon points (degrees). */

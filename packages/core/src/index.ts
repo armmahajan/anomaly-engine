@@ -20,6 +20,7 @@ export * from "./movement/simulate.ts";
 export * from "./movement/model.ts";
 export * from "./art/rig.ts";
 export * from "./art/clip.ts";
+export * from "./art/motion.ts";
 export * from "./art/asset.ts";
 export * from "./art/operations.ts";
 export * from "./art/lint.ts";

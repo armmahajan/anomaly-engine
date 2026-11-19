@@ -1,10 +1,11 @@
 import type { ProjectSpec } from "../schema.ts";
 import { rigBounds } from "./rig.ts";
+import { ikProblem } from "./motion.ts";
 import { dressingOutOfDate } from "../world/world.ts";
 
 /** Art checks the schema can't express (see ../lint.ts). */
 
-export type ArtWarningCode = "clip_unknown_bone" | "clip_unknown_part" | "rig_size_mismatch" | "clips_without_idle" | "dressing_out_of_date";
+export type ArtWarningCode = "clip_unknown_bone" | "clip_unknown_part" | "clip_bad_ik" | "rig_size_mismatch" | "clips_without_idle" | "dressing_out_of_date";
 
 export interface ArtWarning {
   code: ArtWarningCode;
@@ -45,14 +46,20 @@ export function lintArt(project: ProjectSpec): ArtWarning[] {
             message: `clip "${clipId}" of "${asset.id}" animates missing bone(s) ${[...missingBones].join(", ")} (ignored)`,
           });
         }
-        const missingParts = clip.visibility.map((v) => v.part).filter((p) => !parts.has(p));
+        const missingParts = [...new Set([...clip.visibility.map((v) => v.part), ...(clip.looks ?? []).flatMap((l) => (l.part === undefined ? [] : [l.part]))])].filter((p) => !parts.has(p));
         if (missingParts.length > 0) {
           warnings.push({
             code: "clip_unknown_part",
             path: `${path}.clips.${clipId}`,
-            message: `clip "${clipId}" of "${asset.id}" shows/hides missing part(s) ${missingParts.join(", ")} (ignored)`,
+            message: `clip "${clipId}" of "${asset.id}" shows, hides or tints missing part(s) ${missingParts.join(", ")} (ignored)`,
           });
         }
+        (clip.ik ?? []).forEach((track, k) => {
+          const problem = ikProblem(rig, track);
+          if (problem) {
+            warnings.push({ code: "clip_bad_ik", path: `${path}.clips.${clipId}.ik.${k}`, message: `clip "${clipId}" of "${asset.id}": IK ${problem} (ignored)` });
+          }
+        });
       }
 
       const b = rigBounds(rig);

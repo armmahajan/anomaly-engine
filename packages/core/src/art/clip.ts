@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Id } from "../common.ts";
+import { Color, Id } from "../common.ts";
 
 /**
  * Animation clips: keyframed bone tracks plus *motions*, small parameterized
@@ -17,6 +17,14 @@ const T = z.number().min(0).max(1).describe("Normalized time, 0..1.");
 export const TrackProperty = z.enum(["rotate", "x", "y", "scaleX", "scaleY"]);
 export type TrackProperty = z.infer<typeof TrackProperty>;
 
+/**
+ * How a value moves between two keys: smooth (eases in and out), linear, step (holds, then jumps),
+ * overshoot (passes the next key and settles back), anticipate (pulls back first), elastic (springs
+ * past it and wobbles), bounce (lands and bounces). Mirrored in rig_view.gd and art/motion.ts.
+ */
+export const Ease = z.enum(["smooth", "linear", "step", "overshoot", "anticipate", "elastic", "bounce"]);
+export type Ease = z.infer<typeof Ease>;
+
 export const Track = z.strictObject({
   bone: Id,
   property: TrackProperty,
@@ -25,7 +33,7 @@ export const Track = z.strictObject({
     .min(1)
     .max(32)
     .describe("[t, value] pairs in time order. For a looping clip, make the last value equal the first."),
-  ease: z.enum(["smooth", "linear", "step"]).default("smooth"),
+  ease: Ease.default("smooth"),
 });
 export type Track = z.infer<typeof Track>;
 
@@ -74,6 +82,61 @@ export const PartVisibility = z.strictObject({
   keys: z.array(z.tuple([T, z.boolean()])).min(1).max(32).describe("[t, visible] pairs: the part shows/hides at each t."),
 });
 
+/**
+ * A part's look over time, inside the rig (every part when `part` is absent): opacity 0..1,
+ * brightness 0..4 (1 = as drawn), glow 0..1 (a soft halo in `color` around the part), tint 0..1
+ * (how much of `color`). A windup glows, a strike flashes, a teleport fades.
+ */
+export const LookTrackProperty = z.enum(["opacity", "brightness", "glow", "tint"]);
+export type LookTrackProperty = z.infer<typeof LookTrackProperty>;
+
+/** Each look property's value range. */
+export const LOOK_TRACK_RANGE: Record<LookTrackProperty, readonly [number, number]> = { opacity: [0, 1], brightness: [0, 4], glow: [0, 1], tint: [0, 1] };
+
+export const LookTrack = z
+  .strictObject({
+    part: Id.optional().describe("Absent = every part."),
+    property: LookTrackProperty,
+    color: Color.optional().describe("Glow or tint colour (default white)."),
+    keys: z.array(z.tuple([T, z.number().min(0).max(4)])).min(1).max(32).describe("[t, value] pairs in time order."),
+    ease: Ease.default("smooth"),
+  })
+  .superRefine((track, ctx) => {
+    const [lo, hi] = LOOK_TRACK_RANGE[track.property];
+    track.keys.forEach(([, v], i) => {
+      if (v < lo || v > hi) ctx.addIssue({ code: "custom", path: ["keys", i, 1], message: `${track.property} is ${lo}..${hi} (got ${v})` });
+    });
+  });
+export type LookTrack = z.infer<typeof LookTrack>;
+
+const IkCoord = z.number().min(-1000).max(1000);
+
+export const IkBend = z.enum(["cw", "ccw"]);
+export type IkBend = z.infer<typeof IkBend>;
+
+/**
+ * Two-bone IK: `bone` (the lower bone: a shin, a forearm) and its parent turn so that the pivot of
+ * `tip` (bone's child: the foot, the hand) reaches the keyed target; a target out of reach leaves
+ * the limb straight, pointing at it. Overrides those two bones' rotations for the clip.
+ */
+export const IkTrack = z.strictObject({
+  bone: Id.describe("The lower bone (shin, forearm); its parent is the upper bone."),
+  tip: Id.describe("A child of bone whose pivot reaches the target (foot, hand)."),
+  keys: z
+    .array(z.tuple([T, IkCoord, IkCoord]))
+    .min(1)
+    .max(32)
+    .describe("[t, x, y]: the target in rig space (rest frame, origin at the feet). A planted foot's target stays still."),
+  bend: IkBend.default("cw").describe("cw: the joint turns clockwise on screen (a right-facing knee); ccw the other way (an elbow)."),
+  ease: Ease.default("smooth"),
+});
+export type IkTrack = z.infer<typeof IkTrack>;
+
+export const MAX_LOOK_TRACKS = 32;
+export const MAX_IK_TRACKS = 4;
+/** The runtime's crossfade when a clip has no blendIn (seconds). */
+export const DEFAULT_BLEND_IN = 0.12;
+
 export const Clip = z.strictObject({
   duration: z.number().min(0.05).max(10).describe("Seconds."),
   loop: z.boolean().describe("Loop (idle, walk, run, fly) or play once and hold the last frame (attack, hurt)."),
@@ -82,6 +145,9 @@ export const Clip = z.strictObject({
   visibility: z.array(PartVisibility).max(32).default([]).describe("Show/hide parts over time: blinks, smears, effects."),
   direction: z.string().max(600).optional().describe("What the creator asked this animation to be (kept to redo it: the animation list)."),
   markers: z.array(ClipMarker).max(16).default([]).describe("Named moments that fire marker events in play (a strike landing, a lever clicking)."),
+  blendIn: z.number().min(0).max(1).optional().describe("Seconds to crossfade from the pose before (default 0.12; 0 = a hard cut)."),
+  looks: z.array(LookTrack).max(MAX_LOOK_TRACKS).optional().describe("Per-part opacity, brightness, glow and tint over time."),
+  ik: z.array(IkTrack).max(MAX_IK_TRACKS).optional().describe("Limbs whose tip reaches keyed targets (planted feet, a hand on a lever)."),
 });
 export type Clip = z.infer<typeof Clip>;
 

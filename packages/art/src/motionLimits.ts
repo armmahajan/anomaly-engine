@@ -1,4 +1,4 @@
-import { Clip, type Rig } from "@anomaly/core";
+import { Clip, easeAt, type Rig } from "@anomaly/core";
 
 /**
  * Motion limits for rigs cut from a drawing (cutout and traced): their pieces
@@ -148,7 +148,7 @@ export function fitClips(clips: Record<string, Clip>, limits: Map<string, BoneLi
   return Object.fromEntries(Object.entries(clips).map(([id, clip]) => [id, fitClip(clip, limits)]));
 }
 
-/** A bone's channels at normalized time t, as the runtime evaluates them (rig_view.gd). */
+/** A bone's channels at normalized time t from its tracks and motions, as the runtime evaluates them (rig_view.gd; IK is solved after, on the whole pose: weapons.ts bonePoses). */
 export function channels(clip: Clip, bone: string, t: number): { rotate: number; x: number; y: number; scaleX: number; scaleY: number } {
   const c = { rotate: 0, x: 0, y: 0, scaleX: 1, scaleY: 1 };
   for (const track of clip.tracks) {
@@ -161,9 +161,7 @@ export function channels(clip: Clip, bone: string, t: number): { rotate: number;
         const [t0, v0] = keys[i]!;
         const [t1, v1] = keys[i + 1]!;
         if (t >= t0 && t < t1) {
-          let u = (t - t0) / Math.max(t1 - t0, 0.0001);
-          if (track.ease === "step") u = 0;
-          else if (track.ease === "smooth") u = u * u * (3 - 2 * u);
+          const u = easeAt(track.ease, (t - t0) / Math.max(t1 - t0, 0.0001));
           value = v0 + (v1 - v0) * u;
           break;
         }

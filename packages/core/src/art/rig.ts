@@ -30,10 +30,21 @@ const Coord = z.number().min(-1000).max(1000);
 export const Point = z.tuple([Coord, Coord]).describe("[x, y] in rig space (px, y down, origin at the feet).");
 export type Point = z.infer<typeof Point>;
 
+/**
+ * Follow-through: the bone's rotation lags behind its parent's motion and settles like a damped
+ * spring, on top of whatever the clip says (hair, cloaks, tails, ears, antennae, loose gear).
+ */
+export const BoneSpring = z.strictObject({
+  stiffness: z.number().min(0.01).max(1).default(0.3).describe("0.01 floppy .. 1 nearly rigid."),
+  damping: z.number().min(0).max(1).default(0.5).describe("0 wobbles long .. 1 settles without overshoot."),
+});
+export type BoneSpring = z.infer<typeof BoneSpring>;
+
 export const Bone = z.strictObject({
   id: Id,
   parent: Id.nullable().describe("Parent bone id; null only for the root bone."),
   pivot: Point.describe("Joint position in the rest pose; the bone rotates and scales about it."),
+  spring: BoneSpring.optional(),
 });
 export type Bone = z.infer<typeof Bone>;
 

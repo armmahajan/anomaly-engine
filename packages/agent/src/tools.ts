@@ -196,7 +196,7 @@ const writeSchemas: Record<BuildOperation, z.ZodType> = {
       .record(z.string(), z.unknown())
       .nullable()
       .describe(
-        'null deletes. {duration, loop, tracks: [{bone, property: rotate|x|y|scaleX|scaleY, keys: [[t 0..1, value]], ease}], motions: [{type: sway|bob|shift|pulse|squash|shake, bone, degrees|amount, cycles, phase}], visibility: [{part, keys: [[t, bool]]}]}; values are offsets from rest.',
+        'null deletes. {duration, loop, tracks: [{bone, property: rotate|x|y|scaleX|scaleY, keys: [[t 0..1, value]], ease: smooth|linear|step|overshoot|anticipate|elastic|bounce}], motions: [{type: sway|bob|shift|pulse|squash|shake, bone, degrees|amount, cycles, phase}], visibility: [{part, keys: [[t, bool]]}], blendIn: s, looks: [{part?, property: opacity|brightness|glow|tint, color?, keys, ease}], ik: [{bone, tip, keys: [[t, x, y]], bend: cw|ccw}]}; values are offsets from rest.',
 
       ),
   }),
