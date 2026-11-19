@@ -275,6 +275,22 @@ describe("weapon-aware clips", () => {
     expect(Math.abs(gripAt(rig, grip, clip, activeTo).angle)).toBeLessThan(3);
   });
 
+  it("animate with many clips (a full loadout) renders its filmstrips in several requests and writes them all", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...swing, id: `move_${i}`, name: `Move ${i}` }));
+    const one = withWeapon(many);
+    // A second full weapon in the alt slot: 24 attack clips, more than one render request's 16 filmstrips.
+    const second = Weapon.parse({ ...one.weapons.list[0]!, id: "axe", name: "Axe" });
+    const project = ProjectSpec.parse({
+      ...one,
+      weapons: { list: [...one.weapons.list, second], loadout: { ...one.weapons.loadout, slots: [...one.weapons.loadout.slots, { id: "alt", label: "Alt", action: "alt_attack", start: "axe" }] } },
+    });
+    const h = harness(withPlayerRig(project));
+    h.commit((await animate(h.ctx, { characterId: "player" })).operations);
+    const asset = h.project().art.assets[0]!;
+    if (asset.kind !== "character") throw new Error("expected a character asset");
+    expect(Object.keys(asset.clips).filter((c) => /^(blade|axe)_move_/.test(c))).toHaveLength(24);
+  });
+
   it("animate writes a weapon's attack clips (named <weapon>_<attack>), holds them to the attack and names the clip on the attack", async () => {
     const h = harness(withPlayerRig(withWeapon([swing, thrust])));
     h.commit((await animate(h.ctx, { characterId: "player", weaponId: "blade", feedback: "big and heavy" })).operations);

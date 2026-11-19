@@ -9,7 +9,7 @@ const WeaponView := preload("res://scripts/art/weapon_view.gd")
 ## Frames of tip history drawn into a render's trail (the trail needs where the tip has been).
 const TRAIL_STEPS := 8
 
-const MAX_FRAMES := 96  # every clip slot (15) x 6 filmstrip frames fits
+const MAX_FRAMES := 96  # 16 clips x 6 filmstrip frames; more clips are rendered in several requests (packages/art stages.ts filmstrips)
 const MAX_CELL := 512
 
 ## Renders run one at a time; requests queue up.

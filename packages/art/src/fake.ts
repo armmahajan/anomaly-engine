@@ -44,6 +44,8 @@ export class FakeRenderer {
   readonly crops: { x: number; y: number; width: number; height: number }[] = [];
 
   async renderRig(request: { cellWidth: number; cellHeight: number; columns: number; frames: unknown[] }) {
+    // The real renderer's limit (game/scripts/art/render_service.gd MAX_FRAMES).
+    if (request.frames.length < 1 || request.frames.length > 96) throw new Error("render failed: frames must have 1-96 entries");
     this.renders++;
     const rows = Math.ceil(request.frames.length / request.columns);
     return { png: solidPng(request.cellWidth * request.columns, request.cellHeight * rows, [this.renders % 256, 90, 90]), warnings: [] };

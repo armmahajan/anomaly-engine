@@ -1022,7 +1022,27 @@ interface Held {
   attack?: string;
 }
 
+/** The most frames one render request takes (core protocol RenderRigRequest). */
+const MAX_RENDER_FRAMES = 96;
+
+/** One row of FILMSTRIP_FRAMES frames per clip, rendered in requests of at most MAX_RENDER_FRAMES and stacked into one sheet. */
 async function filmstrips(ctx: ArtContext, rig: Rig, clips: Record<string, Clip>, ids: string[], held?: Held): Promise<Buffer> {
+  const perRequest = Math.max(1, Math.floor(MAX_RENDER_FRAMES / FILMSTRIP_FRAMES));
+  if (ids.length <= perRequest) return filmstripSheet(ctx, rig, clips, ids, held);
+  const parts: Pixels[] = [];
+  for (let i = 0; i < ids.length; i += perRequest) parts.push(decodePng(await filmstripSheet(ctx, rig, clips, ids.slice(i, i + perRequest), held)));
+  const width = parts[0]!.width;
+  const height = parts.reduce((h, p) => h + p.height, 0);
+  const data = new Uint8Array(width * height * 4);
+  let offset = 0;
+  for (const p of parts) {
+    data.set(p.data.subarray(0, p.width * p.height * 4), offset);
+    offset += p.width * p.height * 4;
+  }
+  return encodePng({ width, height, data } as Pixels);
+}
+
+async function filmstripSheet(ctx: ArtContext, rig: Rig, clips: Record<string, Clip>, ids: string[], held?: Held): Promise<Buffer> {
   checkAbort(ctx);
   const frames = ids.flatMap((id) =>
     Array.from({ length: FILMSTRIP_FRAMES }, (_, i) => ({ clip: id, time: (clips[id]!.duration * i) / FILMSTRIP_FRAMES })),
