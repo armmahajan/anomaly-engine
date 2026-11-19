@@ -33,7 +33,8 @@ func _init(world_run: Node) -> void:
 	run = world_run
 	for type in ["setFlag", "giveItem", "takeItem", "grantAbility", "giveWeapon", "takeWeapon", "heal", "damage", "respawn", "returnToSafeGround", "setCheckpoint", "saveRun", "startTimer"]:
 		register(type, Callable(self, "_effect_" + type))
-	# The animation effects (playAnimation, spawnEffect: core art/animation.ts) are fx.gd's.
+	# The animation and look effects (playAnimation, spawnEffect, setLook, clearLook, emit, dissolve,
+	# cameraZoom: core art/animation.ts) are fx.gd's.
 
 
 ## Add (or replace) an effect: `callable(effect: Dictionary, context: Dictionary)`.
@@ -126,6 +127,8 @@ func _matches(on: Dictionary, event: Dictionary, scope: Dictionary) -> bool:
 		return false
 	if event.type == "marker":
 		return _matches_marker(on, event, scope)
+	if event.type == "stateEntered":
+		return _matches_state(on, event, scope)
 	# Prop events only reach the prop they are about.
 	if event.has("prop") and scope.get("prop") != event.prop:
 		return false
@@ -161,6 +164,31 @@ func _matches_marker(on: Dictionary, event: Dictionary, scope: Dictionary) -> bo
 		"spawn":
 			return event.get("spawn") == from.get("spawn")
 	return false
+
+
+## stateEntered (core events.ts; interpret.ts matchesState): a spawn's handlers hear its own enemy's
+## states; world and room handlers hear every enemy's, filtered by `state` and `from` (only a spawn
+## means something there). Props hear none.
+func _matches_state(on: Dictionary, event: Dictionary, scope: Dictionary) -> bool:
+	if on.get("state") != null and str(on.state) != str(event.get("state", "")):
+		return false
+	if scope.has("room") and event.get("room") != scope.room:
+		return false
+	if scope.has("prop"):
+		return false
+	if scope.has("spawn"):
+		return event.get("spawn") == scope.spawn
+	var from = on.get("from")
+	if typeof(from) != TYPE_DICTIONARY:
+		return true
+	return str(from.get("kind", "")) == "spawn" and event.get("spawn") == from.get("spawn")
+
+
+## An enemy entered a behavior state (enemy.gd _enter): fire stateEntered. Only while the run plays.
+func state_entered(spawn_id: String, character_id: String, state: String) -> void:
+	if not run.active or run.paused:
+		return
+	fire({"type": "stateEntered", "spawn": spawn_id, "character": character_id, "state": state})
 
 
 func holds(condition) -> bool:

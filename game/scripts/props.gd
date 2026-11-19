@@ -7,6 +7,8 @@ extends Node2D
 
 const Level := preload("res://scripts/level.gd")
 const ObjectView := preload("res://scripts/art/object_view.gd")
+const LookView := preload("res://scripts/art/look_view.gd")
+const CharacterArt := preload("res://scripts/art/character_art.gd")
 ## Edit stages draw every prop; those that depend on the run are faded.
 const FADED := 0.45
 ## Shown above a prop the player can interact with when it has no prompt of its own (drawn as an arrow).
@@ -90,7 +92,10 @@ func refresh() -> void:
 func state() -> Array:
 	var out := []
 	for id in _props:
-		var entry := {"id": id, "visible": is_present(_props[id]), "solid": _solid.has(id), "playing": _views[id].playing()}
+		var view: PropView = _views[id]
+		var play: bool = _live() and main._mode == "play"
+		var entry := {"id": id, "visible": is_present(_props[id]), "solid": _solid.has(id), "playing": view.playing(),
+			"look": view.look.keys() if play and view.look != null else null, "dissolved": play and view.look != null and view.look.dissolved()}
 		if _views[id].prompting:
 			entry.prompt = _prompt_text(_props[id])
 		out.append(entry)
@@ -192,6 +197,12 @@ func center_of(id: String) -> Variant:
 	return rect_of(_props[id]).get_center()
 
 
+## A present prop's look view (setLook, clearLook, dissolve), or null.
+func look_of(id: String) -> Node:
+	var view = _views.get(id)
+	return view.look if view != null and is_present(_props[id]) else null
+
+
 ## The prop's object art (ObjectView), or null (tests).
 func object_of(id: String) -> Node2D:
 	var view = _views.get(id)
@@ -257,6 +268,10 @@ class PropView extends Node2D:
 	var prompt_mark := Node2D.new()
 	## Object art (ObjectView): drawn centred on the rectangle, looping its idle clip; else null.
 	var object: Node2D = null
+	## Without object art: its colour or kit piece, drawn by this child (so looks can tint, scale and dissolve it).
+	var body: Node2D = null
+	## Its looks (core art/animation.ts: setLook, dissolve): art/look_view.gd.
+	var look: Node2D = null
 	var _texture: Texture2D = null
 
 	func _ready() -> void:
@@ -273,6 +288,25 @@ class PropView extends Node2D:
 				object.fit(Vector2(float(prop.width), float(prop.height)), float(art.get("scale", 1.0)))
 				object.marker.connect(props._on_marker.bind(str(prop.id)))
 				add_child(object)
+		if object == null:
+			# Drawn from its bottom centre, so a look's scale grows it from the ground.
+			body = Node2D.new()
+			body.position = Vector2(float(prop.width) / 2.0, float(prop.height))
+			body.draw.connect(_draw_body)
+			add_child(body)
+		look = LookView.new()
+		add_child(look)
+		move_child(look, 0)
+		var size := Vector2(float(prop.width), float(prop.height))
+		var drawn: Node2D = object if object != null else body
+		var paint: CanvasItem = object._rig if object != null else body
+		look.setup(drawn, paint, func(): return Rect2(Vector2.ZERO, size).grow(-1.0))
+		look.own_scale = true
+		look.base_color = Color(str(prop.get("color", "#c9a227")))
+		if object != null:
+			var asset := ObjectView.find_asset(props.main._project.get("art", {}), str(art.object))
+			var all_art: Dictionary = props.main._project.get("art", {})
+			look.ghost_maker = func(): return CharacterArt.make_view(asset, all_art)
 		prompt_mark.z_index = 5
 		prompt_mark.draw.connect(_draw_prompt)
 		add_child(prompt_mark)
@@ -289,6 +323,8 @@ class PropView extends Node2D:
 		if _texture != null:
 			set_process(false)
 			queue_redraw()
+			if body != null:
+				body.queue_redraw()
 
 	func rect() -> Rect2:
 		return props.rect_of(prop)
@@ -297,15 +333,26 @@ class PropView extends Node2D:
 		return props.strike(prop, push)
 
 	func _draw() -> void:
-		var box := Rect2(Vector2.ZERO, Vector2(float(prop.width), float(prop.height)))
-		var conditional: bool = typeof(prop.get("visible", true)) != TYPE_BOOL or prop.get("visible", true) != true or typeof(prop.get("solid", false)) != TYPE_BOOL
-		var tint := Color(1, 1, 1, FADED if conditional and not props._live() else 1.0)
 		if object != null:
-			object.modulate = tint
-		elif _texture != null:
-			draw_texture_rect(_texture, art_rect(), false, tint)
+			object.modulate = _tint()
+		if body != null:
+			body.queue_redraw()
+
+	## Edit stages fade props that depend on the run.
+	func _tint() -> Color:
+		var conditional: bool = typeof(prop.get("visible", true)) != TYPE_BOOL or prop.get("visible", true) != true or typeof(prop.get("solid", false)) != TYPE_BOOL
+		return Color(1, 1, 1, FADED if conditional and not props._live() else 1.0)
+
+	## Its colour or kit piece, on `body` (origin at the rectangle's bottom centre).
+	func _draw_body() -> void:
+		var origin := -body.position
+		var tint := _tint()
+		if _texture != null:
+			var at := art_rect()
+			at.position += origin
+			body.draw_texture_rect(_texture, at, false, tint)
 		else:
-			draw_rect(box, Color(str(prop.get("color", "#c9a227"))) * tint)
+			body.draw_rect(Rect2(origin, Vector2(float(prop.width), float(prop.height))), Color(str(prop.get("color", "#c9a227"))) * tint)
 
 	## Where its art is drawn (prop-local): fitted to the rectangle, stretched at most MAX_STRETCH
 	## one way (beyond that it keeps that shape, smaller), standing at the bottom centre. Empty without art.

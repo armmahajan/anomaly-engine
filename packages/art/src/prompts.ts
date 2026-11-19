@@ -175,6 +175,9 @@ export function partsSheetPrompt(brief: string, pieces: string[]): string {
   ].join("\n");
 }
 
+/** The near/far limb check (nearFar.ts); fakes recognise it. */
+export const NEAR_FAR_MARK = "Which tinted limb is on the NEAR side";
+
 export const PICK_SYSTEM =
   "You are an art director for a 2D platformer. You judge concept sheets for readability at small size, " +
   "fit to the brief and style, and how easily the design can be rebuilt from simple flat shapes and animated.";

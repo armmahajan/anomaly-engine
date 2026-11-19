@@ -99,16 +99,16 @@ test("Props: an item, a pickup and a barrier made in the UI; picking it up opens
   await page.getByRole("button", { name: "▶ From start" }).click();
   await expect(page.getByTestId("runtime-status")).toHaveText("Playing");
   await expect.poll(async () => (await runtimeState(page)).props).toEqual([
-    { id: "prop_1", visible: true, solid: false, playing: null },
-    { id: "prop_2", visible: true, solid: true, playing: null },
+    { id: "prop_1", visible: true, solid: false, playing: null, look: null, dissolved: false },
+    { id: "prop_2", visible: true, solid: true, playing: null, look: null, dissolved: false },
   ]);
   await page.keyboard.down("ArrowRight");
   await expect.poll(async () => (await runtimeState(page)).items, { timeout: 5_000 }).toEqual({ key: 1 });
   const state = await runtimeState(page);
   expect(state.flags).toEqual(["got_key"]);
   expect(state.props).toEqual([
-    { id: "prop_1", visible: false, solid: false, playing: null },
-    { id: "prop_2", visible: false, solid: false, playing: null },
+    { id: "prop_1", visible: false, solid: false, playing: null, look: null, dissolved: false },
+    { id: "prop_2", visible: false, solid: false, playing: null, look: null, dissolved: false },
   ]);
   await expect.poll(async () => (await runtimeState(page)).entities.find((e) => e.characterId === "player")!.x, { timeout: 5_000 }).toBeGreaterThan(900);
   await page.keyboard.up("ArrowRight");

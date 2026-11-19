@@ -8,6 +8,7 @@ export * from "./world.ts";
 export * from "./gameStages.ts";
 export * from "./match.ts";
 export * from "./cutout.ts";
+export * from "./nearFar.ts";
 export * from "./rigFixtures.ts";
 export * from "./direction.ts";
 export * from "./animMetrics.ts";

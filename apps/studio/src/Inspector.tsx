@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   MOVEMENT_ABILITIES,
   primitiveParams,
@@ -7,6 +7,7 @@ import {
   type Character,
   type Condition,
   type EnemyCharacter,
+  type Look,
   type MovementAbility,
   type Playtest,
   type PlayerCharacter,
@@ -15,6 +16,8 @@ import {
 } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { ProjectileLookFields } from "./objects/ProjectileLookFields.tsx";
+import { LookFields } from "./HandlerEditor.tsx";
+import { lookSummary, stateLookStage } from "./characters/stateLook.ts";
 
 const PARAM_META: Record<string, { label: string; unit: string }> = {
   runSpeed: { label: "Run speed", unit: "px/s" },
@@ -308,6 +311,21 @@ function SpawnList({
 function BehaviorEditor({ character, session, locked }: { character: EnemyCharacter; session: Session; locked: boolean }) {
   const { behavior } = character;
   const edit = (change: object) => session.applyOperation("updateBehavior", { characterId: character.id, ...change });
+  // The state whose look is open: the character stage previews it (when the enemy is drawn); closing goes back to the game.
+  const [lookOpen, setLookOpen] = useState<string | null>(null);
+  const openLook = lookOpen ? (behavior.states[lookOpen]?.look ?? null) : null;
+  const previewKey = lookOpen ? JSON.stringify(openLook) : null;
+  useEffect(() => {
+    if (!lookOpen) return;
+    const stage = stateLookStage(session.getProject(), character, lookOpen, openLook);
+    if (stage) session.setStage(stage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, character.id, lookOpen, previewKey]);
+  const previewing = lookOpen !== null;
+  useEffect(() => {
+    if (!previewing) return;
+    return () => void session.setStage({ mode: "game" });
+  }, [session, previewing]);
 
   return (
     <>
@@ -377,6 +395,15 @@ function BehaviorEditor({ character, session, locked }: { character: EnemyCharac
               />
             </div>
           )}
+          <StateLookEditor
+            stateId={stateId}
+            look={state.look}
+            open={lookOpen === stateId}
+            onToggle={() => setLookOpen(lookOpen === stateId ? null : stateId)}
+            session={session}
+            locked={locked}
+            onChange={(look) => void edit({ stateId, look })}
+          />
           {state.transitions.map((t, index) => (
             <TransitionRow
               key={index}
@@ -390,6 +417,27 @@ function BehaviorEditor({ character, session, locked }: { character: EnemyCharac
         </div>
       ))}
     </>
+  );
+}
+
+/** A behavior state's look (shown while the enemy is in it): collapsed to a summary; open, the look form (as setLook's). */
+function StateLookEditor({ stateId, look, open, onToggle, session, locked, onChange }: { stateId: string; look: Look | undefined; open: boolean; onToggle: () => void; session: Session; locked: boolean; onChange: (look: Look | null) => void }) {
+  return (
+    <div className="look-editor" data-testid={`state-look-${stateId}`}>
+      <button type="button" className="link-button" aria-expanded={open} aria-label={`${stateId} look`} onClick={onToggle}>
+        {open ? "▾" : "▸"} Look: {lookSummary(look)}
+      </button>
+      {open && (
+        <div className="handler-row">
+          <LookFields value={look ?? {}} project={session.getProject()} locked={locked} label={`${stateId} look`} onChange={(next) => onChange(Object.keys(next).length ? next : null)} />
+          {look && (
+            <button type="button" className="link-button" disabled={locked} onClick={() => onChange(null)}>
+              Remove look
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

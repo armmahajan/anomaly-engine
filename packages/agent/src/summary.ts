@@ -1,4 +1,4 @@
-import { gridCols, gridRows, gridSize, lintProject, movementModel, movementParams, objectAssets, objectUses, TILE, type Action, type CharacterAsset, type Character, type Condition, type ProjectSpec, type Transition, type WorldRoom } from "@anomaly/core";
+import { lookKeys, gridCols, gridRows, gridSize, lintProject, movementModel, movementParams, objectAssets, objectUses, TILE, type Action, type CharacterAsset, type Character, type Condition, type ProjectSpec, type Transition, type WorldRoom } from "@anomaly/core";
 import { handlerTools } from "./domains/handlers.ts";
 import { propTools } from "./domains/props.ts";
 import { modalTools } from "./domains/modals.ts";
@@ -37,7 +37,7 @@ export function describeCharacter(project: ProjectSpec, character: Character): s
     const exits = state.transitions.map((t, i) => `[${i}] -> ${t.to} when ${condition(t)}`);
     return `    ${id}${id === character.behavior.initial ? " (start)" : ""}: ${primitive(state.action)}${
       exits.length ? `; ${exits.join("; ")}` : "; no transitions"
-    }`;
+    }${state.look ? `; look ${lookKeys(state.look).join("+")}` : ""}`;
   });
   return [`${head}; movement ${character.movement}`, "  behavior:", ...interrupts, ...states].join("\n");
 }

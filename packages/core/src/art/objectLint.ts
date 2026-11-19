@@ -7,7 +7,8 @@ import { objectUses } from "./objects.ts";
 
 /**
  * Animation references: objects that aren't object assets, clips an object or a character's art
- * doesn't have, and playAnimation / spawnEffect targets that can't be found. Clips are checked only
+ * doesn't have, playAnimation / spawnEffect / setLook / clearLook / dissolve / emit targets that can't
+ * be found, and stateEntered waiting for a state its enemy doesn't have. Clips are checked only
  * once the art has clips (an object not drawn yet gets its clips from the game-art job).
  */
 export function lintAnimation(project: ProjectSpec): DomainWarning[] {
@@ -38,8 +39,9 @@ export function lintAnimation(project: ProjectSpec): DomainWarning[] {
     handlers.forEach((h, i) =>
       h.do.forEach((e: Effect, j) => {
         const at = `${path}.${i}.do.${j}`;
-        if (e.type !== "playAnimation" && e.type !== "spawnEffect") return;
-        const target: AnimTarget | { kind: "point" } = e.type === "playAnimation" ? e.target : e.at;
+        const target: AnimTarget | { kind: "point" } | null =
+          e.type === "playAnimation" || e.type === "setLook" || e.type === "clearLook" || e.type === "dissolve" ? e.target : e.type === "spawnEffect" || e.type === "emit" ? e.at : null;
+        if (!target) return;
         if (target.kind === "self" && !scope.self) {
           warnings.push({ code: "anim_self_outside", path: at, message: `${e.type} targets "self", but this handler isn't on a prop or an enemy spawn` });
           return;
@@ -73,6 +75,28 @@ export function lintAnimation(project: ProjectSpec): DomainWarning[] {
       }),
     );
   };
+  // stateEntered waiting for a state its enemy doesn't have (a spawn's own, or a world/room handler's `from` spawn).
+  type Room = ProjectSpec["world"]["rooms"][number];
+  const statesOf = (room: Room | undefined, spawnId: string): string[] | null => {
+    const spawn = room?.spawns.find((s) => s.id === spawnId);
+    const character = spawn && project.characters.find((c) => c.id === spawn.characterId);
+    return character && character.kind === "enemy" ? Object.keys(character.behavior.states) : null;
+  };
+  const checkStates = (handlers: Handler[], path: string, room: Room | undefined, self: string | undefined) => {
+    handlers.forEach((h, i) => {
+      if (h.on.type !== "stateEntered" || h.on.state === undefined) return;
+      const spawnId = self ?? (h.on.from?.kind === "spawn" ? h.on.from.spawn : undefined);
+      const known = spawnId ? statesOf(room, spawnId) : null;
+      if (known && !known.includes(h.on.state)) {
+        warnings.push({ code: "anim_state_unknown", path: `${path}.${i}.on`, message: `stateEntered waits for state "${h.on.state}", which spawn "${spawnId}"'s enemy doesn't have (${known.join(", ")})` });
+      }
+    });
+  };
+  project.world.rooms.forEach((room, r) => {
+    checkStates(room.handlers, `world.rooms.${r}.handlers`, room, undefined);
+    room.spawns.forEach((s, i) => checkStates(s.handlers, `world.rooms.${r}.spawns.${i}.handlers`, room, s.id));
+  });
+
   checkEffects(project.world.handlers, "world.handlers", {});
   project.world.rooms.forEach((room, r) => {
     checkEffects(room.handlers, `world.rooms.${r}.handlers`, { room });

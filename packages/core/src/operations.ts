@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Character, EnemyStats, PlayerStats, ProjectSpec, type EnemyCharacter } from "./schema.ts";
 import { Id } from "./common.ts";
 import type { Transition } from "./behavior.ts";
+import { Look } from "./art/animation.ts";
 import { wikiOperations } from "./wiki/operations.ts";
 import { progressionOperations, withoutEnemy } from "./progression/operations.ts";
 import { architectOperations } from "./architect/operations.ts";
@@ -224,6 +225,7 @@ export const UpdateBehaviorInput = z.strictObject({
   ),
   transitions: TransitionEdits.describe("Targeted edits to the state's existing transitions, by index (0 = first)."),
   interrupts: TransitionEdits.describe("Targeted edits to the behavior's existing interrupts, by index."),
+  look: Look.nullable().optional().describe("The state's look (null removes it); needs stateId."),
 });
 
 /** Merge param changes into a primitive, or replace it if the type changes. */
@@ -235,9 +237,9 @@ function mergePrimitive<T extends { type: string }>(current: T, changes: Record<
 export function updateBehavior(project: ProjectSpec, input: unknown): OperationResult {
   const parsed = UpdateBehaviorInput.safeParse(input);
   if (!parsed.success) return fail("invalid_input", "updateBehavior input is malformed", toIssues(parsed.error));
-  const { characterId, stateId, action, transitions, interrupts } = parsed.data;
-  if (!action && !transitions && !interrupts) {
-    return fail("invalid_input", "nothing to change: give action, transitions or interrupts");
+  const { characterId, stateId, action, transitions, interrupts, look } = parsed.data;
+  if (!action && !transitions && !interrupts && look === undefined) {
+    return fail("invalid_input", "nothing to change: give action, transitions, interrupts or look");
   }
 
   const found = findEnemy(project, characterId);
@@ -251,15 +253,16 @@ export function updateBehavior(project: ProjectSpec, input: unknown): OperationR
     behavior = { ...character.behavior, interrupts: edited.transitions };
   }
 
-  if (action || transitions) {
-    if (stateId === undefined) return fail("invalid_input", "stateId is required to edit a state's action or transitions");
+  if (action || transitions || look !== undefined) {
+    if (stateId === undefined) return fail("invalid_input", "stateId is required to edit a state's action, transitions or look");
     const state = character.behavior.states[stateId];
     if (!state) {
       return fail("not_found", `"${characterId}" has no behavior state "${stateId}"${known(Object.keys(character.behavior.states))}`);
     }
     const edited = editTransitions(state.transitions, transitions ?? [], `state "${stateId}"`);
     if (!edited.ok) return edited;
-    const nextState = { action: action ? mergePrimitive(state.action, action) : state.action, transitions: edited.transitions };
+    const nextLook = look === undefined ? state.look : (look ?? undefined);
+    const nextState = { action: action ? mergePrimitive(state.action, action) : state.action, transitions: edited.transitions, ...(nextLook && { look: nextLook }) };
     behavior = { ...(behavior as object), states: { ...character.behavior.states, [stateId]: nextState } };
   }
 

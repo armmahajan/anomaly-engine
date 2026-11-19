@@ -3,6 +3,7 @@ import { ProjectSpec } from "./schema.ts";
 import type { ArtDirection } from "./art/asset.ts";
 import type { Clip } from "./art/clip.ts";
 import type { Rig } from "./art/rig.ts";
+import type { Look } from "./art/animation.ts";
 import type { Weapon } from "./combat/weapon.ts";
 import type { WorldLayer, WorldScene } from "./art/world.ts";
 import type { RuntimeProject } from "./world/runtime.ts";
@@ -19,7 +20,7 @@ import type { ControlOverrides } from "./controls/controls.ts";
  * `load` is rejected while playing: the game is never edited while running.
  */
 
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 export const MAX_SEED = 2 ** 31 - 1;
 export const STUDIO_SOURCE = "anomaly-studio";
 export const RUNTIME_SOURCE = "anomaly-runtime";
@@ -95,6 +96,8 @@ export type Stage =
        * framing does not change (it fits the rig's rest bounds as before).
        */
       weapon?: { id: string; attack?: string | null } | null;
+      /** A look (core art/animation.ts) shown on the rig, e.g. the selected behavior state's; absent or null = none. */
+      look?: Look | null;
     }
   | StageWorld
   /**
@@ -173,6 +176,10 @@ const EntityState = z.object({
   phase: z.string().nullable().default(null),
   /** The clip a playAnimation is playing on it (until it ends), else null. */
   playing: z.string().nullable().default(null),
+  /** Play: the keys of the look it shows now (its state's and any setLook's, e.g. ["aura", "tint"]), else null. */
+  look: z.array(z.string()).nullable().default(null),
+  /** Play: dissolved out (invisible until a dissolve in). */
+  dissolved: z.boolean().default(false),
 });
 export type EntityState = z.infer<typeof EntityState>;
 
@@ -214,9 +221,25 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     /** Spawns whose health bars are on screen, top first. */
     healthBars: z.array(z.string()).default([]),
     /** Props in the current room as the run sees them (id, visible, solid). */
-    props: z.array(z.object({ id: z.string(), visible: z.boolean(), solid: z.boolean(), playing: z.string().nullable().default(null) })).default([]),
+    props: z
+      .array(
+        z.object({
+          id: z.string(),
+          visible: z.boolean(),
+          solid: z.boolean(),
+          playing: z.string().nullable().default(null),
+          look: z.array(z.string()).nullable().default(null),
+          dissolved: z.boolean().default(false),
+        }),
+      )
+      .default([]),
     /** Play: the clip a playAnimation is playing on the player, else null. */
     playerPlaying: z.string().nullable().default(null),
+    /** Play: the keys of the player's look, else null; and whether the player is dissolved out. */
+    playerLook: z.array(z.string()).nullable().default(null),
+    playerDissolved: z.boolean().default(false),
+    /** Play: particle systems alive in the room (emit effects and looks' emitters). */
+    emitters: z.number().default(0),
     /** Play: spawnEffect effects alive in the current room (room px, their centre). */
     effects: z.array(z.object({ object: z.string(), clip: z.string(), x: z.number(), y: z.number() })).default([]),
     /** Play: marker events fired this run, oldest first (at most the last 50): the marker's name and what played it ("prop:<id>", "spawn:<id>", "player", "effect:<object>"). */

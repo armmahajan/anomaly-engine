@@ -195,7 +195,7 @@ describe("player keys", () => {
   it("the protocol message carries the player's keys", () => {
     expect(JSON.parse(encodeStudioMessage({ type: "controls", overrides: { jump: ["L"] } }))).toMatchObject({
       source: "anomaly-studio",
-      protocolVersion: 17,
+      protocolVersion: 18,
       message: { type: "controls", overrides: { jump: ["L"] } },
     });
   });
