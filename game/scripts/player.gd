@@ -197,6 +197,18 @@ func _tune(ability: String, key: String, fallback: float) -> float:
 	return float(_tuning.get(ability, {}).get(key, fallback))
 
 
+## A move key pressed since the last physics frame (-1, 1), or 0: a tap released before the frame ran
+## isn't held when the frame reads the keys, but it still turns and moves the player for one frame.
+var _tap_dir := 0.0
+
+
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed("move_left"):
+		_tap_dir = -1.0
+	elif event.is_action_pressed("move_right"):
+		_tap_dir = 1.0
+
+
 func _physics_process(delta: float) -> void:
 	_invulnerable = maxf(0.0, _invulnerable - delta)
 	_stun = maxf(0.0, _stun - delta)
@@ -210,6 +222,10 @@ func _physics_process(delta: float) -> void:
 			queue_redraw()
 
 	var direction := Input.get_axis("move_left", "move_right")
+	# A direction tapped between two frames (pressed and released before this one) still counts once.
+	if direction == 0.0 and _tap_dir != 0.0:
+		direction = _tap_dir
+	_tap_dir = 0.0
 	var on_floor := _on_floor
 	_buffer = maxi(0, _buffer - 1)
 	_dash_cooldown = maxi(0, _dash_cooldown - 1)
