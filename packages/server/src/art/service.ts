@@ -7,8 +7,10 @@ import {
   fail,
   toIssues,
   type ArtActivityEntry,
+  type ArtRunningJob,
   type ArtStage,
   type ArtState,
+  type OperationCall,
   type OperationError,
 } from "@anomaly/core";
 import {
@@ -34,8 +36,11 @@ import {
   type VisionModel,
 } from "@anomaly/art";
 import type { ProjectStore } from "../projectStore.ts";
+import { conflicts, EVERYTHING, jobKeys, lanesOf, runLanes } from "./scheduling.ts";
 
 const RECENT_JOBS = 20;
+/** Jobs that run at once by default (STUDIO_ART_CONCURRENCY). */
+export const DEFAULT_ART_CONCURRENCY = 3;
 
 export interface ArtModels {
   image: ImageModel;
@@ -49,6 +54,8 @@ export interface ArtServiceOptions {
   files: FileStore;
   /** USD limit per job. */
   budget: number;
+  /** Jobs that may run at once (default 3); 1 runs them one at a time. Inside the game-art job, independent steps run this many at once too. */
+  concurrency?: number;
   /** Shown when models are missing. */
   unavailableReason?: string;
   rigRounds?: number;
@@ -59,6 +66,7 @@ export interface ArtServiceOptions {
 }
 
 type Result = { ok: true; jobId: string; queued?: boolean } | { ok: false; error: OperationError };
+type Parsed = ReturnType<typeof ArtJobRequest.parse>;
 
 /** A job waiting its turn. `onlyIfUndrawn`: skip it if the character is drawn (rigged) by the time it would start. */
 interface Queued {
@@ -70,7 +78,9 @@ interface Running {
   id: string;
   /** The biome a world job works on (set once a new biome exists). */
   biomeId?: string;
-  request: ReturnType<typeof ArtJobRequest.parse>;
+  request: Parsed;
+  /** What it touches (scheduling.ts): a job conflicting with these waits. Grows as the job creates things (a new biome). */
+  keys: string[];
   startedAt: string;
   activity: ArtActivityEntry[];
   cost: number;
@@ -88,29 +98,47 @@ interface Running {
 }
 
 type Step = { stage: Exclude<ArtStage, "auto">; run: () => Promise<StageResult> };
+/** Lanes that may run side by side; each lane's steps run in order. */
+type Phase = Step[][];
 
 /**
- * Runs art jobs (one at a time, the rest queued) and keeps their log
- * (<dir>/art-jobs.jsonl). Jobs are background work: they hold no lock, so the
- * creator keeps editing (and chatting) while one runs. Each completed stage is
- * saved as one AI change (one undo step) onto the project as it is then
- * (ProjectStore.commitBackground: its operations applied again), waiting while a
- * playtest or an AI turn runs; a stage whose changes no longer apply (its
- * character was deleted meanwhile) fails the job cleanly. An auto run that fails
- * late keeps the stages that worked. The Architect's game-art job is the
- * exception: it runs inside the run's lock and saves as the run's edits; it
- * stops a background job that is running (it draws whatever is missing anyway).
+ * Runs art jobs and keeps their log (<dir>/art-jobs.jsonl). Up to `concurrency`
+ * jobs run at once; a job that touches what a running job touches (the same
+ * character, weapon, biome, room or modal; see scheduling.ts) or finds no free
+ * slot queues, and starts when it can, never ahead of an earlier queued job it
+ * conflicts with. The art direction and the game-art job touch everything and
+ * run alone. Jobs are background work: they hold no lock, so the creator keeps
+ * editing (and chatting) while they run. Each completed stage is saved as one AI
+ * change (one undo step) onto the project as it is then
+ * (ProjectStore.commitBackground: its operations applied again; the store
+ * serializes saves, and conflicting jobs never run together, so concurrent saves
+ * touch different things), waiting while a playtest or an AI turn runs; a stage
+ * whose changes no longer apply (its character was deleted meanwhile) fails the
+ * job cleanly. Each job has its own budget, activity, cancel and revisions. An
+ * auto run that fails late keeps the stages that worked. The Architect's
+ * game-art job is the exception: it runs inside the run's lock and saves as the
+ * run's edits; it stops the background jobs that are running (it draws whatever
+ * is missing anyway).
  */
 export class ArtService {
   private readonly store: ProjectStore;
   private readonly options: ArtServiceOptions;
   private readonly path: string;
+  private readonly concurrency: number;
   private jobs: ArtJobSummary[];
   private totalCost: number;
-  private running: Running | null = null;
+  /** Running jobs by id, oldest first. */
+  private active = new Map<string, Running>();
   /** Jobs waiting to start. */
   private queue: Queued[] = [];
   private listeners = new Set<(state: ArtState) => void>();
+  private seq = 0;
+  /** Job log appends, in order. */
+  private writes: Promise<void> = Promise.resolve();
+  /** Saves of jobs inside the Architect's lock, one at a time (each based on the revision it lands on). */
+  private lockedSaves: Promise<unknown> = Promise.resolve();
+  private pumping = false;
+  private pumpAgain = false;
 
   private constructor(store: ProjectStore, options: ArtServiceOptions, jobs: ArtJobSummary[], totalCost: number) {
     this.store = store;
@@ -118,6 +146,7 @@ export class ArtService {
     this.path = join(store.dir, "art-jobs.jsonl");
     this.jobs = jobs;
     this.totalCost = totalCost;
+    this.concurrency = Math.max(1, Math.floor(options.concurrency ?? DEFAULT_ART_CONCURRENCY));
   }
 
   static async open(store: ProjectStore, options: ArtServiceOptions): Promise<ArtService> {
@@ -143,22 +172,25 @@ export class ArtService {
   }
 
   getState(): ArtState {
-    const r = this.running;
+    const runningJobs: ArtRunningJob[] = [...this.active.values()].map((r) => ({
+      id: r.id,
+      stage: r.request.stage,
+      characterId: r.request.characterId,
+      biomeId: r.biomeId,
+      weaponId: r.request.weaponId,
+      startedAt: r.startedAt,
+      cost: r.cost,
+      activity: r.activity,
+      underLock: r.underLock,
+      waiting: r.waiting,
+    }));
     return {
       available: this.options.models !== null,
       models: { image: this.options.models?.image.id ?? "none", vision: this.options.models?.vision.id ?? "none" },
       budget: this.options.budget,
-      running: r && {
-        id: r.id,
-        stage: r.request.stage,
-        characterId: r.request.characterId,
-        biomeId: r.biomeId,
-        startedAt: r.startedAt,
-        cost: r.cost,
-        activity: r.activity,
-        underLock: r.underLock,
-        waiting: r.waiting,
-      },
+      concurrency: this.concurrency,
+      runningJobs,
+      running: runningJobs[0] ?? null,
       jobs: this.jobs,
       queued: this.queue.length,
       pending: this.queue.flatMap(({ request }) => {
@@ -174,12 +206,8 @@ export class ArtService {
     return () => this.listeners.delete(listener);
   }
 
-  /**
-   * Start a job; it runs in the background and reports through events. While another
-   * job runs it is queued instead. `underLock`: the caller holds the AI lock (an
-   * Architect run) and keeps it; a background job in the way is stopped first.
-   */
-  async start(request: unknown, options: { underLock?: boolean } = {}): Promise<Result> {
+  /** A request that can run now, or why not (malformed, no models, an unknown character/weapon/biome). */
+  private check(request: unknown): { ok: true; request: Parsed } | { ok: false; error: OperationError } {
     const parsed = ArtJobRequest.safeParse(request);
     if (!parsed.success) return fail("invalid_request", "malformed art job request", toIssues(parsed.error));
     if (!this.options.models) {
@@ -196,28 +224,65 @@ export class ArtService {
     if (biomeId !== undefined && !project.art.assets.some((a) => a.id === biomeId && a.kind === "biome")) {
       return fail("not_found", `no biome "${biomeId}"`);
     }
-    if (this.running && !options.underLock) {
+    return { ok: true, request: parsed.data };
+  }
+
+  /** A free slot, and nothing running (or queued ahead, `ahead`) touches what `keys` touch. */
+  private canRun(keys: string[], ahead: string[][]): boolean {
+    if (this.active.size >= this.concurrency) return false;
+    for (const r of this.active.values()) if (conflicts(r.keys, keys)) return false;
+    return !ahead.some((k) => conflicts(k, keys));
+  }
+
+  private queuedKeys(): string[][] {
+    const project = this.store.getState().project;
+    return this.queue.flatMap(({ request }) => {
+      const parsed = ArtJobRequest.safeParse(request);
+      return parsed.success ? [jobKeys(parsed.data, project)] : [];
+    });
+  }
+
+  /**
+   * Start a job; it runs in the background and reports through events. When it
+   * can't run yet (no free slot, or it touches what a running or earlier queued
+   * job touches) it is queued instead. `underLock`: the caller holds the AI lock
+   * (an Architect run) and keeps it; background jobs in the way are stopped first.
+   */
+  async start(request: unknown, options: { underLock?: boolean } = {}): Promise<Result> {
+    const checked = this.check(request);
+    if (!checked.ok) return checked;
+    const parsed = checked.request;
+    if (!options.underLock) {
+      const keys = jobKeys(parsed, this.store.getState().project);
+      if (this.canRun(keys, this.queuedKeys())) return { ok: true, jobId: this.launch(parsed, keys, false).id };
       this.enqueue([request]);
       return { ok: true, jobId: "queued", queued: true };
     }
-    if (this.running) {
-      if (this.running.underLock) return fail("locked", "an art job is already running");
+    const running = [...this.active.values()];
+    if (running.some((r) => r.underLock)) return fail("locked", "an art job is already running");
+    if (running.length > 0) {
       // The Architect's game-art job draws everything still missing: background art makes way.
-      const stopping = this.running;
-      stopping.activity.push({ at: new Date().toISOString(), text: "stopped: the Architect's game-art job draws everything still missing" });
       this.queue = [];
-      stopping.controller.abort();
-      await stopping.done;
-      if (this.running) return fail("locked", "an art job is already running");
+      for (const stopping of running) {
+        stopping.activity.push({ at: new Date().toISOString(), text: "stopped: the Architect's game-art job draws everything still missing" });
+        stopping.controller.abort();
+      }
+      await Promise.all(running.map((r) => r.done));
+      if (this.active.size > 0) return fail("locked", "an art job is already running");
     }
+    return { ok: true, jobId: this.launch(parsed, jobKeys(parsed, this.store.getState().project), true).id };
+  }
 
+  /** `announce`: tell listeners now (the queue pump tells them once it is done). */
+  private launch(request: Parsed, keys: string[], underLock: boolean, announce = true): Running {
     const running: Running = {
-      underLock: options.underLock ?? false,
+      underLock,
       waiting: null,
       epoch: this.store.epoch(),
-      id: `art_${Date.now().toString(36)}`,
-      request: parsed.data,
-      biomeId: parsed.data.biomeId,
+      id: `art_${Date.now().toString(36)}_${(++this.seq).toString(36)}`,
+      request,
+      keys,
+      biomeId: request.biomeId,
       startedAt: new Date().toISOString(),
       activity: [],
       cost: 0,
@@ -225,16 +290,17 @@ export class ArtService {
       controller: new AbortController(),
       done: Promise.resolve(),
     };
-    this.running = running;
-    this.emit();
-    running.done = this.run(running, this.options.models);
-    return { ok: true, jobId: running.id };
+    this.active.set(running.id, running);
+    if (announce) this.emit();
+    running.done = this.run(running, this.options.models!);
+    return running;
   }
 
   /**
-   * Start jobs one after another (from a chat turn, the creator, the live cast).
-   * A job that can't start is logged as failed, so the creator sees why. The same
-   * job already queued or running isn't queued twice (an auto job per character).
+   * Queue jobs (from a chat turn, the creator, the live cast); each starts as soon
+   * as it can. A job that can't start is logged as failed, so the creator sees
+   * why. The same job already queued or running isn't queued twice (an auto job
+   * per character).
    */
   enqueue(requests: unknown[], options: { onlyIfUndrawn?: boolean } = {}): void {
     for (const request of requests) {
@@ -242,7 +308,7 @@ export class ArtService {
       this.queue.push({ request, ...(options.onlyIfUndrawn && { onlyIfUndrawn: true }) });
     }
     this.emit();
-    void this.startNext();
+    this.pump();
   }
 
   private isQueued(request: unknown): boolean {
@@ -252,7 +318,7 @@ export class ArtService {
       return parsed.data.stage === "auto" ? `auto:${parsed.data.characterId}` : JSON.stringify(parsed.data);
     };
     const k = key(request);
-    return this.queue.some((q) => key(q.request) === k) || (this.running !== null && key(this.running.request) === k);
+    return this.queue.some((q) => key(q.request) === k) || [...this.active.values()].some((r) => key(r.request) === k);
   }
 
   private drawn(request: unknown): boolean {
@@ -264,46 +330,64 @@ export class ArtService {
     return asset?.kind === "character" && asset.rig !== undefined;
   }
 
-  private starting = false;
-
-  private async startNext(): Promise<void> {
-    if (this.starting) return;
-    this.starting = true;
-    try {
-      await this.startQueued();
-    } finally {
-      this.starting = false;
+  /** Start every queued job that can run now, in queue order; a job never passes an earlier one it conflicts with. */
+  private pump(): void {
+    if (this.pumping) {
+      this.pumpAgain = true;
+      return;
     }
+    this.pumping = true;
+    try {
+      do {
+        this.pumpAgain = false;
+        const ahead: string[][] = [];
+        const waiting: Queued[] = [];
+        for (const entry of this.queue) {
+          if (entry.onlyIfUndrawn && this.drawn(entry.request)) continue;
+          const checked = this.check(entry.request);
+          if (!checked.ok) {
+            this.recordUnstarted(entry.request, checked.error.message);
+            continue;
+          }
+          const keys = jobKeys(checked.request, this.store.getState().project);
+          if (this.canRun(keys, ahead)) {
+            this.launch(checked.request, keys, false, false);
+            continue;
+          }
+          waiting.push(entry);
+          ahead.push(keys);
+        }
+        this.queue = waiting;
+      } while (this.pumpAgain);
+    } finally {
+      this.pumping = false;
+    }
+    this.emit();
   }
 
-  private async startQueued(): Promise<void> {
-    while (!this.running && this.queue.length > 0) {
-      const { request, onlyIfUndrawn } = this.queue.shift()!;
-      if (onlyIfUndrawn && this.drawn(request)) {
-        this.emit();
-        continue;
-      }
-      const started = await this.start(request);
-      if (!started.ok) {
-        const parsed = ArtJobRequest.safeParse(request);
-        const failed: ArtJobSummary = {
-          id: `art_${Date.now().toString(36)}`,
-          stage: parsed.success ? parsed.data.stage : "concepts",
-          characterId: parsed.success ? parsed.data.characterId : undefined,
-          biomeId: parsed.success ? parsed.data.biomeId : undefined,
-          at: new Date().toISOString(),
-          outcome: "failed",
-          cost: 0,
-          summary: "nothing saved",
-          error: `could not start: ${started.error.message}`,
-          revisions: [],
-          activity: [],
-        };
-        this.jobs = [...this.jobs, failed].slice(-RECENT_JOBS);
-        await appendFile(this.path, JSON.stringify(failed) + "\n");
-        this.emit();
-      }
-    }
+  /** Log a queued job that couldn't start, so the creator sees why. */
+  private recordUnstarted(request: unknown, message: string): void {
+    const parsed = ArtJobRequest.safeParse(request);
+    const failed: ArtJobSummary = {
+      id: `art_${Date.now().toString(36)}_${(++this.seq).toString(36)}`,
+      stage: parsed.success ? parsed.data.stage : "concepts",
+      characterId: parsed.success ? parsed.data.characterId : undefined,
+      biomeId: parsed.success ? parsed.data.biomeId : undefined,
+      at: new Date().toISOString(),
+      outcome: "failed",
+      cost: 0,
+      summary: "nothing saved",
+      error: `could not start: ${message}`,
+      revisions: [],
+      activity: [],
+    };
+    this.jobs = [...this.jobs, failed].slice(-RECENT_JOBS);
+    this.append(failed);
+  }
+
+  private append(summary: ArtJobSummary): Promise<void> {
+    this.writes = this.writes.then(() => appendFile(this.path, JSON.stringify(summary) + "\n")).catch((e: unknown) => console.error("[art] job log:", e));
+    return this.writes;
   }
 
   /** One recompose step per existing room of a biome (each its own cheap call and AI change). */
@@ -320,18 +404,23 @@ export class ArtService {
    * The game-art job: core gameArtPlan's steps (or the requested subset), each run as its
    * usual stages and saved on its own. A failed step is logged and skipped, along with the
    * steps that need it (the rooms of a biome that failed); planning again later resumes.
+   * Steps that touch different things (scheduling.ts: characters, weapons, a biome with its
+   * rooms and props, modals, item icons) run side by side, up to the service's concurrency;
+   * a step that touches everything (the art direction) runs alone before the ones after it.
    */
-  private gameArtSteps(ctx: ArtContext, running: Running): Step[] {
+  private gameArtPhases(ctx: ArtContext, running: Running): Phase[] {
     const wanted = running.request.steps;
-    const plan = gameArtPlan(this.store.getState().project).filter((s) => !wanted || wanted.includes(s.id));
+    const project = this.store.getState().project;
+    const plan = gameArtPlan(project).filter((s) => !wanted || wanted.includes(s.id));
     const estimate = plan.reduce((sum, s) => sum + s.estimatedCost, 0);
     running.budget = Math.max(this.options.budget, estimate * 3);
     ctx.log({ text: `plan: ${plan.length} steps, about $${estimate.toFixed(2)}` });
     const biomes = new Map<string, string>();
     const failed = new Set<string>();
-    const out: Step[] = [];
+    const groups: { steps: Step[]; keys: string[] }[] = [];
     for (const step of plan) {
       const r = step.request;
+      const out: Step[] = [];
       const add = (stage: Step["stage"], run: () => Promise<StageResult>, first = false) =>
         out.push({
           stage,
@@ -390,28 +479,71 @@ export class ArtService {
           add("itemArt", () => itemArtStage(ctx), true);
           break;
       }
+      // A worldKit step is keyed by its own id too, so the steps that use its biome (biomeStep) follow it in its lane.
+      const keys = jobKeys(r, project);
+      groups.push({ steps: out, keys: r.stage === "worldKit" ? [...keys, `biomeStep:${step.id}`] : keys });
     }
-    return out;
+    // One at a time: today's order exactly.
+    if (this.concurrency === 1) return [[groups.flatMap((g) => g.steps)]];
+    const phases: Phase[] = [];
+    let together: typeof groups = [];
+    const flush = () => {
+      if (together.length) phases.push(lanesOf(together, (g) => g.keys).map((lane) => lane.flatMap((g) => g.steps)));
+      together = [];
+    };
+    for (const group of groups) {
+      if (group.keys.includes(EVERYTHING)) {
+        flush();
+        phases.push([group.steps]);
+      } else together.push(group);
+    }
+    flush();
+    return phases;
   }
 
-  cancel(): { ok: true } {
+  /** Cancel one running job (`jobId`), or every running job and the queue. */
+  cancel(jobId?: string): { ok: true } | { ok: false; error: OperationError } {
+    if (jobId !== undefined) {
+      const running = this.active.get(jobId);
+      if (!running) return fail("not_found", `no running art job "${jobId}"`);
+      running.controller.abort();
+      return { ok: true };
+    }
     this.queue = [];
-    this.running?.controller.abort();
+    for (const running of this.active.values()) running.controller.abort();
+    this.emit();
     return { ok: true };
   }
 
-  /** Resolves when the running job (if any) ends. */
+  /** Resolves when no job runs (jobs the ones finishing start are waited for too). */
   async idle(): Promise<void> {
-    await this.running?.done;
+    while (this.active.size > 0) await Promise.all([...this.active.values()].map((r) => r.done));
   }
 
-  /** Resolves when no job runs and none is queued (tests, scripts). */
+  /** Resolves when job `jobId` ends, with its summary. */
+  async finished(jobId: string): Promise<ArtJobSummary | undefined> {
+    await this.active.get(jobId)?.done;
+    return this.jobs.find((j) => j.id === jobId);
+  }
+
+  /** Resolves when no job runs, none is queued and the job log is written (tests, scripts). */
   async drained(): Promise<void> {
     for (;;) {
-      if (this.running) await this.running.done;
-      else if (this.queue.length > 0 || this.starting) await new Promise((resolve) => setTimeout(resolve, 5));
-      else return;
+      await this.idle();
+      if (this.queue.length === 0) break;
+      this.pump();
+      if (this.active.size === 0) await new Promise((resolve) => setTimeout(resolve, 5));
     }
+    await this.writes;
+  }
+
+  /** Save under the Architect's lock: one at a time, each based on the revision it lands on. */
+  private saveLocked(operations: OperationCall[]) {
+    const save = this.lockedSaves.then(() =>
+      this.store.applyBatch({ operations, baseRevision: this.store.getState().project.revision, author: "ai" }),
+    );
+    this.lockedSaves = save.catch(() => {});
+    return save;
   }
 
   private async run(running: Running, models: ArtModels): Promise<void> {
@@ -440,13 +572,19 @@ export class ArtService {
         }
       },
     };
+    // A job's keys grow with what it creates (a new biome): later jobs on it wait.
+    const touch = () => {
+      const keys = jobKeys({ ...request, biomeId: running.biomeId }, this.store.getState().project);
+      running.keys = [...new Set([...running.keys, ...keys])];
+    };
 
-    const stages: { stage: Exclude<ArtStage, "auto">; run: () => Promise<StageResult> }[] = [];
+    const stages: Step[] = [];
     const character = { ...request, characterId: request.characterId ?? "" };
     const conceptStep = { stage: "concepts" as const, run: () => generateConcepts(ctx, character) };
     const chooseStep = { stage: "choose" as const, run: () => chooseConcept(ctx, character) };
     const rigStep = { stage: "rig" as const, run: () => buildRig(ctx, character) };
     const animStep = { stage: "animate" as const, run: () => animate(ctx, character) };
+    let phases: Phase[] | null = null;
     switch (request.stage) {
       case "worldKit": {
         const isNew = !request.biomeId;
@@ -455,6 +593,7 @@ export class ArtService {
           run: async () => {
             const result = await worldKitStage(ctx, { ...request, theme: request.brief });
             running.biomeId = result.biomeId;
+            running.keys = [...new Set([...running.keys, `biome:${result.biomeId}`])];
             return result;
           },
         });
@@ -502,7 +641,7 @@ export class ArtService {
         stages.push({ stage: "weaponArt", run: () => weaponArtStage(ctx, { weaponId: request.weaponId!, feedback: request.feedback }) });
         break;
       case "gameArt":
-        stages.push(...this.gameArtSteps(ctx, running));
+        phases = this.gameArtPhases(ctx, running);
         break;
       case "artDirection":
         stages.push({ stage: "artDirection", run: () => artDirectionStage(ctx) });
@@ -520,37 +659,40 @@ export class ArtService {
       }
     }
 
+    const summaries: string[] = [];
+    const runStep = async (step: Step): Promise<void> => {
+      if (running.controller.signal.aborted) throw new StageError("cancelled");
+      const result = await step.run();
+      // A cancel that arrived during the stage's last model call still wins.
+      if (running.controller.signal.aborted) throw new StageError("cancelled");
+      if (result.operations.length === 0) {
+        if (result.summary) summaries.push(result.summary);
+        return;
+      }
+      const saved = running.underLock
+        ? await this.saveLocked(result.operations)
+        : await this.store.commitBackground(() => ({ operations: result.operations }), {
+            signal: running.controller.signal,
+            epoch: running.epoch,
+            onWait: (reason) => {
+              running.waiting = reason;
+              if (reason) ctx.log({ text: `waiting to save (${reason})` });
+              else this.emit();
+            },
+          });
+      if (running.controller.signal.aborted) throw new StageError("cancelled");
+      if (!saved.ok) throw new StageError(`saving the ${step.stage} result failed: ${saved.error.message}`);
+      if ("revision" in saved && saved.revision === null) return;
+      touch();
+      running.revisions.push(saved.project.revision);
+      summaries.push(result.summary);
+      ctx.log({ text: `saved: ${result.summary}` });
+    };
+
     let outcome: ArtJobSummary["outcome"] = "committed";
     let error: string | undefined;
-    const summaries: string[] = [];
     try {
-      for (const step of stages) {
-        if (running.controller.signal.aborted) throw new StageError("cancelled");
-        const result = await step.run();
-        // A cancel that arrived during the stage's last model call still wins.
-        if (running.controller.signal.aborted) throw new StageError("cancelled");
-        if (result.operations.length === 0) {
-          if (result.summary) summaries.push(result.summary);
-          continue;
-        }
-        const saved = running.underLock
-          ? await this.store.applyBatch({ operations: result.operations, baseRevision: this.store.getState().project.revision, author: "ai" })
-          : await this.store.commitBackground(() => ({ operations: result.operations }), {
-              signal: running.controller.signal,
-              epoch: running.epoch,
-              onWait: (reason) => {
-                running.waiting = reason;
-                if (reason) ctx.log({ text: `waiting to save (${reason})` });
-                else this.emit();
-              },
-            });
-        if (running.controller.signal.aborted) throw new StageError("cancelled");
-        if (!saved.ok) throw new StageError(`saving the ${step.stage} result failed: ${saved.error.message}`);
-        if ("revision" in saved && saved.revision === null) continue;
-        running.revisions.push(saved.project.revision);
-        summaries.push(result.summary);
-        ctx.log({ text: `saved: ${result.summary}` });
-      }
+      for (const phase of phases ?? [[stages]]) await runLanes(phase, this.concurrency, runStep);
     } catch (e) {
       if (running.controller.signal.aborted) outcome = "cancelled";
       else if (e instanceof BudgetExceeded) outcome = "over_budget";
@@ -574,19 +716,19 @@ export class ArtService {
       revisions: running.revisions,
       activity: running.activity,
     };
-    this.running = null;
+    this.active.delete(running.id);
     this.totalCost += running.cost;
     this.jobs = [...this.jobs, summary].slice(-RECENT_JOBS);
-    await appendFile(this.path, JSON.stringify(summary) + "\n");
-    void this.startNext();
-    console.info(`[art] ${request.stage} ${request.characterId ?? running.biomeId ?? "new biome"}: ${outcome}, ~$${running.cost.toFixed(4)}${error ? ` (${error})` : ""}`);
-    this.emit();
+    await this.append(summary);
+    console.info(`[art] ${request.stage} ${request.characterId ?? request.weaponId ?? running.biomeId ?? "new biome"}: ${outcome}, ~$${running.cost.toFixed(4)}${error ? ` (${error})` : ""}`);
+    this.pump();
   }
 
   /** Stop the jobs and clear the log (after a project reset, which already backed it up). */
   async reset(): Promise<void> {
     this.cancel();
     await this.idle();
+    await this.writes;
     this.jobs = [];
     this.totalCost = 0;
     await writeFile(this.path, "");

@@ -1089,16 +1089,30 @@ player is behind them.
   `STUDIO_ART_VISION_MODEL` is an OpenRouter id like `anthropic/claude-haiku-5.5`),
   `STUDIO_ART_VISION_MODEL` (default `claude-opus-5-5` on Claude Code,
   `anthropic/claude-haiku-5.5` on OpenRouter), `STUDIO_ART_VISION_EFFORT`
-  (Claude Code only: `low`..`max`), `STUDIO_ART_BUDGET`;
+  (Claude Code only: `low`..`max`), `STUDIO_ART_BUDGET`,
+  `STUDIO_ART_CONCURRENCY` (jobs at once, default 3, 1 = one at a time),
+  `STUDIO_ART_RENDER_PAGES` (render pages, default = concurrency, at most 3);
   `STUDIO_ART_BACKEND=fake` uses scripted models (e2e).
 - **Background work:** art jobs hold no lock: the creator keeps editing and
-  chatting while one runs. One job runs at a time; a job started meanwhile
-  (from a workbench, a chat turn or the live cast) queues behind it. Each
-  finished stage is saved onto the project as it is then (its operations applied
-  again); a stage whose changes no longer apply (its character was deleted)
-  fails the job cleanly. Saves wait while a playtest or an AI turn runs. The
-  Architect's game-art job is the exception: it runs inside the Architect's run
-  and stops a background job in its way (it draws whatever is missing).
+  chatting while they run. Up to `STUDIO_ART_CONCURRENCY` jobs (default 3) run
+  at once when they touch different things
+  (`packages/server/src/art/scheduling.ts` `jobKeys`: a character with its
+  variants and art asset, a weapon, a biome with the rooms it dresses, a world
+  room, a modal, the item icons; animating a character also touches the weapons
+  whose attack clips it writes). A job started meanwhile (from a workbench, a
+  chat turn or the live cast) that touches what a running job touches, or finds
+  no free slot, queues, and starts as soon as it can, never ahead of an earlier
+  queued job it conflicts with. The art direction and the game-art job touch
+  everything and run alone; inside the game-art job, plan steps that touch
+  different things (each character, weapon, biome with its rooms and props,
+  modal) run side by side, up to the same limit. Each job keeps its own budget,
+  activity, cancel and revisions. Each finished stage is saved onto the project
+  as it is then (its operations applied again; the store saves one at a time,
+  and jobs that run together touch different things); a stage whose changes no
+  longer apply (its character was deleted) fails the job cleanly. Saves wait
+  while a playtest or an AI turn runs. The Architect's game-art job is the
+  exception: it runs inside the Architect's run and stops the background jobs
+  in its way (it draws whatever is missing).
 - **Storage:** images live in `<project>/files/` under content hashes; the
   project only references them, so undo is exact. Each finished stage is one
   AI change (one undo step). The job log is `<project>/art-jobs.jsonl`.
@@ -1106,9 +1120,13 @@ player is behind them.
   (character stages `concepts`, `choose`, `rig`, `animate`, `auto`; world
   stages `worldKit`, `worldCompose`, `worldRepaint`; game stages `propArt {worldRoomId}`,
   `modalArt {modalId}`, `itemArt`, `weaponArt {weaponId}`; `animate {clip, direction}` redoes one clip), `GET /api/art`,
-  `POST /api/art/cancel`, `GET /api/files/<ref>`.
+  `POST /api/art/cancel {jobId?}` (one running job; without `jobId` every
+  running job and the queue), `GET /api/files/<ref>`. `GET /api/art` lists the
+  running jobs in `runningJobs` (`running` is the oldest, for older readers).
 - **Rendering** for critics and kit slicing runs the web export in headless
-  Chromium (`packages/server/src/art/renderer.ts`); `node scripts/render-rig.ts out.png`
+  Chromium (`packages/server/src/art/renderer.ts`): one browser with a pool of
+  up to `STUDIO_ART_RENDER_PAGES` pages (each request takes a free page, else
+  waits its turn; everything closes after 30 s without work and on shutdown); `node scripts/render-rig.ts out.png`
   renders the example rig, `node scripts/screenshot-mode.ts <url> <Mode> <out>`
   screenshots a studio mode.
 - **Extending:** assets share one store and job runner and differ by kind

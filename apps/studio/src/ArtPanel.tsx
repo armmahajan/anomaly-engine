@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ArtActivityEntry, ArtJobRequest, ArtState, Character, ProjectSpec, RigMode } from "@anomaly/core";
+import type { ArtActivityEntry, ArtJobRequest, ArtRunningJob, ArtState, Character, ProjectSpec, RigMode } from "@anomaly/core";
 import { fileUrl } from "./api.ts";
 import { characterAsset } from "./CharacterBench.tsx";
 import type { Session } from "./session.ts";
@@ -35,8 +35,8 @@ const RIG_MODE_CHOICES: { id: RigMode; label: string; title: string }[] = [
 
 export function ArtPanel({ character, project, art, session, locked }: Props) {
   const asset = characterAsset(project, character);
-  const running = art.running;
-  const mine = running?.characterId === character.id;
+  const job = art.runningJobs.find((j) => j.characterId === character.id) ?? null;
+  const mine = job !== null;
   const lastJob = [...art.jobs].reverse().find((j) => j.characterId === character.id);
   const [brief, setBrief] = useState(asset?.brief ?? "");
   const [conceptNote, setConceptNote] = useState("");
@@ -45,7 +45,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
   const [auto, setAuto] = useState(false);
   const [rigMode, setRigMode] = useState<RigMode>(asset?.rig?.mode ?? project.art.direction.rigMode ?? "vector");
   const [zoom, setZoom] = useState<string | null>(null);
-  // Another character's job doesn't block this one: a new job queues behind it.
+  // Another character's job doesn't block this one: it runs alongside (or queues behind what it conflicts with).
   const queued = art.pending.some((p) => p.characterId === character.id);
   const disabled = locked || mine || queued || !art.available;
 
@@ -187,7 +187,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         </>
       )}
 
-      <JobLog art={art} mine={mine} lastJob={lastJob} onCancel={() => void session.cancelArtJob()} onZoom={setZoom} subject={character.name} />
+      <JobLog art={art} job={job} lastJob={lastJob} onCancel={(id) => void session.cancelArtJob(id)} onZoom={setZoom} subject={character.name} />
       {zoom && <Zoom file={zoom} onClose={() => setZoom(null)} />}
     </section>
   );
@@ -211,35 +211,37 @@ function StepHead({ n, title, state, status }: { n: string; title: string; state
 /** The running job (live activity, cancel) or the last finished one. Shared by the art and world sidebars. */
 export function JobLog({
   art,
-  mine,
+  job,
   lastJob,
   onCancel,
   onZoom,
   subject,
 }: {
   art: ArtState;
-  mine: boolean;
+  /** This subject's running job, if one runs. */
+  job: ArtRunningJob | null;
   lastJob: ArtState["jobs"][number] | undefined;
-  onCancel: () => void;
+  onCancel: (jobId: string) => void;
   onZoom: (file: string) => void;
   subject: string;
 }) {
-  const running = art.running;
+  const others = art.runningJobs.filter((j) => j.id !== job?.id);
   return (
     <>
-      {(mine || lastJob) && (
+      {(job || lastJob) && (
         <div className="art-job" data-testid="art-job">
-          {mine && running ? (
+          {job ? (
             <>
               <div className="art-job-head">
                 <span>
-                  Working: {running.stage} · {money(running.cost)}
+                  Working: {job.stage} · {money(job.cost)}
+                  {job.waiting ? ` · waiting (${job.waiting})` : ""}
                 </span>
-                <button type="button" onClick={onCancel}>
+                <button type="button" onClick={() => onCancel(job.id)}>
                   Cancel
                 </button>
               </div>
-              <Activity entries={running.activity} onZoom={onZoom} />
+              <Activity entries={job.activity} onZoom={onZoom} />
             </>
           ) : (
             lastJob && (
@@ -254,7 +256,11 @@ export function JobLog({
           )}
         </div>
       )}
-      {running && !mine && <p className="hint">The AI is working on {running.characterId ?? running.biomeId ?? "a new biome"}.</p>}
+      {others.length > 0 && (
+        <p className="hint" data-testid="art-others">
+          Also drawing: {others.map((o) => `${o.characterId ?? o.weaponId ?? o.biomeId ?? (o.stage === "worldKit" ? "a new biome" : o.stage)} (${o.stage})`).join(", ")}.
+        </p>
+      )}
       {art.queued > 0 && (
         <p className="hint" data-testid="art-queued">
           {art.queued} more art job{art.queued > 1 ? "s" : ""} queued.

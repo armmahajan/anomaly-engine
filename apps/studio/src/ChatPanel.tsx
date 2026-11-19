@@ -160,7 +160,7 @@ export function ChatPanel({ session, agent, chat, revision, canUndo, playing, co
     ? `The ${AGENT_TEXT[otherAgent].title} is working. One assistant works at a time; you can send when it's done.`
     : studio.architect.running
       ? "An Architect build run is working on the project; you can send when it's done."
-      : studio.art.running?.underLock
+      : studio.art.runningJobs.some((j) => j.underLock)
         ? "Game art is being made; you can send when it's done."
         : null;
   const busy = sending || running || blockedBy !== null;

@@ -101,8 +101,9 @@ describe("art jobs over HTTP", () => {
       baseRevision: project.revision,
     });
     expect(edit).toMatchObject({ ok: true });
-    expect(await post("/api/art/jobs", { stage: "concepts", characterId: "crawler" })).toMatchObject({ ok: true, queued: true });
-    expect((await get<ArtState>("/api/art")).pending).toEqual([{ stage: "concepts", characterId: "crawler" }]);
+    // Another job on the same character waits for this one.
+    expect(await post("/api/art/jobs", { stage: "concepts", characterId: "charger", feedback: "taller" })).toMatchObject({ ok: true, queued: true });
+    expect((await get<ArtState>("/api/art")).pending).toEqual([{ stage: "concepts", characterId: "charger" }]);
 
     await post("/api/art/cancel", {});
     release();

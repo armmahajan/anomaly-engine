@@ -11,7 +11,9 @@ import { money } from "./ArtPanel.tsx";
 export function GameArtSection({ project, session, art, locked }: { project: ProjectSpec; session: Session; art: ArtState; locked: boolean }) {
   const plan = gameArtPlan(project);
   const estimate = plan.reduce((sum, s) => sum + s.estimatedCost, 0);
-  const running = art.running?.stage === "gameArt" ? art.running : null;
+  const running = art.runningJobs.find((j) => j.stage === "gameArt") ?? null;
+  // The game-art job runs alone: it waits for the running jobs (queued) and they wait for it.
+  const queued = art.pending.some((p) => p.stage === "gameArt");
   const last = [...art.jobs].reverse().find((j) => j.stage === "gameArt");
   const groups = stepGroups(plan);
   const changed = plan.filter((s) => s.reason === "out_of_date").length;
@@ -52,11 +54,11 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
           </details>
           <button
             type="button"
-            disabled={locked || !art.available || art.running !== null}
-            title={art.available ? undefined : "Art generation isn't configured (no model key)"}
+            disabled={locked || !art.available || running !== null || queued}
+            title={art.available ? (art.runningJobs.length > 0 && !running ? "Starts once the art jobs running now finish" : undefined) : "Art generation isn't configured (no model key)"}
             onClick={() => void session.startArtJob({ stage: "gameArt" })}
           >
-            Make the art
+            {queued ? "Queued…" : "Make the art"}
           </button>
         </>
       )}
@@ -64,7 +66,7 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
         <div className="game-art-progress" data-testid="game-art-progress">
           <span>Drawing… {money(running.cost)}</span>
           <span className="muted">{running.activity.at(-1)?.text}</span>
-          <button type="button" onClick={() => void session.cancelArtJob()}>
+          <button type="button" onClick={() => void session.cancelArtJob(running.id)}>
             Stop
           </button>
         </div>
@@ -117,7 +119,7 @@ function ArtDirectionView({ project, session, art, locked }: { project: ProjectS
   const { direction } = project.art;
   const isDefault = isDefaultArtDirection(direction);
   const wanted = artDirectionWanted(project);
-  const running = art.running?.stage === "artDirection";
+  const running = art.runningJobs.some((j) => j.stage === "artDirection") || art.pending.some((p) => p.stage === "artDirection");
   const [full, setFull] = useState(false);
   return (
     <div className="art-direction" data-testid="art-direction">
@@ -142,7 +144,7 @@ function ArtDirectionView({ project, session, art, locked }: { project: ProjectS
         <button
           type="button"
           data-testid="art-direction-write"
-          disabled={locked || !art.available || art.running !== null || !wanted}
+          disabled={locked || !art.available || running || !wanted}
           title={wanted ? "Write the look from the wiki's overview and places" : "Write the wiki's overview first"}
           onClick={() => void session.startArtJob({ stage: "artDirection" })}
         >

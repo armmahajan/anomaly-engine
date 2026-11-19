@@ -135,8 +135,8 @@ export type ChatEvent = z.infer<typeof ChatEvent>;
 
 // --- art jobs ------------------------------------------------------------------
 //   GET  /api/art                 -> ArtState
-//   POST /api/art/jobs  ArtJobRequest -> { ok } (runs in the background; progress via `art` events)
-//   POST /api/art/cancel          -> { ok }
+//   POST /api/art/jobs  ArtJobRequest -> { ok, jobId } or { ok, queued: true } (runs in the background; progress via `art` events)
+//   POST /api/art/cancel  { jobId? }  -> { ok } (that running job; without jobId every running job and the queue)
 //   GET  /api/files/<ref>         -> the stored image (concept sheets, renders)
 
 /**
@@ -259,30 +259,38 @@ export const ArtJobSummary = z.object({
 });
 export type ArtJobSummary = z.infer<typeof ArtJobSummary>;
 
+/** A running art job, as the studio shows it. */
+export const ArtRunningJob = z.object({
+  id: z.string(),
+  stage: ArtStage,
+  characterId: z.string().optional(),
+  biomeId: z.string().optional(),
+  weaponId: z.string().optional(),
+  startedAt: z.string(),
+  cost: z.number(),
+  activity: z.array(ArtActivityEntry),
+  /** True when the job runs inside the Architect's run (which holds the project lock); false for background jobs, which never lock the creator out. */
+  underLock: z.boolean().default(false),
+  /** Why its finished stage isn't saved yet (a playtest or an AI turn is running), if it is waiting. */
+  waiting: z.string().nullable().default(null),
+});
+export type ArtRunningJob = z.infer<typeof ArtRunningJob>;
+
 export const ArtState = z.object({
   /** False when no model key is configured; jobs are refused. */
   available: z.boolean(),
   models: z.object({ image: z.string(), vision: z.string() }),
   /** USD limit per job. */
   budget: z.number(),
-  running: z
-    .object({
-      id: z.string(),
-      stage: ArtStage,
-      characterId: z.string().optional(),
-      biomeId: z.string().optional(),
-      startedAt: z.string(),
-      cost: z.number(),
-      activity: z.array(ArtActivityEntry),
-      /** True when the job runs inside the Architect's run (which holds the project lock); false for background jobs, which never lock the creator out. */
-      underLock: z.boolean().default(false),
-      /** Why its finished stage isn't saved yet (a playtest or an AI turn is running), if it is waiting. */
-      waiting: z.string().nullable().default(null),
-    })
-    .nullable(),
+  /** How many jobs may run at once (STUDIO_ART_CONCURRENCY). */
+  concurrency: z.number().int().min(1).default(1),
+  /** Every running job, oldest first. Jobs that touch different things (characters, weapons, biomes, rooms, modals) run together. */
+  runningJobs: z.array(ArtRunningJob).default([]),
+  /** The oldest running job (runningJobs[0]), kept for older readers; null when none runs. */
+  running: ArtRunningJob.nullable(),
   /** Recent jobs, newest last. */
   jobs: z.array(ArtJobSummary),
-  /** Jobs waiting to start (queued by the chat, the creator or the live cast). */
+  /** Jobs waiting to start (queued by the chat, the creator or the live cast): no free slot yet, or they touch what a running job touches. */
   queued: z.number().default(0),
   /** What those queued jobs are, in order. */
   pending: z.array(z.object({ stage: ArtStage, characterId: z.string().optional(), biomeId: z.string().optional() })).default([]),
@@ -290,6 +298,8 @@ export const ArtState = z.object({
   totalCost: z.number(),
 });
 export type ArtState = z.infer<typeof ArtState>;
+
+export const ArtCancelRequest = z.strictObject({ jobId: z.string().max(80).optional() });
 
 export const ArtEvent = z.object({ type: z.literal("art"), art: ArtState });
 export type ArtEvent = z.infer<typeof ArtEvent>;

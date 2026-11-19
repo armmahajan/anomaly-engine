@@ -1,4 +1,5 @@
 import { browserGlArgs } from "./glArgs.ts";
+import { PagePool } from "./pagePool.ts";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import {
@@ -88,19 +89,31 @@ export interface SlicedPiece {
   cell: number;
 }
 
+/**
+ * One headless Chromium with a small pool of render pages (`pages`, default 1):
+ * each request takes a free page, opening one more while there are fewer than
+ * `pages`, else waits its turn. Several art jobs render side by side this way
+ * while memory stays bounded (one browser, a few pages). Everything closes after
+ * a while without work, and on close().
+ */
 export class BrowserRenderer implements Renderer {
-  private browser: Browser | null = null;
-  private page: Promise<Page> | null = null;
+  private browser: Promise<Browser> | null = null;
+  private readonly pool: PagePool<Page>;
   private nextId = 1;
   private waiters = new Map<string, (m: Extract<RuntimeToStudio, { type: "rendered" }>) => void>();
-  private ready: (() => void) | null = null;
   private readonly gameDir: string;
   private active = 0;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
-  /** `gameDir`: the web export (apps/studio/public/game). */
-  constructor(gameDir: string) {
+  /** `gameDir`: the web export (apps/studio/public/game). `pages`: render pages at most (1..3). */
+  constructor(gameDir: string, options: { pages?: number } = {}) {
     this.gameDir = gameDir;
+    this.pool = new PagePool(() => this.openPage(), Math.min(3, Math.max(1, Math.floor(options.pages ?? 1))));
+  }
+
+  /** Render pages open now (tests, diagnostics). */
+  get pages(): number {
+    return this.pool.size;
   }
 
   renderRig(request: Omit<RenderRigRequest, "requestId">): Promise<RenderedImage> {
@@ -308,7 +321,7 @@ export class BrowserRenderer implements Renderer {
     this.active++;
     clearTimeout(this.idleTimer);
     try {
-      return await work(await this.open());
+      return await this.pool.use(work);
     } finally {
       this.active--;
       if (this.active === 0) this.idleTimer = setTimeout(() => void this.close(), IDLE_CLOSE_MS);
@@ -433,62 +446,70 @@ export class BrowserRenderer implements Renderer {
     clearTimeout(this.idleTimer);
     const browser = this.browser;
     this.browser = null;
-    this.page = null;
-    await browser?.close();
+    this.pool.clear();
+    await (await browser?.catch(() => null))?.close();
   }
 
-  private open(): Promise<Page> {
-    this.page ??= this.launch().catch((error: unknown) => {
-      this.page = null;
-      throw error;
-    });
-    return this.page;
+  private launchBrowser(): Promise<Browser> {
+    this.browser ??= import("playwright-core")
+      .then(({ chromium }) =>
+        // WebGL on the GPU when there is one, else SwiftShader (ANOMALY_GL overrides; see glArgs.ts).
+        chromium.launch({ args: browserGlArgs() }),
+      )
+      .catch((error: unknown) => {
+        this.browser = null;
+        throw error;
+      });
+    return this.browser;
   }
 
-  private async launch(): Promise<Page> {
-    const { chromium } = await import("playwright-core");
-    this.browser = await chromium.launch({
-      // WebGL on the GPU when there is one, else SwiftShader (ANOMALY_GL overrides; see glArgs.ts).
-      args: browserGlArgs(),
-    });
-    const page = await this.browser.newPage({ viewport: { width: 320, height: 240 } });
-    await page.route(`${ORIGIN}/**`, async (route) => {
-      const path = new URL(route.request().url()).pathname.replace(/^\//, "") || "index.html";
-      const file = normalize(join(this.gameDir, path));
-      if (!file.startsWith(normalize(this.gameDir) + sep)) return route.fulfill({ status: 404 });
-      try {
-        const body = await readFile(file);
-        await route.fulfill({ status: 200, body, contentType: MIME[extname(file)] ?? "application/octet-stream" });
-      } catch {
-        await route.fulfill({ status: 404 });
-      }
-    });
-    await page.exposeFunction("__anomalyRuntimeMessage", (data: string) => this.receive(data));
-    await page.addInitScript(PAGE_HELPERS);
-    await page.addInitScript(() => {
-      window.addEventListener("message", (event) => {
-        if (typeof event.data === "string" && event.data.includes('"anomaly-runtime"')) {
-          (window as unknown as { __anomalyRuntimeMessage: (d: string) => void }).__anomalyRuntimeMessage(event.data);
+  /** A new render page in the shared browser, booted (the runtime said it is ready). */
+  private async openPage(): Promise<Page> {
+    const browser = await this.launchBrowser();
+    const page = await browser.newPage({ viewport: { width: 320, height: 240 } });
+    try {
+      await page.route(`${ORIGIN}/**`, async (route) => {
+        const path = new URL(route.request().url()).pathname.replace(/^\//, "") || "index.html";
+        const file = normalize(join(this.gameDir, path));
+        if (!file.startsWith(normalize(this.gameDir) + sep)) return route.fulfill({ status: 404 });
+        try {
+          const body = await readFile(file);
+          await route.fulfill({ status: 200, body, contentType: MIME[extname(file)] ?? "application/octet-stream" });
+        } catch {
+          await route.fulfill({ status: 404 });
         }
       });
-    });
-    const booted = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("render runtime did not start (is the game exported? npm run build:game)")), BOOT_TIMEOUT_MS);
-      this.ready = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-    });
-    await page.goto(`${ORIGIN}/index.html?render=1`);
-    await booted;
-    return page;
+      let ready: () => void = () => {};
+      const booted = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("render runtime did not start (is the game exported? npm run build:game)")), BOOT_TIMEOUT_MS);
+        ready = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+      await page.exposeFunction("__anomalyRuntimeMessage", (data: string) => this.receive(data, ready));
+      await page.addInitScript(PAGE_HELPERS);
+      await page.addInitScript(() => {
+        window.addEventListener("message", (event) => {
+          if (typeof event.data === "string" && event.data.includes('"anomaly-runtime"')) {
+            (window as unknown as { __anomalyRuntimeMessage: (d: string) => void }).__anomalyRuntimeMessage(event.data);
+          }
+        });
+      });
+      await page.goto(`${ORIGIN}/index.html?render=1`);
+      await booted;
+      return page;
+    } catch (error) {
+      await page.close().catch(() => {});
+      throw error;
+    }
   }
 
-  private receive(data: string): void {
+  private receive(data: string, ready: () => void): void {
     const decoded = decodeRuntimeMessage(data);
     if (decoded.kind !== "message") return;
     const message = decoded.message;
-    if (message.type === "ready") this.ready?.();
+    if (message.type === "ready") ready();
     if (message.type === "rendered") {
       this.waiters.get(message.requestId)?.(message);
       this.waiters.delete(message.requestId);

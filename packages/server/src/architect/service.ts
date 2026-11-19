@@ -84,11 +84,10 @@ export function defaultStageRunners(options: { art?: ArtService | null; override
       const started = await art.start({ stage: "gameArt" }, { underLock: true });
       if (!started.ok) return { project, issues: [{ stage: "art", code: "art-refused", message: started.error.message }], summary: `art refused: ${started.error.message}` };
       log("drawing the game (game-art job)");
-      const stop = () => art.cancel();
+      const stop = () => art.cancel(started.jobId);
       signal.addEventListener("abort", stop);
-      await art.idle();
+      const job = await art.finished(started.jobId);
       signal.removeEventListener("abort", stop);
-      const job = art.getState().jobs.at(-1);
       return { project, issues: [], summary: job ? `art ${job.outcome}, $${job.cost.toFixed(3)}` : "art done" };
     },
     ...options.overrides,

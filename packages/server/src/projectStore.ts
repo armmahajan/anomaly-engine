@@ -302,7 +302,11 @@ export class ProjectStore {
         return { ok: true as const, project: saved.project, revision: saved.project.revision };
       });
       if (result !== WAIT) return result;
-      options.onWait?.(this.waitingReason());
+      // The lock may have gone while the save waited its turn in the queue: then try again now
+      // (waiting for the next lock change would wait for one that already happened).
+      const reason = this.waitingReason();
+      if (reason === null) continue;
+      options.onWait?.(reason);
       await this.nextUnlock(options.signal);
       options.onWait?.(null);
     }

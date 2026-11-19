@@ -40,7 +40,7 @@ const attacksUsing = (project: ProjectSpec, clipId: string) =>
 export function AnimationList({ character, asset, project, art, session, current, onPlay, locked }: Props) {
   const clipIds = Object.keys(asset.clips);
   const missing = asset.rig ? wantedClipSlots(project, asset.id).filter((s) => !asset.clips[s]) : [];
-  const busy = (art.running?.characterId === character.id) || art.pending.some((p) => p.characterId === character.id);
+  const busy = art.runningJobs.some((j) => j.characterId === character.id) || art.pending.some((p) => p.characterId === character.id);
   const selected = current && asset.clips[current] ? current : null;
 
   const run = async (calls: { name: string; input: unknown }[]): Promise<boolean> => {

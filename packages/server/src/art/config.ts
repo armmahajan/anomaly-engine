@@ -9,7 +9,7 @@ import {
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeCodeVisionModel, DEFAULT_CLAUDE_VISION_MODEL } from "./claudeCodeVision.ts";
 import { BrowserRenderer } from "./renderer.ts";
-import type { ArtServiceOptions } from "./service.ts";
+import { DEFAULT_ART_CONCURRENCY, type ArtServiceOptions } from "./service.ts";
 
 /**
  * Art pipeline settings from the environment (the studio's .env):
@@ -27,6 +27,9 @@ import type { ArtServiceOptions } from "./service.ts";
  *   STUDIO_ART_VISION_EFFORT   claude-code only: low|medium|high|xhigh|max (default: the model's)
  *   STUDIO_ART_RIG_MODE        vector (default: the full pipeline, see stages.ts rigModeFor), traced or cutout
  *   STUDIO_ART_BUDGET          USD per job, default 0.25
+ *   STUDIO_ART_CONCURRENCY     art jobs that run at once, default 3 (1 = one at a time); jobs that touch
+ *                              the same character, weapon, biome, room or modal still wait for each other
+ *   STUDIO_ART_RENDER_PAGES    render pages in the one headless Chromium, default = concurrency, at most 3
  *   STUDIO_ART_BACKEND=fake    scripted models (tests/e2e); renders are still real
  * Defaults come from the Phase 0 benchmark: a whole character costs ~$0.01-0.02 on
  * OpenRouter, about half that (images only) with vision on Claude Code.
@@ -36,6 +39,23 @@ export const DEFAULT_IMAGE_MODEL = "openai/gpt-image-1-mini";
 export const DEFAULT_VISION_MODEL = "anthropic/claude-haiku-5.5";
 export const DEFAULT_BUDGET = 0.25;
 export { DEFAULT_CLAUDE_VISION_MODEL };
+
+/** Render pages at most (each runs the web runtime: about 150 MB). */
+export const MAX_RENDER_PAGES = 3;
+/** Art jobs at most, whatever the environment says. */
+export const MAX_ART_CONCURRENCY = 8;
+
+/** A whole number from the environment within 1..max, else the fallback. */
+function count(value: string | undefined, fallback: number, max: number): number {
+  const n = Number(value?.trim() || NaN);
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, max) : fallback;
+}
+
+/** Jobs at once and render pages from the environment. */
+export function artConcurrencyFromEnv(env: Record<string, string | undefined>): { concurrency: number; pages: number } {
+  const concurrency = count(env.STUDIO_ART_CONCURRENCY, DEFAULT_ART_CONCURRENCY, MAX_ART_CONCURRENCY);
+  return { concurrency, pages: count(env.STUDIO_ART_RENDER_PAGES, Math.min(concurrency, MAX_RENDER_PAGES), MAX_RENDER_PAGES) };
+}
 
 export type VisionBackend = "claude-code" | "openrouter";
 
@@ -61,9 +81,10 @@ export function artOptionsFromEnv(
   env: Record<string, string | undefined>,
   gameDir: string,
 ): Omit<ArtServiceOptions, "files"> & { renderer: BrowserRenderer } {
-  const renderer = new BrowserRenderer(gameDir);
+  const { concurrency, pages } = artConcurrencyFromEnv(env);
+  const renderer = new BrowserRenderer(gameDir, { pages });
   const budget = Number(env.STUDIO_ART_BUDGET ?? DEFAULT_BUDGET);
-  const base = { renderer, budget: Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_BUDGET };
+  const base = { renderer, concurrency, budget: Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_BUDGET };
 
   if (env.STUDIO_ART_BACKEND === "fake") {
     return { ...base, models: { image: new FakeImageModel(), vision: new FakeVisionModel() } };

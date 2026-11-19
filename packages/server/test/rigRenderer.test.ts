@@ -78,6 +78,32 @@ describe.skipIf(!hasExport || process.env.SKIP_BROWSER_TESTS === "1")("BrowserRe
     }
   }, 120_000);
 
+  it("renders side by side on a pool of pages in one browser, never more pages than asked, and closes them all", async () => {
+    const renderer = new BrowserRenderer(exportDir, { pages: 2 });
+    try {
+      const render = (columns: number) =>
+        renderer.renderRig({
+          rig: exampleRig(),
+          direction: defaultArtDirection(),
+          clips: exampleClips(),
+          frames: Array.from({ length: columns }, (_, i) => ({ clip: "walk", time: i * 0.1 })),
+          cellWidth: 64,
+          cellHeight: 64,
+          columns,
+          background: "#ffffff",
+        });
+      const images = await Promise.all([1, 2, 3, 4].map(render));
+      expect(images.map((i) => i.width)).toEqual([64, 128, 192, 256]);
+      expect(renderer.pages).toBe(2);
+      // Queued work keeps using the open pages.
+      await Promise.all([renderer.crop(images[0]!.png, sheetCell(0), 32), renderer.compose({ width: 10, height: 10, layers: [] }), render(1)]);
+      expect(renderer.pages).toBe(2);
+    } finally {
+      await renderer.close();
+    }
+    expect(renderer.pages).toBe(0);
+  }, 120_000);
+
   it("paints part textures inside their shape, moving with the bone, and clips detail parts to their part", async () => {
     // A 64x64 texture: red left half, blue right half, on a square panel whose bone turns half a circle.
     const texture: Pixels = { width: 64, height: 64, data: new Uint8Array(64 * 64 * 4) };

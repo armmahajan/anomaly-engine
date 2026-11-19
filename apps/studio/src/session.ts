@@ -98,7 +98,7 @@ export class Session {
       lastProblem: null,
       chats: { build: idleChat, narrative: idleChat, architect: idleChat },
       seed: null,
-      art: { available: false, models: { image: "", vision: "" }, budget: 0, running: null, jobs: [], queued: 0, pending: [], totalCost: 0 },
+      art: { available: false, models: { image: "", vision: "" }, budget: 0, concurrency: 1, runningJobs: [], running: null, jobs: [], queued: 0, pending: [], totalCost: 0 },
       architect: { running: null, last: null, log: [] },
       live: {
         settings: { cast: false, rooms: false },
@@ -271,7 +271,7 @@ export class Session {
    * never locks the creator out; its saves wait while a playtest runs.
    */
   aiBusy = (): boolean =>
-    Object.values(this.state.chats).some((c) => c.running !== null) || this.state.architect.running !== null || this.state.art.running?.underLock === true;
+    Object.values(this.state.chats).some((c) => c.running !== null) || this.state.architect.running !== null || this.state.art.runningJobs.some((j) => j.underLock);
 
   private editBlocked(): ChangeResult | null {
     if (this.state.mode !== "edit") return locked("stop the playtest before editing");
@@ -391,8 +391,8 @@ export class Session {
     await api.cancelArchitect();
   };
 
-  cancelArtJob = async (): Promise<void> => {
-    await api.cancelArtJob();
+  cancelArtJob = async (jobId?: string): Promise<void> => {
+    await api.cancelArtJob(jobId);
   };
 
   /** Edit mode: play `clip` on every spawn of a character (null = back to its behavior). */

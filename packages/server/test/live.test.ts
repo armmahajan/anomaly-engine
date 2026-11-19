@@ -208,9 +208,10 @@ describe("background work and the creator", () => {
     // The creator edits the wiki while the job runs.
     const before = project().revision;
     await ok(op("createWikiPage", { page: { id: "notes", kind: "lore", title: "Notes", status: "canon" } }));
-    // A second job queues instead of failing.
-    expect(await art!.start({ stage: "concepts", characterId: "crawler", brief: "a slug" })).toMatchObject({ ok: true, queued: true });
-    expect(art!.getState().pending).toEqual([{ stage: "concepts", characterId: "crawler" }]);
+    // A second job (another character) runs alongside instead of failing.
+    const second = await art!.start({ stage: "concepts", characterId: "crawler", brief: "a slug" });
+    expect(second).toMatchObject({ ok: true, jobId: expect.stringMatching(/^art_/) });
+    expect(art!.getState().runningJobs.map((j) => j.characterId)).toEqual(["charger", "crawler"]);
 
     // A director turn runs (and holds the project) while the job finishes its stage.
     const original = chats.narrative;
@@ -221,7 +222,8 @@ describe("background work and the creator", () => {
     const director = await (await import("../src/chat.ts")).ChatService.open(store, slowDirector, original.agent);
     expect(await director.send({ message: "Draft the cast" })).toEqual({ ok: true });
     releaseVision();
-    await until(() => art!.getState().running?.waiting === "the AI is working on the project");
+    // Both jobs wait to save. (The second one used to miss the lock's release when it came while its save was queued.)
+    await until(() => art!.getState().runningJobs.every((j) => j.waiting === "the AI is working on the project"));
     expect(project().art.assets).toEqual([]); // nothing saved under the turn
     releaseChat();
     await director.idle();

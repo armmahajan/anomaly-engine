@@ -6,8 +6,8 @@ import type { Weapon, WeaponAttack } from "../combat/weapon.ts";
 
 /**
  * What a game still needs to be fully drawn, as ordered steps the game-art
- * job runs one at a time (each saved on its own, so a stopped or failed run
- * resumes by planning again). A step's `request` is an ordinary art job
+ * job runs in order, steps touching different things side by side (each saved
+ * on its own, so a stopped or failed run resumes by planning again). A step's `request` is an ordinary art job
  * request, except `biomeStep`: the biome made by an earlier step of this plan.
  *
  * Rooms are grouped by progression region (rooms without one form a group of
