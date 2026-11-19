@@ -66,6 +66,8 @@ const BASE = "https://openrouter.ai/api/v1";
 
 export interface OpenRouterOptions {
   apiKey: string;
+  /** Allow Claude models (anthropic/*) on OpenRouter. Off: Claude runs on the creator's Claude Code subscription instead (ClaudeCodeVisionModel). */
+  allowClaude?: boolean;
   /** Identifies the app in OpenRouter's dashboard. Generic on purpose. */
   title?: string;
   fetch?: typeof fetch;
@@ -129,6 +131,9 @@ export class OpenRouterImageModel implements ImageModel {
 
   /** `extra`: request fields for this model, e.g. {quality: "low"} or {resolution: "768"}. */
   constructor(options: OpenRouterOptions, id: string, extra: Record<string, unknown> = {}) {
+    if (isClaudeOnOpenRouter(id) && !options.allowClaude) {
+      throw new Error(`${id} would be billed through OpenRouter: Claude runs on the Claude Code subscription (ClaudeCodeVisionModel); set allowClaude to pay through OpenRouter on purpose`);
+    }
     this.options = options;
     this.id = id;
     this.extra = extra;
@@ -159,6 +164,9 @@ export class OpenRouterImageModel implements ImageModel {
 }
 
 /** OpenRouter's chat completions API with image inputs. */
+/** A Claude model id on OpenRouter ("anthropic/..."). */
+export const isClaudeOnOpenRouter = (id: string) => id.trim().toLowerCase().startsWith("anthropic/");
+
 export class OpenRouterVisionModel implements VisionModel {
   readonly id: string;
   private readonly options: OpenRouterOptions;
@@ -166,6 +174,9 @@ export class OpenRouterVisionModel implements VisionModel {
 
   /** `extra`: request fields for this model, e.g. {reasoning: {effort: "low"}}. */
   constructor(options: OpenRouterOptions, id: string, extra: Record<string, unknown> = {}) {
+    if (isClaudeOnOpenRouter(id) && !options.allowClaude) {
+      throw new Error(`${id} would be billed through OpenRouter: Claude runs on the Claude Code subscription (ClaudeCodeVisionModel); set allowClaude to pay through OpenRouter on purpose`);
+    }
     this.options = options;
     this.id = id;
     this.extra = extra;

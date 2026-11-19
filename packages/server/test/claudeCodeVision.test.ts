@@ -174,8 +174,10 @@ describe("firstJsonObject / userBlocks", () => {
 describe("vision backend config", () => {
   it("defaults to Claude Code, unless the chat is fake or the model is an OpenRouter id", () => {
     expect(visionBackendFromEnv({})).toBe("claude-code");
-    expect(visionBackendFromEnv({ STUDIO_CHAT_BACKEND: "fake" })).toBe("openrouter");
-    expect(visionBackendFromEnv({ STUDIO_ART_VISION_MODEL: "anthropic/claude-haiku-5.5" })).toBe("openrouter");
+    expect(visionBackendFromEnv({ STUDIO_CHAT_BACKEND: "fake" })).toBe("claude-code");
+    // Claude never goes through OpenRouter by default: a Claude id stays on Claude Code; other providers' ids go to OpenRouter.
+    expect(visionBackendFromEnv({ STUDIO_ART_VISION_MODEL: "anthropic/claude-haiku-5.5" })).toBe("claude-code");
+    expect(visionBackendFromEnv({ STUDIO_ART_VISION_MODEL: "google/gemini-3.1-flash" })).toBe("openrouter");
     expect(visionBackendFromEnv({ STUDIO_ART_VISION_MODEL: "claude-sonnet-5-5" })).toBe("claude-code");
     expect(visionBackendFromEnv({ STUDIO_ART_VISION_BACKEND: "openrouter" })).toBe("openrouter");
     expect(visionBackendFromEnv({ STUDIO_ART_VISION_BACKEND: "claude-code", STUDIO_CHAT_BACKEND: "fake" })).toBe("claude-code");
@@ -188,10 +190,27 @@ describe("vision backend config", () => {
     expect(cc.models?.vision.id).toBe("claude-code/claude-opus-5-5");
     const sonnet = artOptionsFromEnv({ ...key, STUDIO_ART_VISION_MODEL: "claude-sonnet-5-5" }, "/nonexistent");
     expect(sonnet.models?.vision.id).toBe("claude-code/claude-sonnet-5-5");
-    const or = artOptionsFromEnv({ ...key, STUDIO_ART_VISION_BACKEND: "openrouter" }, "/nonexistent");
-    expect(or.models?.vision.id).toBe("anthropic/claude-haiku-5.5");
+    // OpenRouter vision runs a non-Claude model (Claude there is refused unless allowed: see below).
+    const or = artOptionsFromEnv({ ...key, STUDIO_ART_VISION_BACKEND: "openrouter", STUDIO_ART_VISION_MODEL: "google/gemini-3.1-flash" }, "/nonexistent");
+    expect(or.models?.vision.id).toBe("google/gemini-3.1-flash");
     expect(artOptionsFromEnv({ ...key, STUDIO_ART_VISION_BACKEND: "nope" }, "/nonexistent").unavailableReason).toMatch(/VISION_BACKEND/);
     expect(artOptionsFromEnv({}, "/nonexistent").models).toBeNull();
     await Promise.all([cc, sonnet, or].map((o) => o.renderer.close()));
+  });
+});
+
+describe("Claude on OpenRouter", () => {
+  it("is refused unless explicitly allowed: Claude runs on the Claude Code subscription", async () => {
+    const { OpenRouterVisionModel } = await import("@anomaly/art");
+    expect(() => new OpenRouterVisionModel({ apiKey: "k" }, "anthropic/claude-opus-5.5")).toThrow(/Claude Code subscription/);
+    expect(() => new OpenRouterVisionModel({ apiKey: "k", allowClaude: true }, "anthropic/claude-opus-5.5")).not.toThrow();
+    expect(() => new OpenRouterVisionModel({ apiKey: "k" }, "google/gemini-3.1-flash")).not.toThrow();
+    const refused = artOptionsFromEnv({ OPENROUTER_API_KEY: "k", STUDIO_ART_VISION_BACKEND: "openrouter" }, "/nonexistent");
+    expect(refused.models).toBeNull();
+    expect(refused.unavailableReason).toMatch(/Claude Code subscription/);
+    await refused.renderer.close();
+    const allowed = artOptionsFromEnv({ OPENROUTER_API_KEY: "k", STUDIO_ART_VISION_BACKEND: "openrouter", STUDIO_ALLOW_OPENROUTER_CLAUDE: "1" }, "/nonexistent");
+    expect(allowed.models?.vision.id).toBe("anthropic/claude-haiku-5.5");
+    await allowed.renderer.close();
   });
 });

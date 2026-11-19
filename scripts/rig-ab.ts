@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDefaultProject, newEnemyCharacter, type ArtJobRequest, type CharacterAsset } from "@anomaly/core";
-import { OpenRouterVisionModel } from "@anomaly/art";
+import { ClaudeCodeVisionModel } from "../packages/server/src/art/claudeCodeVision.ts";
 import { ArtService } from "../packages/server/src/art/service.ts";
 import { artOptionsFromEnv } from "../packages/server/src/art/config.ts";
 import { FileStore, ProjectStore } from "../packages/server/src/index.ts";
@@ -56,7 +56,7 @@ const arms: { id: string; mode: "vector" | "cutout"; service: ArtService }[] = [
   { id: "cutout", mode: "cutout", service: await ArtService.open(store, { ...options, files, budget: 1 }) },
 ];
 if (args.includes("--opus") && env.STUDIO_ART_BACKEND !== "fake") {
-  const opus = new OpenRouterVisionModel({ apiKey: env.OPENROUTER_API_KEY!.trim() }, "anthropic/claude-opus-5.5");
+  const opus = new ClaudeCodeVisionModel({ model: "claude-opus-5-5" }); // the Claude Code subscription, never OpenRouter
   arms.push({ id: "vector-opus", mode: "vector", service: await ArtService.open(store, { ...options, files, budget: 3, models: { ...options.models, vision: opus } }) });
   arms.push({ id: "cutout-opus", mode: "cutout", service: await ArtService.open(store, { ...options, files, budget: 3, models: { ...options.models, vision: opus } }) });
 }

@@ -1,3 +1,4 @@
+import { isClaudeOnOpenRouter } from "@anomaly/art";
 import {
   FakeImageModel,
   FakeVisionModel,
@@ -18,8 +19,9 @@ import type { ArtServiceOptions } from "./service.ts";
  *   STUDIO_ART_VISION_BACKEND  "claude-code" or "openrouter" (picks, rigs, critiques, animation).
  *                              Default: claude-code (your local Claude Code login, the chat
  *                              agents' backend; vision calls cost nothing), except openrouter
- *                              when STUDIO_CHAT_BACKEND=fake or STUDIO_ART_VISION_MODEL is an
- *                              OpenRouter id ("provider/model").
+ *                              when STUDIO_ART_VISION_MODEL is a non-Claude OpenRouter id
+ *                              ("provider/model"). Claude never goes through OpenRouter unless
+ *                              STUDIO_ALLOW_OPENROUTER_CLAUDE=1.
  *   STUDIO_ART_VISION_MODEL    default claude-opus-5-5 on claude-code,
  *                              anthropic/claude-haiku-5.5 on openrouter
  *   STUDIO_ART_VISION_EFFORT   claude-code only: low|medium|high|xhigh|max (default: the model's)
@@ -47,8 +49,9 @@ export function visionBackendFromEnv(env: Record<string, string | undefined>): V
   const explicit = env.STUDIO_ART_VISION_BACKEND?.trim();
   if (explicit === "claude-code" || explicit === "openrouter") return explicit;
   if (explicit) return null;
-  if (env.STUDIO_CHAT_BACKEND === "fake") return "openrouter";
-  if (env.STUDIO_ART_VISION_MODEL?.includes("/")) return "openrouter";
+  // A "provider/model" id is an OpenRouter model, except Claude's: Claude runs on the Claude Code subscription.
+  const model = env.STUDIO_ART_VISION_MODEL?.trim();
+  if (model?.includes("/") && !isClaudeOnOpenRouter(model)) return "openrouter";
   return "claude-code";
 }
 
@@ -82,7 +85,16 @@ export function artOptionsFromEnv(
       ...(effort && EFFORTS.includes(effort) ? { effort: effort as EffortLevel } : {}),
     });
   } else {
-    vision = new OpenRouterVisionModel(openRouter, env.STUDIO_ART_VISION_MODEL?.trim() || DEFAULT_VISION_MODEL);
+    const model = env.STUDIO_ART_VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
+    const allowClaude = env.STUDIO_ALLOW_OPENROUTER_CLAUDE === "1";
+    if (isClaudeOnOpenRouter(model) && !allowClaude) {
+      return {
+        ...base,
+        models: null,
+        unavailableReason: `${model} on OpenRouter would be billed there: Claude runs on your Claude Code subscription (STUDIO_ART_VISION_BACKEND=claude-code), or set STUDIO_ALLOW_OPENROUTER_CLAUDE=1 to pay through OpenRouter`,
+      };
+    }
+    vision = new OpenRouterVisionModel({ ...openRouter, allowClaude }, model);
   }
   return {
     ...base,
