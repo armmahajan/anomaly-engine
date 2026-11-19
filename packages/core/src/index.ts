@@ -64,6 +64,7 @@ export * from "./combat/difficulty.ts";
 export * from "./architect/planCheck.ts";
 export * from "./architect/pacing.ts";
 export * from "./architect/preview.ts";
+export { roomBuildStamp, roomPlanChanged } from "./architect/fingerprint.ts";
 export * from "./wiki/gameCharacters.ts";
 export * from "./controls/controls.ts";
 export * from "./controls/operations.ts";

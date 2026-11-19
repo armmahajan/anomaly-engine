@@ -76,6 +76,7 @@ export const RoomPlan = z.strictObject({
   notes: z.string().max(2000).default("").describe("Guidance for this room, from the creator or the model."),
   seed: z.number().int().min(0).default(0).describe("Geometry seed: change it to get a different room from the same plan."),
   pinned: z.boolean().default(false).describe("The creator's room: no stage rewrites it."),
+  built: z.string().max(16).optional().describe("Set by the build (don't write it): a stamp of the plan the room was last built from."),
 });
 export type RoomPlan = z.infer<typeof RoomPlan>;
 

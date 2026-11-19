@@ -91,7 +91,9 @@ export const createRoomPlan = op(CreateRoomPlanInput, (p, input) => {
   const parsed = RoomPlan.safeParse(input.room);
   if (!parsed.success) return fail("invalid_input", "room is invalid", issuesOf(parsed.error, "room."));
   if (p.architect.rooms.some((r) => r.id === parsed.data.id)) return fail("invalid_input", `plan room "${parsed.data.id}" already exists`);
-  return commit(p, { ...p.architect, rooms: [...p.architect.rooms, parsed.data] });
+  // A new room hasn't been built: no build stamp.
+  const { built: _built, ...room } = parsed.data;
+  return commit(p, { ...p.architect, rooms: [...p.architect.rooms, room] });
 });
 
 export const UpdateRoomPlanInput = z.strictObject({

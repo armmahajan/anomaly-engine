@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyOperation,
   borderedGrid,
   checkGame,
   fillTiles,
@@ -10,7 +11,9 @@ import {
   messageModalId,
   populationStage,
   ProjectSpec,
+  roomBuildStamp,
   roomLinks,
+  roomPlanChanged,
   screensStage,
   seedPlan,
   validateProject,
@@ -220,6 +223,25 @@ describe("the stages' contract", () => {
     // With no guardian to wait on, population says so.
     const lonely = populationStage(handBuiltProject({ contents: { peak_1: [{ kind: "ending", after: "guardian" }] } }));
     expect(lonely.issues).toContainEqual(expect.objectContaining({ code: "ending-no-guardian", roomId: "peak_1" }));
+  });
+
+  it("stamps each room it fills with the plan it was built from; a change that shapes the room shows, a rename doesn't", () => {
+    const game = build(handBuiltProject());
+    const room = game.architect.rooms.find((r) => r.id === "cave_2")!;
+    expect(room.built).toBe(roomBuildStamp(game.architect, room));
+    expect(roomPlanChanged(game.architect, room)).toBe(false);
+    const edit = (changes: Record<string, unknown>) => {
+      const r = applyOperation(game, "updateRoomPlan", { roomId: "cave_2", changes });
+      if (!r.ok) throw new Error(r.error.message);
+      return r.project.architect;
+    };
+    const contents = edit({ contents: [...room.contents, { kind: "save" }] });
+    expect(roomPlanChanged(contents, contents.rooms.find((r) => r.id === "cave_2")!)).toBe(true);
+    const renamed = edit({ name: "The Wet Cave", notes: "drippy" });
+    expect(roomPlanChanged(renamed, renamed.rooms.find((r) => r.id === "cave_2")!)).toBe(false);
+    // Built again, it matches again.
+    const rebuilt = populationStage({ ...game, architect: contents }).project.architect;
+    expect(roomPlanChanged(rebuilt, rebuilt.rooms.find((r) => r.id === "cave_2")!)).toBe(false);
   });
 
   it("a prop rebuilt in its old place keeps its drawn art (running population again doesn't undo the art)", () => {

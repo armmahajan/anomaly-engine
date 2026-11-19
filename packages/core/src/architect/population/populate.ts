@@ -6,6 +6,7 @@ import { progressionReport } from "../../progression/report.ts";
 import { gridCols, gridRows, TILE } from "../../world/tiles.ts";
 import { Prop, type Door, type Item, type Modal, type RoomSpawn, type World, type WorldRoom } from "../../world/world.ts";
 import { linkDoorId, roomLinks, type RoomContent, type RoomPlan } from "../plan.ts";
+import { roomBuildStamp } from "../fingerprint.ts";
 import { stageRooms, type StageIssue, type StageOptions, type StageOutcome } from "../stages.ts";
 import { abilityName, ENDING_MODAL, endingModal, grantEffect, grantItem, grantScreens, hasCondition, isHeldGrant, isItemGrant, isMovement, messageModalId, safeId, withMissing } from "./grants.ts";
 import { roomSpots, type RoomSpots } from "./spots.ts";
@@ -176,8 +177,11 @@ export function populationStage(project: ProjectSpec, options: StageOptions = {}
     start ? "the start" : "",
     ending ? "the ending" : "",
   ].filter(Boolean);
+  // Each room filled now records the plan it was built from (the studio flags one whose plan changes after).
+  const filled = new Set(ids.filter((id) => project.world.rooms.some((r) => r.id === id)));
+  const architect = { ...project.architect, rooms: project.architect.rooms.map((r) => (filled.has(r.id) ? { ...r, built: roomBuildStamp(project.architect, r) } : r)) };
   return {
-    project: { ...project, characters, world },
+    project: { ...project, characters, world, architect },
     issues,
     summary: `populated ${parts.join(", ")}${issues.length ? ` (${issues.length} issue(s))` : ""}`,
   };

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { roomLinks, uniqueId, type ArchitectState, type ProjectSpec, type RoomContent, type RoomLink, type RoomPlan, type RoomTerrain } from "@anomaly/core";
+import { roomLinks, roomPlanChanged, uniqueId, type ArchitectState, type ProjectSpec, type RoomContent, type RoomLink, type RoomPlan, type RoomTerrain } from "@anomaly/core";
 import type { Session } from "../session.ts";
 import { DraftText, IdToggles, NumberInput, Slider } from "./fields.tsx";
 import { showRoom, startRun, toggleRoom } from "./ui.ts";
@@ -50,6 +50,8 @@ export function RoomCard({ room, project, architect, session, run, expanded, foc
   const ro = locked || room.pinned;
   const update = (changes: Record<string, unknown>) => run("updateRoomPlan", { roomId: room.id, changes });
   const built = project.world.rooms.some((r) => r.id === room.id);
+  // Built from an earlier plan: the creator (or the model) changed what shapes the room since.
+  const changed = built && roomPlanChanged(project.architect, room);
   const rebuilding = architect.running?.rooms?.includes(room.id) ?? false;
   const abilities = grantables(project);
   const abilityName = (id: string) => abilities.find((a) => a.id === id)?.name ?? id;
@@ -77,7 +79,12 @@ export function RoomCard({ room, project, architect, session, run, expanded, foc
           </span>
         </button>
         <span className="room-card-summary">{summary}</span>
-        {built && <span className="tag canon" title="The world room exists">built</span>}
+        {built && !changed && <span className="tag canon" title="The world room exists">built</span>}
+        {changed && (
+          <span className="tag draft" data-testid="room-plan-changed" title="The plan changed since this room was built: Rebuild it (or run the Architect again)">
+            plan changed
+          </span>
+        )}
         {rebuilding && <span className="tag">rebuilding…</span>}
         <button
           type="button"

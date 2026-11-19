@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ARCHITECT_STAGES, STAGE_DESCRIPTIONS, type ArchitectRunRequest, type ArchitectStage, type ArchitectState, type ArtState, type ProjectSpec } from "@anomaly/core";
+import { ARCHITECT_STAGES, roomPlanChanged, STAGE_DESCRIPTIONS, type ArchitectRunRequest, type ArchitectStage, type ArchitectState, type ArtState, type ProjectSpec } from "@anomaly/core";
 import { money } from "../ArtPanel.tsx";
 import type { Session } from "../session.ts";
 import { runReported, showRoom, startRun, stopRun, useRunControl } from "./ui.ts";
@@ -87,6 +87,7 @@ export function RunPanel({ project, architect, session, locked, art }: Props) {
       <p className="hint arch-run-hint" data-testid="architect-run-hint">
         {!running && control.starting ? "Starting…" : runHint(project, architect, roomName)}
       </p>
+      {!underway && <ChangedRooms project={project} />}
       {running && (
         <div className="arch-progress" aria-hidden>
           <div style={{ width: `${((running.stages.indexOf(running.stage) + 0.5) / running.stages.length) * 100}%` }} />
@@ -197,6 +198,19 @@ export function RunPanel({ project, architect, session, locked, art }: Props) {
         </details>
       )}
     </section>
+  );
+}
+
+/** Built rooms whose plan changed since: say so, so the creator knows the world is behind the plan. */
+function ChangedRooms({ project }: { project: ProjectSpec }) {
+  const built = new Set(project.world.rooms.map((r) => r.id));
+  const changed = project.architect.rooms.filter((r) => built.has(r.id) && roomPlanChanged(project.architect, r));
+  if (!changed.length) return null;
+  const names = changed.map((r) => r.name);
+  return (
+    <p className="hint arch-changed" data-testid="architect-plan-changed">
+      The plan changed since {changed.length === 1 ? `${names[0]} was built` : `${changed.length} rooms were built (${names.slice(0, 3).join(", ")}${names.length > 3 ? ", …" : ""})`}: rebuild {changed.length === 1 ? "it" : "them"} from its card, or run again from Geometry (or Population, for contents alone).
+    </p>
   );
 }
 

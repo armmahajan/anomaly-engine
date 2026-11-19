@@ -1666,7 +1666,12 @@ body.resizing iframe {
 .check-steps ol { margin: 4px 0; padding-left: 22px; max-height: 260px; overflow-y: auto; }
 .check-room { color: var(--muted); }
 
-/* The character's name, editable in place in the inspector title. */
+/* The character's name, editable in place in the inspector title: it takes the title's free width. */
+.inspector-title .name-field {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .inspector-title .name-input {
   font: inherit;
   color: inherit;
@@ -1675,7 +1680,11 @@ body.resizing iframe {
   border-radius: 4px;
   padding: 1px 4px;
   margin-left: -5px;
-  width: min(100%, 16em);
+  /* The whole name when there's room (variants are long: "Mirror Saint (Neon Galleria)"), else an ellipsis. */
+  flex: 1 1 auto;
+  min-width: 6em;
+  width: 100%;
+  text-overflow: ellipsis;
 }
 .inspector-title .name-input:hover:not(:disabled),
 .inspector-title .name-input:focus {

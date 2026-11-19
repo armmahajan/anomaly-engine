@@ -26,13 +26,8 @@ import type { StageIssue, StageOutcome } from "./stages.ts";
 export const PREVIEW_STAGES = ["layout", "geometry", "population"] as const satisfies readonly ArchitectStage[];
 export const PREVIEW_PREFIX = "preview: ";
 
-/** FNV-1a, 32 bits, of the value's JSON with sorted keys, as hex: enough to tell versions of a document apart. */
-export function fingerprint(value: unknown): string {
-  const text = JSON.stringify(value, (_, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1))) : v)) ?? "";
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
-  return (h >>> 0).toString(16).padStart(8, "0");
-}
+export { fingerprint } from "./fingerprint.ts";
+import { fingerprint } from "./fingerprint.ts";
 
 /**
  * What the preview's rooms follow: the progression's structure (not whether items are
