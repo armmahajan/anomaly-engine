@@ -8,9 +8,12 @@ extends Node
 ##
 ## The animation effects (core art/animation.ts) live here too: playAnimation (a clip on a prop, a
 ## spawn or the player) and spawnEffect (an object shown once at a place, under the room, so a new
-## room drops it), and spawn_object for projectile bursts.
+## room drops it), and spawn_object for projectile bursts. The look effects too (setLook, clearLook,
+## dissolve on a target's art/look_view.gd; emit: art/particles.gd at a place; cameraZoom on the
+## play camera).
 
 const ObjectView := preload("res://scripts/art/object_view.gd")
+const Particles := preload("res://scripts/art/particles.gd")
 ## Group of the room's live effects (spawnEffect, bursts): the runtime state's `effects`.
 const EFFECTS_GROUP := "anim_effects"
 
@@ -22,6 +25,9 @@ var _shake_left := 0.0
 var _flash_time := 0.0
 var _flash_left := 0.0
 var _flash_color := Color.WHITE
+var _zoom_amount := 1.0
+var _zoom_time := 0.0
+var _zoom_left := 0.0
 var _slow_scale := 1.0
 var _slow_frames := 0
 var _slow_budget := 0.0
@@ -51,6 +57,104 @@ func register(events) -> void:
 	events.register("slowMotion", func(e, _c): slow_motion(float(e.get("scale", 0.3)), float(e.get("seconds", 0.8))))
 	events.register("playAnimation", _play_animation)
 	events.register("spawnEffect", _spawn_effect)
+	events.register("setLook", _set_look)
+	events.register("clearLook", _clear_look)
+	events.register("emit", _emit)
+	events.register("dissolve", _dissolve)
+	events.register("cameraZoom", func(e, _c): camera_zoom(float(e.get("amount", 1.15)), float(e.get("seconds", 0.3))))
+
+
+# --- looks (core art/animation.ts Look; art/look_view.gd) ------------------------------------
+
+## The look view of an animation target (self, player, prop, spawn) in the current room, or null.
+func look_of(target: Variant, context: Dictionary) -> Node:
+	if typeof(target) != TYPE_DICTIONARY:
+		return null
+	var kind := str(target.get("kind", "self"))
+	if kind == "self":
+		if typeof(context.get("prop")) == TYPE_DICTIONARY:
+			return look_of({"kind": "prop", "prop": context.prop.id}, {})
+		if typeof(context.get("spawn")) == TYPE_DICTIONARY:
+			return look_of({"kind": "spawn", "spawn": context.spawn.id}, {})
+		return null
+	match kind:
+		"player":
+			if _alive(main._player):
+				return main._player.look
+		"prop":
+			if main._props != null and is_instance_valid(main._props):
+				return main._props.look_of(str(target.get("prop", "")))
+		"spawn":
+			var enemy := enemy_for(str(target.get("spawn", "")))
+			if enemy != null:
+				return enemy.look
+	return null
+
+
+## setLook {target, look, seconds, fade}: replaces the target's last setLook.
+func _set_look(effect: Dictionary, context: Dictionary) -> void:
+	var view := look_of(effect.get("target", {"kind": "self"}), context)
+	if view != null and typeof(effect.get("look")) == TYPE_DICTIONARY:
+		view.set_look(effect.look, effect.get("seconds"), float(effect.get("fade", 0.2)))
+
+
+func _clear_look(effect: Dictionary, context: Dictionary) -> void:
+	var view := look_of(effect.get("target", {"kind": "self"}), context)
+	if view != null:
+		view.clear_look(float(effect.get("fade", 0.2)))
+
+
+func _dissolve(effect: Dictionary, context: Dictionary) -> void:
+	var view := look_of(effect.get("target", {"kind": "self"}), context)
+	if view != null:
+		view.dissolve(str(effect.get("to", "out")), float(effect.get("seconds", 0.4)), Color(str(effect.get("color", "#ffffff"))))
+
+
+## emit {at, offset, emitter, seconds, layer}: particles at a place for `seconds`; at a target, they
+## follow it (and stop when it is gone).
+func _emit(effect: Dictionary, context: Dictionary) -> void:
+	var world: Node = main._world
+	var at = effect.get("at", {"kind": "self"})
+	if world == null or not is_instance_valid(world) or typeof(effect.get("emitter")) != TYPE_DICTIONARY or place_of(at, context) == null:
+		return
+	var particles = Particles.new()
+	var offset = effect.get("offset", [0, 0])
+	if typeof(offset) == TYPE_ARRAY and offset.size() >= 2:
+		particles.offset = Vector2(float(offset[0]), float(offset[1]))
+	var pinned := context.duplicate()
+	if typeof(at) == TYPE_DICTIONARY and str(at.get("kind", "")) != "point":
+		particles.follow = func(): return place_of(at, pinned)
+	particles.position = place_of(at, context) + particles.offset
+	if str(effect.get("layer", "front")) == "back":
+		world.add_child(particles)
+		var player = main._player
+		if _alive(player) and player.get_parent() == world:
+			world.move_child(particles, player.get_index())
+	else:
+		particles.z_index = 4
+		world.add_child(particles)
+	particles.setup(effect.emitter, Vector2.ZERO, float(effect.get("seconds", 0.5)))
+
+
+## Particle systems alive in the current room (emit effects and looks' emitters): state `emitters`.
+func emitters_count() -> int:
+	var world: Node = main._world
+	if world == null or not is_instance_valid(world):
+		return 0
+	var n := 0
+	for node in get_tree().get_nodes_in_group(Particles.GROUP):
+		if not node.is_queued_for_deletion() and world.is_ancestor_of(node):
+			n += 1
+	return n
+
+
+## Punch the play camera in by `amount` (zoom x), easing back over `seconds` (real time).
+func camera_zoom(amount: float, seconds: float) -> void:
+	if seconds <= 0.0:
+		return
+	_zoom_amount = clampf(amount, 0.5, 3.0)
+	_zoom_time = seconds
+	_zoom_left = seconds
 
 
 # --- animation ----------------------------------------------------------------------------
@@ -265,9 +369,11 @@ class Burst extends Node2D:
 func reset() -> void:
 	_shake_left = 0.0
 	_flash_left = 0.0
+	_zoom_left = 0.0
 	_slow_frames = 0
 	_apply_shake()
 	_apply_flash()
+	_apply_zoom()
 
 
 ## What is running now (for headless probes).
@@ -282,6 +388,9 @@ func _process(delta: float) -> void:
 	if _flash_left > 0.0:
 		_flash_left = maxf(0.0, _flash_left - delta)
 		_apply_flash()
+	if _zoom_left > 0.0:
+		_zoom_left = maxf(0.0, _zoom_left - delta)
+		_apply_zoom()
 
 
 func _physics_process(_delta: float) -> void:
@@ -307,6 +416,16 @@ func _apply_shake() -> void:
 		return
 	var amount := _shake * _shake_left / maxf(_shake_time, 0.001)
 	camera.offset = Vector2(_rng.randf_range(-amount, amount), _rng.randf_range(-amount, amount)) if _shake_left > 0.0 else Vector2.ZERO
+
+
+## The camera punch: in fast (the first 15% of the time), then eased back to 1.
+func _apply_zoom() -> void:
+	var camera := _camera()
+	if camera == null or not ("punch" in camera):
+		return
+	var t := 1.0 - _zoom_left / maxf(_zoom_time, 0.001)
+	var k := t / 0.15 if t < 0.15 else pow(1.0 - (t - 0.15) / 0.85, 2.0)
+	camera.punch = 1.0 + (_zoom_amount - 1.0) * clampf(k, 0.0, 1.0) if _zoom_left > 0.0 else 1.0
 
 
 func _apply_flash() -> void:

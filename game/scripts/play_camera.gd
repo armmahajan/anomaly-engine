@@ -23,6 +23,8 @@ var target: Node2D = null
 ## Tiles the view shows top to bottom (world.camera.rows).
 var rows := 14.0
 var room_size := Vector2(960, 448)
+## A cameraZoom punch on top of the fitted zoom (fx.gd sets it; 1 = none).
+var punch := 1.0
 ## Where the deadzone is centred (world px).
 var _anchor := Vector2.ZERO
 var _look := 0.0
@@ -92,7 +94,7 @@ func follow(delta: float) -> void:
 
 
 func _apply_zoom() -> void:
-	var z := fitted_zoom()
+	var z := fitted_zoom() * punch
 	zoom = Vector2(z, z)
 	position_smoothing_enabled = false
 	# The script keeps the view inside the room (and centres small rooms), not Camera2D's limits.
