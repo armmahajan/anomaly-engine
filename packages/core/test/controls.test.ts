@@ -30,14 +30,14 @@ const TODAYS_MAP = {
   move_left: ["A", "Left"],
   move_right: ["D", "Right"],
   jump: ["Space", "Z"],
-  attack: ["X", "J"],
+  attack: ["X", "J", "MouseLeft"],
   aim_up: ["W", "Up"],
   aim_down: ["S", "Down"],
   dash: ["C", "Shift", "K"],
   interact: ["W", "Up"],
   map: ["M", "Tab"],
   // Weapons (the loadout's slot actions and switching): new keys nobody had.
-  alt_attack: ["V", "N"],
+  alt_attack: ["V", "N", "MouseRight"],
   special_attack: ["F", "U"],
   weapon_cycle: ["Q", "I"],
 };
@@ -45,7 +45,7 @@ const TODAYS_MAP = {
 describe("controls schema", () => {
   it("defaults to today's keys, for new projects and for projects saved before controls existed", () => {
     expect(DEFAULT_BINDINGS).toEqual(TODAYS_MAP);
-    expect(createDefaultProject().controls).toEqual({ bindings: TODAYS_MAP });
+    expect(createDefaultProject().controls).toEqual({ bindings: TODAYS_MAP, aim: "mouse" });
     const { controls: _, ...older } = createDefaultProject();
     const loaded = ProjectSpec.parse(older);
     expect(loaded.controls.bindings).toEqual(TODAYS_MAP);
@@ -140,7 +140,7 @@ describe("player keys", () => {
     expect(help.map((h) => [h.action, renderHelp(h.template, bindings)])).toEqual([
       ["move", "A/← and D/→"],
       ["jump", "L"],
-      ["attack", "X/J (hold W/↑ or S/↓ to aim)"],
+      ["attack", "X/J/Left click, toward the mouse (or hold W/↑ or S/↓ to aim)"],
       ["dash", "C/Shift/K"],
       ["ground pound", "S/↓ + L in the air"],
       ["choose in menus", "A/← / D/→ and L or Enter"],

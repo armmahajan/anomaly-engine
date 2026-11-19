@@ -196,7 +196,7 @@ describe("the keys a game with weapons shows", () => {
     const { help, actions } = gameControlHelp(armed(loadout));
     expect(help.map((h) => [h.action, h.template])).toEqual(
       expect.arrayContaining([
-        ["attack (Blade)", "{attack} (hold {aim_up} or {aim_down} to aim)"],
+        ["attack (Blade)", "{attack}, toward the mouse (or hold {aim_up} or {aim_down} to aim)"],
         ["ranged: Long Bow", "{alt_attack}"],
         ["switch weapon", "{weapon_cycle}"],
       ]),

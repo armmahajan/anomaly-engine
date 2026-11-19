@@ -74,7 +74,7 @@ describe("lintWeapons", () => {
 
   it("a loadout slot on an action with no keys", () => {
     const p = project([sword], "sword");
-    const unbound = { ...p, controls: { bindings: { ...p.controls.bindings, attack: [] } } } as ProjectSpec;
+    const unbound = { ...p, controls: { ...p.controls, bindings: { ...p.controls.bindings, attack: [] } } } as ProjectSpec;
     expect(codes(unbound)).toEqual(["loadout_no_keys"]);
   });
 });

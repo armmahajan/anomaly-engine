@@ -204,6 +204,8 @@ export const RuntimeToStudio = z.discriminatedUnion("type", [
     camera: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).nullable().default(null),
     /** The keyboard keys in effect per action (the game's, with the player's overrides), by key name. */
     controls: z.record(z.string(), z.array(z.string())).default({}),
+    /** Play: the player's aim as a unit vector (room space, y down: toward the mouse, or the aim keys), and whether the mouse is aiming; null in edit mode. */
+    aim: z.object({ x: z.number(), y: z.number(), mouse: z.boolean() }).nullable().default(null),
     /** Play: the weapons the player has, each loadout slot's weapon (null = empty) and the HUD's rows; null in edit mode. */
     weapons: z
       .object({

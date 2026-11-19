@@ -46,7 +46,14 @@ const NAMED_KEYS = {
   End: "End",
   PageUp: "Page Up",
   PageDown: "Page Down",
+  // Mouse buttons bind like keys (the runtime maps them to mouse button events).
+  MouseLeft: "Left click",
+  MouseRight: "Right click",
+  MouseMiddle: "Middle click",
 } as const;
+
+/** Key names that are mouse buttons (the runtime binds them as mouse button events, the studio captures clicks for them). */
+export const MOUSE_BUTTONS = ["MouseLeft", "MouseRight", "MouseMiddle"] as const;
 
 /**
  * Every key a game action can be bound to, by layout-independent position (a QWERTY "W" is the key
@@ -106,13 +113,13 @@ export const CONTROL_ACTIONS = [
   { id: "move_left", label: "Move left", description: "Run left; chooses in menus.", defaults: ["A", "Left"], context: "play" },
   { id: "move_right", label: "Move right", description: "Run right; chooses in menus.", defaults: ["D", "Right"], context: "play" },
   { id: "jump", label: "Jump", description: "Jump (hold for higher, again in the air with double jump, hold while falling to glide); presses menu buttons.", defaults: ["Space", "Z"], context: "play" },
-  { id: "attack", label: "Attack", description: "Swing the sword.", defaults: ["X", "J"], context: "play" },
+  { id: "attack", label: "Attack", description: "Use the main weapon (or the built-in attack), toward the aim.", defaults: ["X", "J", "MouseLeft"], context: "play" },
   { id: "aim_up", label: "Aim up", description: "Hold while attacking to swing upward; chooses in menus.", defaults: ["W", "Up"], context: "play", shares: ["interact"] },
   { id: "aim_down", label: "Aim down", description: "Hold in the air while attacking to strike down (pogo); with jump in the air, ground pound; chooses in menus.", defaults: ["S", "Down"], context: "play" },
   { id: "dash", label: "Dash", description: "Dash (with the dash ability).", defaults: ["C", "Shift", "K"], context: "play" },
   { id: "interact", label: "Interact", description: "Use what the player overlaps (a prop's interact event).", defaults: ["W", "Up"], context: "play", shares: ["aim_up"] },
   { id: "map", label: "Map", description: "Open and close the map screen (when the game has one).", defaults: ["M", "Tab"], context: "play" },
-  { id: "alt_attack", label: "Alt attack", description: "Use the weapon in the loadout slot bound to it (when the game has one).", defaults: ["V", "N"], context: "play" },
+  { id: "alt_attack", label: "Alt attack", description: "Use the weapon in the loadout slot bound to it (when the game has one), toward the aim.", defaults: ["V", "N", "MouseRight"], context: "play" },
   { id: "special_attack", label: "Special attack", description: "Use the weapon in the loadout slot bound to it (when the game has one).", defaults: ["F", "U"], context: "play" },
   { id: "weapon_cycle", label: "Switch weapon", description: "Swap the main slot to the next weapon the player has (when the game allows it).", defaults: ["Q", "I"], context: "play" },
 ] as const satisfies readonly ControlActionInfo[];
@@ -217,6 +224,12 @@ export const keysText = (keys: readonly string[]): string => keys.map(keyLabel).
 export const Controls = z
   .strictObject({
     bindings: ControlBindings.prefault({}).describe("Keys per action (the game's defaults; players may override them in their browser)."),
+    aim: z
+      .enum(["mouse", "keys"])
+      .default("mouse")
+      .describe(
+        "How the player aims attacks. mouse: toward the cursor, any direction (the aim keys still aim up/forward/down when the mouse isn't used); keys: only the aim keys (up, forward, down).",
+      ),
   })
   .superRefine((controls, ctx) => {
     for (const c of controlConflicts(controls.bindings)) {
@@ -247,6 +260,9 @@ const ABILITY_HELP: Record<string, ControlHelp> = {
   glide: { action: "glide", template: "Hold {jump} while falling" },
   ground_pound: { action: "ground pound", template: "{aim_down} + {jump} in the air" },
 };
+
+/** The attack line when the game aims with the mouse. */
+const MOUSE_ATTACK_TEMPLATE = "{attack}, toward the mouse (or hold {aim_up} or {aim_down} to aim)";
 
 const MENU_HELP: ControlHelp = { action: "choose in menus", template: "{move_left} / {move_right} and {jump} or Enter" };
 
@@ -310,7 +326,10 @@ export function gameControlHelp(project: { world: unknown; controls?: unknown; w
   };
   walk(project.world);
   const weapons = weaponHelp(project.weapons as HelpWeapons | undefined, given);
-  const help = weapons.attack ? BASIC_HELP.map((h) => (h.action === "attack" ? weapons.attack! : h)) : [...BASIC_HELP];
+  const mouse = ((project.controls as { aim?: string } | undefined)?.aim ?? "mouse") === "mouse";
+  // Mouse aiming: attacks go toward the cursor; the aim keys still aim up and down.
+  const aimed = (h: ControlHelp): ControlHelp => (h.action.startsWith("attack") && mouse ? { ...h, template: MOUSE_ATTACK_TEMPLATE } : h);
+  const help = (weapons.attack ? BASIC_HELP.map((h) => (h.action === "attack" ? weapons.attack! : h)) : [...BASIC_HELP]).map(aimed);
   help.push(...weapons.extra);
   for (const [ability, entry] of Object.entries(ABILITY_HELP)) if (granted.has(ability)) help.push(entry);
   if (events.has("interact")) help.push({ action: "interact", template: "{interact}" });
@@ -321,4 +340,4 @@ export function gameControlHelp(project: { world: unknown; controls?: unknown; w
 }
 
 /** A new game's controls: every action on its default keys. */
-export const defaultControls = (): Controls => ({ bindings: ControlBindings.parse({}) });
+export const defaultControls = (): Controls => ({ bindings: ControlBindings.parse({}), aim: "mouse" });
