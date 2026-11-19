@@ -10,7 +10,7 @@ import { answers, LogicRun, logicGame, weaponFlag, type Checkpoint, type LogicGa
 import { aimRayReach, attackBounds, isCardinalAim, triggerAims, type HitBox } from "../../combat/weaponModel.ts";
 import type { Weapon } from "../../combat/weapon.ts";
 
-export { clipMarkers, LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type MarkerSource, type RunSnapshot, type RunState } from "./interpret.ts";
+export { clipMarkers, LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type MarkerSource, type RunSnapshot, type RunState, type StateSource } from "./interpret.ts";
 
 /**
  * The logic-aware checker (agent I): proves, deterministically and without
@@ -71,6 +71,10 @@ export { clipMarkers, LogicRun, logicGame, matches, type LogicEvent, type LogicG
  *   (a hazard wherever that event can happen). Markers of clips that play
  *   without a cue (an object prop's idle, any clip of a living spawn's or the
  *   player's art) may fire at any point, when some handler listens for them.
+ * - Looks (setLook, clearLook, emit, dissolve, cameraZoom) are visual and change
+ *   nothing. stateEntered may fire whenever its enemy is alive (it can change
+ *   state at any time), for each state some handler listens for, like an
+ *   idle's markers: damage in its handler is a hazard while that enemy lives.
  */
 
 /** What the run remembers (a logical state, without the position). */
@@ -273,6 +277,8 @@ class WorldModel {
   readonly dangerous = new Set<string>();
   /** Marker names some handler listens for (`any`: one listens for every marker). */
   readonly heard: { any: boolean; names: Set<string> } = { any: false, names: new Set() };
+  /** State ids some stateEntered handler listens for (`any`: one listens for every state). */
+  readonly heardStates: { any: boolean; names: Set<string> } = { any: false, names: new Set() };
   readonly flagsSet = new Set<string>();
   readonly itemsGiven = new Set<string>();
   readonly weaponsGiven = new Set<string>();
@@ -333,6 +339,10 @@ class WorldModel {
     this.keepEntry = effects.some((e) => e.type === "saveRun" || (e.type === "respawn" && (e.at ?? "entry") === "entry"));
     const w = project.world;
     for (const h of [...w.handlers, ...w.rooms.flatMap((r) => [...r.handlers, ...r.props.flatMap((p) => p.handlers), ...r.spawns.flatMap((sp) => sp.handlers)])]) {
+      if (h.on.type === "stateEntered") {
+        if (h.on.state === undefined) this.heardStates.any = true;
+        else this.heardStates.names.add(h.on.state);
+      }
       if (h.on.type !== "marker") continue;
       if (h.on.name === undefined) this.heard.any = true;
       else this.heard.names.add(h.on.name);
@@ -971,6 +981,13 @@ function successors(m: WorldModel, s: State): Edge[] {
     const run = base.clone();
     run.marker(mk);
     out.push(...outcome(m, run, here, here, `${markerFrom(mk)} reaches its marker "${mk.name}"`));
+  }
+  // An enemy alive in the room may enter any of its states at any time.
+  for (const st of base.ambientStates()) {
+    if (!m.heardStates.any && !m.heardStates.names.has(st.state)) continue;
+    const run = base.clone();
+    run.stateEntered(st);
+    out.push(...outcome(m, run, here, here, `spawn ${st.spawn} enters its state "${st.state}"`));
   }
   return out;
 }

@@ -3,7 +3,7 @@ extends Node2D
 ## shows the playtest room (edit mode) or plays the world (rooms and doors) from the project spec it receives.
 ## Protocol: see packages/core/src/protocol.ts.
 
-const PROTOCOL_VERSION := 17
+const PROTOCOL_VERSION := 18
 const STUDIO_SOURCE := "anomaly-studio"
 const RUNTIME_SOURCE := "anomaly-runtime"
 

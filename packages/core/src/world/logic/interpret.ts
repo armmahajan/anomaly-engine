@@ -27,6 +27,10 @@ import { isObjectArt, type Modal, type Prop, type PropSwitch, type RoomSpawn, ty
  * markers of clips that play without a cue (an object prop's idle, any clip
  * of a spawn's or the player's art) are the driver's to fire (`ambientMarkers`,
  * `marker`), whenever it judges they can happen.
+ *
+ * Looks and the other visual effects (setLook, clearLook, emit, dissolve, cameraZoom, and the
+ * feedback effects) change nothing here. An enemy's `stateEntered` is the driver's to fire too
+ * (`ambientStates`, `stateEntered`): whenever its enemy is alive, as it can change state at any time.
  */
 
 export interface Point {
@@ -47,6 +51,14 @@ export interface LogicEvent {
   name?: string;
   source?: string;
   player?: boolean;
+  /** stateEntered: the state entered (the event's spawn and character say whose). */
+  state?: string;
+}
+/** A behavior state an enemy of the room can enter (stateEntered). */
+export interface StateSource {
+  spawn: string;
+  character: string;
+  state: string;
 }
 /** A marker that can fire: its name and what plays it (the event's fields besides type and room). */
 export interface MarkerSource {
@@ -85,6 +97,8 @@ export interface LogicGame {
   /** Character id -> the asset that draws it (only drawn ones); the player's under `player`. */
   appearances: Map<string, string>;
   playerAppearance: string | null;
+  /** Enemy character id -> its behavior states' ids (stateEntered). */
+  states: Map<string, string[]>;
 }
 
 export function logicGame(project: ProjectSpec, origin: { room: string; at: Point }, without: readonly string[] = []): LogicGame {
@@ -97,6 +111,7 @@ export function logicGame(project: ProjectSpec, origin: { room: string; at: Poin
     clips,
     appearances,
     playerAppearance: player ? (appearances.get(player.id) ?? null) : null,
+    states: new Map(project.characters.flatMap((c) => (c.kind === "enemy" ? [[c.id, Object.keys(c.behavior.states)] as const] : []))),
     rooms: new Map(world.rooms.map((r) => [r.id, r])),
     handlers: [...ruleHandlers(world.rules), ...world.handlers],
     start: world.start,
@@ -307,6 +322,22 @@ export class LogicRun implements RunState {
     this.flush();
   }
 
+  /** The driver: an enemy of the room enters a behavior state now (stateEntered, fired and handled). */
+  stateEntered(s: StateSource): void {
+    this.fire({ type: "stateEntered", spawn: s.spawn, character: s.character, state: s.state });
+    this.flush();
+  }
+
+  /** States each living spawn of the room can enter (its enemy can change state at any time). */
+  ambientStates(): StateSource[] {
+    const out: StateSource[] = [];
+    for (const spawn of this.currentRoom()?.spawns ?? []) {
+      if (!this.alive.has(spawn.id)) continue;
+      for (const state of this.game.states.get(spawn.characterId) ?? []) out.push({ spawn: spawn.id, character: spawn.characterId, state });
+    }
+    return out;
+  }
+
   /** What an animation target is in the current room: its clips and how its markers are sourced; null when it isn't here or isn't drawn. */
   private animated(target: AnimTarget, context: Context): { clips: Record<string, Clip>; from: Omit<MarkerSource, "name"> } | null {
     const room = this.currentRoom();
@@ -436,7 +467,7 @@ export class LogicRun implements RunState {
           break;
         }
         default:
-          break; // heal, revealMap and feedback: nothing the logic reads
+          break; // heal, revealMap, feedback and looks (setLook, clearLook, emit, dissolve, cameraZoom): nothing the logic reads
       }
     }
   }
@@ -570,6 +601,7 @@ export class LogicRun implements RunState {
 export function matches(on: Handler["on"], event: LogicEvent, scope: { room?: string; spawn?: string; prop?: string }): boolean {
   if (on.type !== event.type) return false;
   if (on.type === "marker") return matchesMarker(on, event, scope);
+  if (on.type === "stateEntered") return matchesState(on, event, scope);
   if (event.prop !== undefined && scope.prop !== event.prop) return false;
   for (const key of ["room", "spawn", "character", "timer"] as const) {
     const pinned = (on as Record<string, unknown>)[key];
@@ -602,6 +634,20 @@ function matchesMarker(on: Extract<Handler["on"], { type: "marker" }>, event: Lo
     default:
       return false;
   }
+}
+
+/**
+ * events.gd _matches_state: a spawn's handlers hear its own enemy's states; world and room handlers hear
+ * every enemy's, filtered by `state` and `from` (only a spawn means something there). Props hear none.
+ */
+function matchesState(on: Extract<Handler["on"], { type: "stateEntered" }>, event: LogicEvent, scope: { room?: string; spawn?: string; prop?: string }): boolean {
+  if (on.state !== undefined && on.state !== event.state) return false;
+  if (scope.room !== undefined && event.room !== scope.room) return false;
+  if (scope.prop !== undefined) return false;
+  if (scope.spawn !== undefined) return event.spawn === scope.spawn;
+  const from = on.from;
+  if (!from) return true;
+  return from.kind === "spawn" && event.spawn === from.spawn;
 }
 
 /** Does a prop answer an event (props.gd _answers)? */

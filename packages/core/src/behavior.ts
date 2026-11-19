@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Color, Id } from "./common.ts";
-import { ProjectileLook } from "./art/animation.ts";
+import { Look, ProjectileLook } from "./art/animation.ts";
 
 /**
  * Behaviors are data: a state machine whose states each run one *action*
@@ -245,6 +245,7 @@ export const BehaviorState = z.strictObject({
     .array(Transition)
     .max(10)
     .describe("Checked in order every physics tick; the first that holds wins. Empty = stay in this state."),
+  look: Look.optional().describe("Shown while in this state (under any setLook)."),
 });
 export type BehaviorState = z.infer<typeof BehaviorState>;
 
