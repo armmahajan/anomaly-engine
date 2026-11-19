@@ -135,7 +135,16 @@ function NameField({ name, onRename, onDone }: { name: string; onRename: (name: 
   const [value, setValue] = useState(name);
   const inputRef = useRef<HTMLInputElement>(null);
   const done = useRef(false);
-  useEffect(() => inputRef.current?.select(), []);
+  // Select the whole name to type over it. Opened by a double-click, the click's own mouse events land
+  // on the new field right after it appears and would put a caret there: select again once they settle.
+  const settled = useRef(false);
+  useEffect(() => {
+    inputRef.current?.select();
+    const again = window.setTimeout(() => {
+      if (!settled.current) inputRef.current?.select();
+    }, 250);
+    return () => window.clearTimeout(again);
+  }, []);
 
   const commit = async (refocus: boolean) => {
     if (done.current) return;
@@ -153,7 +162,18 @@ function NameField({ name, onRename, onDone }: { name: string; onRename: (name: 
       value={value}
       maxLength={120}
       autoFocus
-      onChange={(e) => setValue(e.target.value)}
+      onChange={(e) => {
+        settled.current = true;
+        setValue(e.target.value);
+      }}
+      onMouseUp={(e) => {
+        // The double-click that opened it: keep the selection instead of placing a caret.
+        if (!settled.current) {
+          e.preventDefault();
+          settled.current = true;
+          inputRef.current?.select();
+        }
+      }}
       onBlur={() => void commit(false)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {

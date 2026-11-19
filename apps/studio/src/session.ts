@@ -158,6 +158,12 @@ export class Session {
   private syncRuntime(): void {
     const { runtimeStatus, mode, project } = this.state;
     if (runtimeStatus !== "ready" || mode !== "edit" || this.requestedRevision === project.revision) return;
+    // A stage showing a character the new project no longer has (a reset, an undo, a delete) would fail
+    // in the runtime before the studio moves on: show the game until the studio sets the next stage.
+    if (this.stage.mode === "character" && !project.characters.some((c) => c.id === (this.stage as { characterId: string }).characterId)) {
+      this.stage = { mode: "game" };
+      this.bridge.send({ type: "stage", stage: this.stage });
+    }
     // The runtime never needs the design documents.
     if (this.bridge.send({ type: "load", project: toRuntimeProject(project) })) this.requestedRevision = project.revision;
     // The images it draws: kits of biomes that dress rooms or draw props, modal images, item icons, cutout
