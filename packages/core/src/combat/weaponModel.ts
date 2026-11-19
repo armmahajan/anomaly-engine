@@ -73,6 +73,49 @@ export function phaseAt(f: AttackFrames, frame: number): WeaponPhase {
 /** Unit aims in wielder space (down only counts in the air). */
 export const AIM_VECTORS: Record<"forward" | "up" | "down", XY> = { forward: { x: 1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
 
+export type AimName = "forward" | "up" | "down";
+
+/**
+ * Mouse aiming (controls.aim "mouse"): the aim is any unit vector. Picking an attack goes by its
+ * bucket: within AIM_BUCKET_DEG of straight up is "up", of straight down "down" (which, as with the
+ * keys, only counts in the air), anything else "forward"; the attack's shape then follows the exact
+ * aim. The wielder turns toward the aim for the attack (wielderAim), so in wielder space x >= 0.
+ * Mirrors weapon_runner.gd `aim_bucket`.
+ */
+export const AIM_BUCKET_DEG = 45;
+const BUCKET_Y = Math.cos((AIM_BUCKET_DEG * Math.PI) / 180);
+
+export function aimBucket(aim: XY): AimName {
+  if (aim.y <= -BUCKET_Y + 1e-6) return "up";
+  if (aim.y >= BUCKET_Y - 1e-6) return "down";
+  return "forward";
+}
+
+/** A unit aim at `deg` degrees (0 = right, 90 = down: y is down). */
+export const aimAt = (deg: number): XY => ({ x: Math.cos((deg * Math.PI) / 180), y: Math.sin((deg * Math.PI) / 180) });
+
+/**
+ * A room-space aim as the wielder makes the attack: it turns toward the aim (`facing` 1 = right, -1 =
+ * left; straight up or down keeps `facing`), and the aim in its (facing-right) space. Mirrors
+ * player.gd, which turns for the attack's duration.
+ */
+export function wielderAim(aim: XY, facing: number): { facing: number; aim: XY } {
+  const turned = aim.x > 1e-9 ? 1 : aim.x < -1e-9 ? -1 : facing;
+  return { facing: turned, aim: { x: aim.x * turned, y: aim.y } };
+}
+
+/**
+ * The aim an attack is made with (wielder space): a mouse aim exactly as given; a named (key) aim the
+ * attack's trigger aim, or the one held for "any" (down on the ground is forward). Mirrors
+ * weapon_runner.gd `aim_for`.
+ */
+export function attackAim(attack: Pick<WeaponAttack, "trigger">, aim: AimName | XY, airborne: boolean): XY {
+  if (typeof aim !== "string") return aim;
+  let name: AimName = attack.trigger.aim === "any" ? aim : attack.trigger.aim;
+  if (name === "down" && !airborne) name = "forward";
+  return AIM_VECTORS[name];
+}
+
 const rad = (deg: number) => (deg * Math.PI) / 180;
 const rotate = (v: XY, angle: number): XY => ({ x: v.x * Math.cos(angle) - v.y * Math.sin(angle), y: v.x * Math.sin(angle) + v.y * Math.cos(angle) });
 
@@ -237,12 +280,72 @@ export function attackHits(attack: Pick<WeaponAttack, "shape" | "timing" | "cool
   return polygons.some((p) => polygonHitsBox(p, box)) || circles.some((c) => circleHitsBox(c.centre, c.radius, box));
 }
 
-/** The aims an attack's trigger is used with: standing (`ground`) or in the air. Down only counts in the air. */
-export function triggerAims(attack: Pick<WeaponAttack, "trigger">, where: "ground" | "air"): XY[] {
+/**
+ * Mouse aims a bucket is sampled at (degrees, wielder space: x >= 0), for reach. Up and down take
+ * their 45° edges; forward stops a degree short of them (an aim exactly on the edge is up or down).
+ * The cardinal aims are AIM_VECTORS themselves (the aim keys still give them).
+ */
+const BUCKET_SAMPLES: Record<AimName, number[]> = { up: [-90, -75, -60, -45], forward: [-44, -30, -15, 0, 15, 30, 44], down: [45, 60, 75, 90] };
+const CARDINAL: Record<number, XY> = { [-90]: AIM_VECTORS.up, 0: AIM_VECTORS.forward, 90: AIM_VECTORS.down };
+
+/** Aims sampled across a bucket's angle range (wielder space). */
+export const bucketAims = (bucket: AimName): XY[] => BUCKET_SAMPLES[bucket].map((deg) => CARDINAL[deg] ?? aimAt(deg));
+
+/**
+ * The aims an attack's trigger is used with: standing (`ground`) or in the air. Down only counts in
+ * the air. `mouse` (controls.aim "mouse"): every aim of its buckets' ranges (sampled, bucketAims).
+ */
+export function triggerAims(attack: Pick<WeaponAttack, "trigger">, where: "ground" | "air", mouse = false): XY[] {
   const t = attack.trigger;
   if (t.where !== "both" && t.where !== where) return [];
   const aims = t.aim === "any" ? (["forward", "up", "down"] as const) : [t.aim];
-  return aims.filter((a) => a !== "down" || where === "air").map((a) => AIM_VECTORS[a]);
+  const used = aims.filter((a) => a !== "down" || where === "air");
+  return mouse ? used.flatMap(bucketAims) : used.map((a) => AIM_VECTORS[a]);
+}
+
+/** Is an aim one of the axes (AIM_VECTORS)? */
+export const isCardinalAim = (aim: XY) => Math.abs(aim.x) < 1e-9 || Math.abs(aim.y) < 1e-9;
+
+const RAY_STEP = 4;
+
+function insideConvex(p: XY, poly: readonly XY[]): boolean {
+  let sign = 0;
+  for (let k = 0; k < poly.length; k++) {
+    const a = poly[k]!;
+    const b = poly[(k + 1) % poly.length]!;
+    const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    if (Math.abs(cross) < 1e-9) continue;
+    if (sign === 0) sign = Math.sign(cross);
+    else if (Math.sign(cross) !== sign) return false;
+  }
+  return true;
+}
+
+/**
+ * What an attack aimed off the axes surely reaches (wielder space), for the checker: an off-axis
+ * shape's bounding box would claim its corners, so this keeps only points it covers: the points of
+ * the aim's ray from the centre, every 4 px, inside its hit region on some active frame (a
+ * projectile: the square inside its circle on every frame of each flight), a box per two neighbours.
+ */
+export function aimRayReach(attack: Pick<WeaponAttack, "shape" | "timing" | "cooldown">, aim: XY, body: BodySize): HitBox[] {
+  const { polygons, circles } = attackRegions(attack, aim, body);
+  // A projectile: the square inside its circle at every frame of its flights.
+  if (circles.length) return circles.map(({ centre: c, radius }) => [c.x - radius / Math.SQRT2, c.y - radius / Math.SQRT2, c.x + radius / Math.SQRT2, c.y + radius / Math.SQRT2]);
+  let far = 0;
+  for (const poly of polygons) for (const q of poly) far = Math.max(far, Math.hypot(q.x, q.y));
+  const out: HitBox[] = [];
+  let last: XY | null = null;
+  for (let d = 0; d <= far + 1e-9; d += RAY_STEP) {
+    const p = { x: aim.x * d, y: aim.y * d };
+    if (!polygons.some((poly) => insideConvex(p, poly))) {
+      last = null;
+      continue;
+    }
+    const from = last ?? p;
+    out.push([Math.min(from.x, p.x), Math.min(from.y, p.y), Math.max(from.x, p.x), Math.max(from.y, p.y)]);
+    last = p;
+  }
+  return out;
 }
 
 /** Attacks that are another attack's combo `next` (used by chaining; a press picks the others first). */
@@ -252,7 +355,8 @@ export function comboFollowups(weapon: Pick<Weapon, "attacks">): Set<string> {
 
 /**
  * The attack a press (hold = 0) or a release after holding `held` seconds picks: one whose trigger
- * matches the aim (`aim`: "forward" | "up" | "down", down only in the air), where the wielder is and
+ * matches the aim (`aim`: "forward" | "up" | "down", or a mouse aim vector by its bucket; down only in
+ * the air), where the wielder is and
  * the hold; an exact aim beats "any", a longer matching hold beats a shorter one, an attack that is
  * not a combo's next beats one that is, then list order. Mirrors weapon_runner.gd `pick`.
  */
@@ -261,8 +365,9 @@ const better = (a: number[], b: number[]) => {
   return false;
 };
 
-export function pickAttack(weapon: Pick<Weapon, "attacks">, aim: "forward" | "up" | "down", airborne: boolean, held: number | null): WeaponAttack | null {
-  const effective = aim === "down" && !airborne ? "forward" : aim;
+export function pickAttack(weapon: Pick<Weapon, "attacks">, aim: AimName | XY, airborne: boolean, held: number | null): WeaponAttack | null {
+  const named = typeof aim === "string" ? aim : aimBucket(aim);
+  const effective = named === "down" && !airborne ? "forward" : named;
   const followups = comboFollowups(weapon);
   let best: WeaponAttack | null = null;
   let bestRank: number[] = [];

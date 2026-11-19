@@ -27,6 +27,9 @@ var run = null
 var runner = null
 ## The player's weapon view (weapon_view.gd).
 var view: Node2D = null
+## The way the player faces for the attack being made when it was aimed with the mouse (it turns
+## toward the aim: 1 right, -1 left); 0 = the way it faced (key aims).
+var turn := 0.0
 var buffer_frames := 7
 
 var _tick := 0
@@ -72,12 +75,13 @@ func cancel() -> void:
 
 
 ## This frame's presses (from the player's physics step, while it has control, before it moves).
-## `blocked`: the built-in attack is swinging.
+## `blocked`: the built-in attack is swinging. The aim is the player's (player.gd attack_aim):
+## {name, vector, mouse}.
 func update(player, airborne: bool, blocked: bool) -> void:
 	_tick += 1
 	if bool(loadout.get("cycle", false)) and Input.is_action_just_pressed("weapon_cycle") and runner == null and run != null and run.active:
 		run.cycle_weapon()
-	var aim := held_aim()
+	var aim: Dictionary = player.attack_aim()
 	if runner == null and not blocked and not _buffer.is_empty():
 		if _tick >= int(_buffer.until) or _try(player, str(_buffer.action), float(_buffer.held), aim, airborne):
 			_buffer = {}
@@ -112,16 +116,7 @@ func after_move(player) -> void:
 	runner = null
 
 
-## "up", "down" or "forward", from the aim keys held.
-static func held_aim() -> String:
-	if Input.is_action_pressed("aim_up"):
-		return "up"
-	if Input.is_action_pressed("aim_down"):
-		return "down"
-	return "forward"
-
-
-func _request(player, action: String, held: float, aim: String, airborne: bool, blocked: bool) -> void:
+func _request(player, action: String, held: float, aim: Dictionary, airborne: bool, blocked: bool) -> void:
 	if runner != null or blocked:
 		_buffer = {"action": action, "held": held, "until": _tick + buffer_frames}
 	else:
@@ -129,7 +124,9 @@ func _request(player, action: String, held: float, aim: String, airborne: bool, 
 
 
 ## Start the attack this press (held < 0) or release picks, if its cooldown is over and the ammo is there.
-func _try(player, action: String, held: float, aim: String, airborne: bool) -> bool:
+## A key aim picks by its name and aims as the trigger says (aim_for); a mouse aim picks by its bucket,
+## turns the player toward it and aims the shape exactly (weaponModel.ts wielderAim, attackAim).
+func _try(player, action: String, held: float, aim: Dictionary, airborne: bool) -> bool:
 	var weapon := weapon_for(action)
 	if weapon.is_empty():
 		return false
@@ -137,7 +134,7 @@ func _try(player, action: String, held: float, aim: String, airborne: bool) -> b
 	if held < 0.0 and not _combo.is_empty() and _combo.weapon == str(weapon.id) and _tick < int(_combo.until):
 		attack = _attack(weapon, str(_combo.next))
 	if attack.is_empty():
-		attack = Runner.pick(weapon, aim, airborne, held)
+		attack = Runner.pick(weapon, str(aim.name), airborne, held)
 	if attack.is_empty():
 		return false
 	if _tick < int(_cooldowns.get("%s/%s" % [weapon.id, attack.id], 0)):
@@ -149,7 +146,13 @@ func _try(player, action: String, held: float, aim: String, airborne: bool) -> b
 			return false
 		run.spend_item(str(ammo.item), per)
 	_combo = {}
-	runner = Runner.new(weapon, attack, Runner.aim_for(attack, aim, airborne))
+	turn = 0.0
+	var vector := Runner.aim_for(attack, str(aim.name), airborne)
+	if bool(aim.mouse):
+		var to: Vector2 = aim.vector
+		turn = signf(to.x) if absf(to.x) > 1e-6 else player.facing_sign()
+		vector = Vector2(to.x * turn, to.y)
+	runner = Runner.new(weapon, attack, vector)
 	runner.view = view
 	player.weapon_started(runner)
 	return true

@@ -7,7 +7,7 @@ import { gridSize } from "../tiles.ts";
 import { DOOR_UP_CARRY, type Prop, type PropSwitch, type WorldRoom } from "../world.ts";
 import { doorEntry, moveTrace, reachableFrom, roomGraph, type RoomGraph, type TraversalMove } from "../traversal.ts";
 import { answers, LogicRun, logicGame, weaponFlag, type Checkpoint, type LogicGame, type Point, type RunSnapshot } from "./interpret.ts";
-import { attackBounds, triggerAims, type HitBox } from "../../combat/weaponModel.ts";
+import { aimRayReach, attackBounds, isCardinalAim, triggerAims, type HitBox } from "../../combat/weaponModel.ts";
 import type { Weapon } from "../../combat/weapon.ts";
 
 export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type RunSnapshot, type RunState } from "./interpret.ts";
@@ -58,7 +58,13 @@ export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type Run
  *   the weapons the player has (a reserved flag each, interpret.ts weaponFlag).
  * - Weapons: any weapon the player has can be used (loadout slots are not
  *   tracked); the built-in attack counts while the attack slot starts empty.
- *   A projectile's reach is its whole flight, solids aside.
+ *   A projectile's reach is its whole flight, solids aside. Mouse aiming
+ *   (controls.aim "mouse"): an attack also reaches along aims sampled every
+ *   15° across its trigger's buckets (up: the upper 90°, forward: within 45° of
+ *   level, down: the lower 90° in the air; weaponModel bucketAims); off the
+ *   axes only the points of the aim's ray its shape covers count (aimRayReach),
+ *   never a turned shape's bounding box. The built-in attack is unchanged (the
+ *   mouse only picks which of its boxes).
  */
 
 /** What the run remembers (a logical state, without the position). */
@@ -265,6 +271,8 @@ class WorldModel {
   /** The project's weapons, and whether the built-in attack is in play (the attack slot starts empty, or there is none). */
   readonly weapons = new Map<string, Weapon>();
   readonly builtIn: boolean;
+  /** controls.aim "mouse": weapon attacks aim anywhere in their trigger's buckets. */
+  readonly mouseAim: boolean;
   private strikeBoxes = new Map<string, { ground: HitBox[]; air: HitBox[] }>();
   private hits = new WeakMap<RoomGraph, Map<string, Rect[]>>();
   private graphs = new Map<string, RoomGraph>();
@@ -301,6 +309,7 @@ class WorldModel {
     for (const w of game.startWeapons) this.weaponsGiven.add(w);
     const attackSlot = project.weapons.loadout.slots.find((s) => s.action === "attack");
     this.builtIn = !attackSlot || attackSlot.start === null;
+    this.mouseAim = project.controls.aim === "mouse";
     for (const { c } of this.conditions) {
       if (c.type === "flag") this.flags.add(c.flag);
       // Weapons the player has are reserved flags (interpret.ts weaponFlag): keep them in the state when a condition reads them.
@@ -598,7 +607,12 @@ class WorldModel {
     for (const id of weapons) {
       for (const attack of this.weapons.get(id)?.attacks ?? []) {
         for (const where of ["ground", "air"] as const) {
-          for (const aim of triggerAims(attack, where)) {
+          for (const aim of triggerAims(attack, where, this.mouseAim)) {
+            if (!isCardinalAim(aim)) {
+              // A mouse aim off the axes: only what the shape surely covers along the aim.
+              out[where].push(...aimRayReach(attack, aim, body));
+              continue;
+            }
             const b = attackBounds(attack, aim, body);
             if (b) out[where].push(b);
           }

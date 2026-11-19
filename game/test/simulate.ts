@@ -18,9 +18,30 @@ export interface Scenario {
   frames: number;
   samples: number[];
   input?: { action: Input; from: number; to: number }[];
+  /**
+   * Move the mouse (a real motion event through the window) on every frame from `from` to `to - 1`:
+   * to a room point `at`, or `angle` degrees from the player's centre (0 = right, 90 = down),
+   * `distance` px away (default 160). Mouse buttons are inputs ("MouseLeft"...), pressed at the cursor.
+   */
+  aim?: { from: number; to?: number; at?: [number, number]; angle?: number; distance?: number }[];
 }
 
-export type Input = "move_left" | "move_right" | "jump" | "attack" | "alt_attack" | "special_attack" | "weapon_cycle" | "aim_up" | "aim_down" | "dash" | "interact" | "map";
+export type Input =
+  | "move_left"
+  | "move_right"
+  | "jump"
+  | "attack"
+  | "alt_attack"
+  | "special_attack"
+  | "weapon_cycle"
+  | "aim_up"
+  | "aim_down"
+  | "dash"
+  | "interact"
+  | "map"
+  | "MouseLeft"
+  | "MouseRight"
+  | "MouseMiddle";
 
 export interface Sample {
   frame: number;
@@ -41,6 +62,10 @@ export interface Sample {
   props: { id: string; visible: boolean; solid: boolean }[];
   /** Weapons the player has, what each loadout slot holds, and the HUD's weapon rows (null outside a run). */
   weapons: { owned: string[]; slots: Record<string, string>; hud: { slot: string; label: string; weapon: string; name: string; ammo: Record<string, number> }[] } | null;
+  /** The player's aim (room space unit vector) and whether the mouse aims it (null outside play). */
+  aim: { x: number; y: number; mouse: boolean } | null;
+  /** The way the player faces (1 right, -1 left; turned toward a mouse aim during an attack). */
+  facing: number | null;
 }
 
 /** Run scenarios in one headless Godot process, 1/60 s per frame. */

@@ -144,9 +144,9 @@ func _landed(wielder, point: Vector2) -> void:
 	wielder.weapon_landed(attack, point, first, bounce)
 
 
-## A downward attack that bounces its wielder (movement.pogo while aiming down).
+## A downward attack that bounces its wielder (movement.pogo while aiming in the down bucket).
 static func pogo_down(attack_: Dictionary, aim_: Vector2) -> bool:
-	return bool(attack_.get("movement", {}).get("pogo", false)) and aim_.y > 0.5
+	return bool(attack_.get("movement", {}).get("pogo", false)) and aim_bucket(aim_) == "down"
 
 
 func _fire(wielder, centre: Vector2, facing: float) -> void:
@@ -336,6 +336,41 @@ static func _better(a: Array, b: Array) -> bool:
 		if a[k] != b[k]:
 			return a[k] > b[k]
 	return false
+
+
+## Mouse aiming (weaponModel.ts aimBucket): within AIM_BUCKET_DEG of straight up is "up", of
+## straight down "down" (picking counts it only in the air), anything else "forward".
+const AIM_BUCKET_DEG := 45.0
+
+
+static func aim_bucket(aim_: Vector2) -> String:
+	var edge := cos(deg_to_rad(AIM_BUCKET_DEG))
+	if aim_.y <= -edge + 1e-6:
+		return "up"
+	if aim_.y >= edge - 1e-6:
+		return "down"
+	return "forward"
+
+
+## How much of the turn toward a mouse aim the art shows (0..1), by the frames run so far: blended
+## in over the windup, whole while active, out over the recovery.
+func aim_weight() -> float:
+	var f := float(frame)
+	if f < windup:
+		return f / float(windup)
+	if f <= windup + active:
+		return 1.0
+	return clampf(1.0 - (f - windup - active) / maxf(1.0, float(recovery)), 0.0, 1.0)
+
+
+## The way an attack's clip is drawn aiming (radians, wielder space): up or down for those triggers, else forward.
+static func authored_angle(attack_: Dictionary) -> float:
+	match str(attack_.get("trigger", {}).get("aim", "forward")):
+		"up":
+			return -PI / 2.0
+		"down":
+			return PI / 2.0
+	return 0.0
 
 
 ## The aim an attack is made with: its trigger's, or the one held when it is "any" (or when chained).

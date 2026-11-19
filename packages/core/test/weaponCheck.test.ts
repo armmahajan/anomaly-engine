@@ -38,7 +38,35 @@ function buried(weapons: object[], start: string | null): ProjectSpec {
   });
 }
 
+/**
+ * One room: the player starts on a high ledge over a deep pit; a lamp hangs out over the pit, up and
+ * ahead of the ledge's end. Only an upward thrust aimed off straight up (the mouse) reaches it.
+ * (Dropping into the pit is a dead end either way.)
+ */
+function lamp(aim: "mouse" | "keys"): ProjectSpec {
+  const base = fixtureSliceProject();
+  const pike = { id: "pike", name: "Pike", attacks: [{ id: "up", name: "Up", trigger: { aim: "up" }, shape: { type: "thrust", length: 150 } }] };
+  let grid = fillTiles(borderedGrid(24, 30), { col: 1, row: 28, cols: 22, rows: 1 }, "solid");
+  grid = fillTiles(grid, { col: 1, row: 8, cols: 5, rows: 1 }, "solid");
+  // The ledge ends at x 192 (top y 256); the lamp is about 80 px out and 80 px up from a player standing at its end.
+  const prop = { id: "lamp", name: "Lamp", x: 254, y: 142, width: 16, height: 16, health: 1, handlers: [{ on: { type: "destroyed" }, do: [{ type: "endGame" }] }] };
+  return ProjectSpec.parse({
+    ...base,
+    controls: { ...base.controls, aim },
+    weapons: { list: [pike], loadout: loadout("pike") },
+    world: { ...base.world, rooms: [{ id: "hall", name: "Hall", at: { x: 0, y: 0 }, grid, doors: [], props: [prop] }], start: { room: "hall", x: 64, y: 8 * TILE }, playtest: null, handlers: [], modals: [] },
+  });
+}
+
 describe("checking a game with weapons", () => {
+  it("mouse aiming: an attack reaches across its bucket's angles (an upward thrust up and ahead), keys only straight up", () => {
+    const keys = checkGame(lamp("keys"));
+    expect(keys.beatable).toBe(false);
+    const mouse = checkGame(lamp("mouse"));
+    expect(mouse.beatable).toBe(true);
+    expect(mouse.route!.some((s) => s.action.startsWith("strike Lamp"))).toBe(true);
+  });
+
   it("a barrier that needs a weapon nothing gives blocks the way, and says so", () => {
     const r = checkGame(gated());
     expect(r.beatable).toBe(false);

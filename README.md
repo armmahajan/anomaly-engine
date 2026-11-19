@@ -562,11 +562,22 @@ plus the runtime code that reads it; older projects get its default keys.
   undo step. **Aim**: Mouse or Keys only. Below it, the studio's own shortcuts (undo, chat Enter /
   Shift+Enter, tabs, lists…). Playtests use the game's keys (right click over the game opens no
   browser menu); the inspector's ability hint and the Map setting show them.
-- **Runtime:** `main.gd` registers the actions with no keys and builds the keyboard part of Godot's
-  InputMap from `project.controls` on every `load`, with the player's overrides on top (protocol
-  `{type: "controls", overrides}`, accepted any time, kept across loads); other events (gamepad) are
-  left alone. Menus also take Godot's ui keys (arrows, Enter, Space). The `state` message reports the
-  keys in effect (`controls`).
+- **Runtime:** `main.gd` registers the actions with no keys and builds the keyboard and mouse-button
+  part of Godot's InputMap from `project.controls` on every `load`, with the player's overrides on top
+  (protocol `{type: "controls", overrides}`, accepted any time, kept across loads); other events
+  (gamepad) are left alone. Mouse buttons (`MouseLeft`, `MouseRight`, `MouseMiddle`) bind like keys
+  (attack also on left click, alt attack on right click). Menus also take Godot's ui keys (arrows,
+  Enter, Space). The `state` message reports the keyboard keys in effect (`controls`).
+- **Aiming** (`controls.aim`): `mouse` (the default) aims attacks toward the cursor, any direction, once
+  the mouse has moved or clicked over the game (until it leaves the window; before that, and in
+  `keys`, the keys aim). Held aim keys win over the cursor (up, or down), so keyboard-only players
+  aren't locked out; with neither, attacks go forward. `keys`: only the aim keys (up, forward, down),
+  exactly as before. The cursor is a crosshair while playing with mouse aim; `state.aim` reports the
+  aim (`{x, y, mouse}`, a room-space unit vector). Movement decides which way the player faces; an
+  attack aimed with the mouse turns them toward the aim for its duration (retreat and strike behind),
+  then they face the way they did. Weapons: see Weapons ▸ Mechanics; the built-in attack (no weapon in
+  the attack slot) swings up, down (in the air) or to the side by the cursor's bucket, with its usual
+  box. Tests: `game/test/aim.test.ts`.
 - **Players (exported games):** **?** ▸ **Change keys** lists the actions the game uses: Change /
   + Key / Reset each (a mouse button: click the waiting row's "click here"), or **Reset to the game's
   defaults**. Their keys are kept in the browser (localStorage `anomaly-controls:<name>`, beside the
@@ -762,11 +773,17 @@ runs the same runner):
   weapon still fires on the press). A press during an attack is buffered for the jump-buffer frames; when
   an attack with a combo `next` ends, its `window` opens and a press in it makes the next attack (outside
   it, the press starts over). A press during the attack's cooldown is ignored, like the built-in attack's.
+- **Mouse aim** (`controls.aim` "mouse", README Controls ▸ Aiming): the aim is the unit vector toward the
+  cursor; picking goes by its bucket (`aimBucket`: within 45° of straight up is up, of straight down
+  down, which still only counts in the air, else forward; `any` matches every bucket), and the attack's
+  shape follows the exact aim (`attackAim`: arcs turn with it, boxes, thrusts and projectiles go along
+  it). The player turns toward the aim for the attack (`wielderAim`: in its space the aim's x >= 0), and
+  a down-bucket hit pogos as before. Held aim keys give today's named aims (`aim_for`).
 - **Movement and feedback:** `lunge` drives the wielder forward while active; `recoil` pushes it back
   against the aim on its first hit (or when projectiles leave); a downward `pogo` attack bounces the player
   (their `pogoVelocity`) off enemies, props that bounce, spikes and breakable tiles (without touching or
   breaking them); `hitStop` freezes the room and `shake` shakes the camera on each hit. The player keeps
-  facing one way while a weapon attack runs; being hurt cancels it.
+  facing one way while a weapon attack runs (toward a mouse aim, then back); being hurt cancels it.
 - **Ammo** is spent when the attack starts (as `takeItem`); with too few the attack doesn't start. The HUD
   lists each loadout slot's weapon with the ammo it spends.
 - **Owned weapons** live in the run (`world_runtime.gd`: the weapons the player has and each slot's), saved
@@ -776,7 +793,12 @@ runs the same runner):
   `behaviorState` is `attack:<id>` and `phase` its phase while making one.
 - **Art:** every wielder has a weapon view (`game/scripts/art/weapon_view.gd`) told the weapon, each phase
   (with the aim) and each hit. An attack's `clip`, when the wielder's art has it, is posed over the whole
-  attack; else the phase slots (windup, strike, recover, attack).
+  attack; else the phase slots (windup, strike, recover, attack). Clips are drawn aiming forward (up or
+  down for up / down attacks); a mouse-aimed attack turns the arm holding the weapon (the top arm bone of
+  the `hand` grip's path, `rig_view.gd set_aim_turn`) by the aim's difference from that, blended in over
+  the windup and out over the recovery, so the hand carries the weapon (and its trail) toward the
+  cursor; a grip with no arm (on the body, or no grip, or no rig) turns the weapon about the hand
+  instead. Mirrored with the wielder like everything else.
 - **Lints** (`combat/weaponLint.ts`): `weapon_out_of_reach` (an attack can't touch the smallest enemy, or an
   enemy's the player), `weapon_one_shot` (a fight the game waits on: a health bar, a death handler, a
   cleared room), `weapon_too_weak` (more than 40 hits), `projectile_short_lived`, `ammo_no_supply`,
@@ -787,11 +809,18 @@ runs the same runner):
   what can be struck from a surface is the built-in attack's reach (while the attack slot starts empty)
   plus every attack of the weapons held (ground attacks standing, air ones jumping in place, down strikes
   included: where the pogo is). Slots aren't tracked (any weapon held counts) and a projectile's reach is
-  its whole flight, solids aside.
+  its whole flight, solids aside. With mouse aim an attack also reaches across its trigger's buckets
+  (sampled every 15°: up the upper 90°, forward within 45° of level, down the lower 90° in the air;
+  `bucketAims`), conservatively: off the axes only the points of the aim's ray its shape covers count
+  (`aimRayReach`), not a turned shape's bounding box, and a forward attack aimed down on the ground isn't
+  counted.
 - **Tests:** `game/test/weapons.test.ts` (each shape hits only while active, on the frame the model says,
   reaching within 2 px of its setting; projectiles fly speed x lifetime; pogo off enemies, spikes and
   breakables; combos, holds, ammo, cycling, no self-hits; enemies' useWeapon; a project with no weapon in
-  the attack slot plays frame for frame as before), `game/test/logic.test.ts` (the mirror with weapons),
+  the attack slot plays frame for frame as before), `game/test/aim.test.ts` (mouse aim: every shape at
+  30°, 150° and -120° against the model, buckets, turning, mouse buttons, the aim keys winning,
+  `aim: "keys"` frame for frame unchanged; an off-axis shot leaves the way the drawn weapon points,
+  through `game/tests/aim_probe.gd`), `game/test/logic.test.ts` (the mirror with weapons),
   `packages/core/test/weaponModel.test.ts`, `weaponCheck.test.ts`, `weaponLint.test.ts`.
 
 ## Enemy combat primitives
