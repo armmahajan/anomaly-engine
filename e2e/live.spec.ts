@@ -90,6 +90,11 @@ test("the director drafts the progression: rooms for its regions appear on the R
   await page.getByRole("tab", { name: "Rooms" }).click();
   await expect(page.getByTestId("room-deep_2")).toHaveCount(0, { timeout: 60_000 });
   await expect(page.getByTestId("room-deep_1")).toBeVisible();
+  await expect(page.getByTestId("rooms-live")).toContainText("a preview");
+
+  // Once the creator shapes the plan it is theirs: the preview's report is old news and goes.
+  await page.evaluate(() => window.studio!.applyOperation("updateRoomPlan", { roomId: "deep_1", changes: { notes: "mine now" } }));
+  await expect(page.getByTestId("rooms-live")).toHaveCount(0);
 
   expect(consoleErrors).toEqual([]);
 });
