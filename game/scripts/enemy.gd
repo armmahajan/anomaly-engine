@@ -148,6 +148,11 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 			_weapons[str(w.id)] = w
 	_weapon_view = WeaponView.new()
 	add_child(_weapon_view)
+	# Hold its weapon from the start (the first useWeapon in its behavior), not only once it first attacks.
+	var held := _first_wielded_weapon(character)
+	if not held.is_empty():
+		_shown_weapon = str(held.id)
+		_weapon_view.set_weapon(held, _rig)
 
 
 func _physics_process(delta: float) -> void:
@@ -465,6 +470,8 @@ func vanish(at: Vector2, color: Color) -> void:
 	velocity = Vector2.ZERO
 	if _rig != null:
 		_rig.visible = false
+	if _weapon_view != null:
+		_weapon_view.visible = false  # its weapon vanishes with it
 	queue_redraw()
 
 
@@ -476,6 +483,8 @@ func appear(move := true) -> void:
 	velocity = Vector2.ZERO
 	if _rig != null:
 		_rig.visible = true
+	if _weapon_view != null:
+		_weapon_view.show_held()  # back in hand, at the new spot
 	queue_redraw()
 
 
@@ -658,3 +667,18 @@ func _draw() -> void:
 	var body = Color.WHITE if _flash > 0.0 else (_tint if _tint != null else _color)
 	draw_rect(Rect2(offset + Vector2(-_size.x / 2.0, -_size.y), _size), body)
 	draw_rect(Rect2(offset + Vector2(facing * _size.x * 0.25 - 3.0, -_size.y * 0.75), Vector2(6.0, 6.0)), Color("#ffd27a"))
+
+
+## The weapon this enemy attacks with first (its first useWeapon action, in state order), else {}.
+func _first_wielded_weapon(character: Dictionary) -> Dictionary:
+	var states = character.get("behavior", {}).get("states", {})
+	var initial := str(character.get("behavior", {}).get("initial", ""))
+	var order: Array = [initial] if states.has(initial) else []
+	for id in states:
+		if str(id) != initial:
+			order.append(id)
+	for id in order:
+		var action = states[id].get("action", {})
+		if str(action.get("type", "")) == "useWeapon" and _weapons.has(str(action.get("weapon", ""))):
+			return _weapons[str(action.get("weapon", ""))]
+	return {}

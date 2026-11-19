@@ -163,13 +163,23 @@ static func make_projectile(projectile: Dictionary, images := {}) -> Node2D:
 	return view
 
 
+var _trail_clock := -1.0
+
+
 func _process(delta: float) -> void:
 	if not manual_time:
 		_clock += delta
-	if _rig == null or not is_instance_valid(_rig):
-		_follow()
-	elif not _trail.is_empty() or not _sparks.is_empty():
+	# Follow every frame too, not only when the rig is posed: a wielder that moves without being
+	# re-posed (teleporting, knocked back while its rig is hidden) must not leave its weapon behind.
+	_follow()
+	if not _trail.is_empty() or not _sparks.is_empty():
 		queue_redraw()
+
+
+## Show the held weapon again (after its wielder was hidden), placed on the current pose right away.
+func show_held() -> void:
+	visible = not _weapon.is_empty()
+	_follow()
 
 
 ## Put the weapon at the grip on the rig's current pose (called whenever the rig is posed).
@@ -194,7 +204,9 @@ func _follow() -> void:
 			_facing = -1.0 if parent.facing_sign() < 0.0 else 1.0
 		var base := parent.get_global_transform() if parent != null else Transform2D.IDENTITY
 		_hold = base * Transform2D(0.0, Vector2(_facing, 1.0), 0.0, Vector2(_facing * size.x * 0.35, -size.y * 0.55)) * Transform2D(turn, Vector2.ZERO)
-	if _phase == "active":
+	# One trail point per tick (this runs on the rig's pose and on every frame).
+	if _phase == "active" and _clock != _trail_clock:
+		_trail_clock = _clock
 		_trail.append([_hold * _tip_local(), _clock])
 	queue_redraw()
 
