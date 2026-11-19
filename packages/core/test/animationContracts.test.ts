@@ -84,3 +84,14 @@ describe("animation contracts", () => {
     for (const code of ["anim_self_outside", "anim_target_unknown", "anim_clip_unknown", "anim_prop_not_object", "object_unknown"]) expect(c).toContain(code);
   });
 });
+
+describe("renamed fields", () => {
+  it("a project saved with the art direction's conceptModel loads with it as imageModel", async () => {
+    const { migrateProject, createDefaultProject: fresh } = await import("../src/index.ts");
+    const saved = fresh() as unknown as { art: { direction: Record<string, unknown> } };
+    saved.art.direction.conceptModel = "black-forest-labs/flux.2-pro";
+    const loaded = ProjectSpec.parse(migrateProject(saved));
+    expect(loaded.art.direction.imageModel).toBe("black-forest-labs/flux.2-pro");
+    expect("conceptModel" in loaded.art.direction).toBe(false);
+  });
+});

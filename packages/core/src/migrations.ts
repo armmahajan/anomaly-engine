@@ -174,5 +174,18 @@ export function migrateProject(raw: unknown): unknown {
     if (!step) break;
     project = step(project);
   }
-  return project;
+  return renamed(project);
+}
+
+/**
+ * Fields renamed within the current version (projects saved in between keep loading):
+ * the art direction's `conceptModel` (2026-11-19, concept sheets only) became `imageModel` (all art).
+ */
+function renamed(project: Json): Json {
+  const art = isObject(project.art) ? project.art : null;
+  const direction = art && isObject(art.direction) ? art.direction : null;
+  if (!direction || !("conceptModel" in direction)) return project;
+  const { conceptModel, ...rest } = direction;
+  const next = "imageModel" in rest || typeof conceptModel !== "string" ? rest : { ...rest, imageModel: conceptModel };
+  return { ...project, art: { ...art, direction: next } };
 }
