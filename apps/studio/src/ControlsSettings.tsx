@@ -41,14 +41,20 @@ function shownActions(project: ProjectSpec) {
 export function ControlsSettings({ project, session, locked }: { project: ProjectSpec; session: Session; locked: boolean }) {
   const { bindings } = project.controls;
   const [listening, setListening] = useState<{ action: ControlActionId; mode: "replace" | "add" } | null>(null);
-  const [message, setMessage] = useState("");
+  const [message, setMessageText] = useState("");
+  // The row the message is about (it shows under that row, where the creator is looking), or null (under the list).
+  const [messageAt, setMessageAt] = useState<ControlActionId | null>(null);
+  const setMessage = (text: string, at: ControlActionId | null = null) => {
+    setMessageText(text);
+    setMessageAt(at);
+  };
 
-  const edit = async (op: string, input: unknown, done: string) => {
+  const edit = async (op: string, input: unknown, done: string, at: ControlActionId | null = null) => {
     const result = await session.applyOperation(op, input);
-    setMessage(result.ok ? done : result.error.message);
+    setMessage(result.ok ? done : result.error.message, at);
   };
   const setKeys = (action: ControlActionId, keys: KeyName[]) =>
-    void edit("setControlKeys", { action, keys }, `${label(action)}: ${keys.map(keyLabel).join(" / ")}`);
+    void edit("setControlKeys", { action, keys }, `${label(action)}: ${keys.map(keyLabel).join(" / ")}`, action);
 
   const actions = shownActions(project);
   // Bind what was pressed (a key or a mouse button) to the waiting action, or say why not. An action
@@ -58,9 +64,9 @@ export function ControlsSettings({ project, session, locked }: { project: Projec
     if (!listening) return;
     const { action, mode } = listening;
     setListening(null);
-    if (!key) return setMessage(`${what} can't be bound; pick another.`);
+    if (!key) return setMessage(`${what} can't be bound; pick another.`, action);
     const bound = bindKey(bindings, action, key, mode, actions.map((a) => a.id));
-    if (!bound.ok) return setMessage(bound.message);
+    if (!bound.ok) return setMessage(bound.message, action);
     if (same(bound.keys, bindings[action])) return;
     const hidden = controlConflicts({ ...bindings, [action]: bound.keys })
       .filter((c) => c.key === key && c.actions.includes(action))
@@ -68,11 +74,11 @@ export function ControlsSettings({ project, session, locked }: { project: Projec
     if (hidden.length === 0) return setKeys(action, bound.keys);
     const freed = hidden.map((id) => ({ id, keys: bindings[id].filter((k) => k !== key) }));
     const stuck = freed.find((f) => f.keys.length === 0);
-    if (stuck) return setMessage(`${keyLabel(key)} is ${label(stuck.id)}'s only key (unused in this game); reset Controls or pick another key.`);
+    if (stuck) return setMessage(`${keyLabel(key)} is ${label(stuck.id)}'s only key (unused in this game); reset Controls or pick another key.`, action);
     void session
       .applyBatch([...freed.map((f) => ({ name: "setControlKeys", input: { action: f.id, keys: f.keys } })), { name: "setControlKeys", input: { action, keys: bound.keys } }])
       .then((result) =>
-        setMessage(result.ok ? `${label(action)}: ${bound.keys.map(keyLabel).join(" / ")} (taken from ${freed.map((f) => label(f.id)).join(", ")}, unused in this game)` : result.error.message),
+        setMessage(result.ok ? `${label(action)}: ${bound.keys.map(keyLabel).join(" / ")} (taken from ${freed.map((f) => label(f.id)).join(", ")}, unused in this game)` : result.error.message, action),
       );
   };
   // A captured right click's own context menu comes after the press (the spot is gone by then).
@@ -98,6 +104,11 @@ export function ControlsSettings({ project, session, locked }: { project: Projec
     };
   }, [listening, bindings]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const note = (
+    <p className={`controls-message${messageAt ? " in-row" : ""}`} role="status" data-testid="controls-message">
+      {message}
+    </p>
+  );
   const changed = CONTROL_ACTIONS.some((a) => !same(bindings[a.id], DEFAULT_BINDINGS[a.id]));
   return (
     <div
@@ -147,10 +158,10 @@ export function ControlsSettings({ project, session, locked }: { project: Projec
                     ))
                 )}
               </span>
-              <button type="button" disabled={locked} aria-label={`Change ${a.label}`} onClick={() => (setListening({ action: a.id, mode: "replace" }), setMessage(`Press a key for ${a.label}…`))}>
+              <button type="button" disabled={locked} aria-label={`Change ${a.label}`} onClick={() => (setListening({ action: a.id, mode: "replace" }), setMessage(`Press a key for ${a.label}…`, a.id))}>
                 Change
               </button>
-              <button type="button" disabled={locked} aria-label={`Add a key to ${a.label}`} onClick={() => (setListening({ action: a.id, mode: "add" }), setMessage(`Press a key to add to ${a.label}…`))}>
+              <button type="button" disabled={locked} aria-label={`Add a key to ${a.label}`} onClick={() => (setListening({ action: a.id, mode: "add" }), setMessage(`Press a key to add to ${a.label}…`, a.id))}>
                 + Key
               </button>
               <button
@@ -158,10 +169,11 @@ export function ControlsSettings({ project, session, locked }: { project: Projec
                 disabled={locked || same(keys, DEFAULT_BINDINGS[a.id])}
                 aria-label={`Reset ${a.label}`}
                 title={`Back to ${DEFAULT_BINDINGS[a.id].map(keyLabel).join(" / ")}`}
-                onClick={() => void edit("resetControls", { action: a.id }, `${a.label}: back to its default keys`)}
+                onClick={() => void edit("resetControls", { action: a.id }, `${a.label}: back to its default keys`, a.id)}
               >
                 Reset
               </button>
+              {messageAt === a.id && note}
             </li>
           );
         })}
@@ -175,9 +187,7 @@ export function ControlsSettings({ project, session, locked }: { project: Projec
           </label>
         ))}
       </fieldset>
-      <p className="controls-message" role="status" data-testid="controls-message">
-        {message}
-      </p>
+      {(messageAt === null || !actions.some((a) => a.id === messageAt)) && note}
       <button type="button" disabled={locked || !changed} onClick={() => void edit("resetControls", {}, "Every action is back on its default keys")}>
         Reset all to defaults
       </button>

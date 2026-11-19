@@ -81,6 +81,17 @@ export class Session {
     (p) => this.reportProblem(p),
   );
   private bootTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * The creator's edits, one after another: each is sent once the one before it is answered, so it
+   * builds on that edit's revision (two quick clicks used to send the same base revision, and the
+   * second was refused as out of date).
+   */
+  private edits: Promise<unknown> = Promise.resolve();
+  private inOrder<T>(edit: () => Promise<T>): Promise<T> {
+    const next = this.edits.then(edit, edit);
+    this.edits = next.catch(() => undefined);
+    return next;
+  }
   /** Last revision we asked the runtime to load (avoids duplicate loads). */
   private requestedRevision: number | null = null;
   /** Pending release of the playtest lock after leaving play. */
@@ -285,34 +296,37 @@ export class Session {
     return null;
   }
 
-  applyOperation = async (name: string, input: unknown): Promise<ChangeResult> => {
-    const blocked = this.editBlocked();
-    if (blocked) return blocked;
-    const result = await api.applyOperation({ name, input, baseRevision: this.state.project.revision, author: "user" });
-    if (result.ok) this.receiveProject(result);
-    return result;
-  };
+  applyOperation = (name: string, input: unknown): Promise<ChangeResult> =>
+    this.inOrder(async () => {
+      const blocked = this.editBlocked();
+      if (blocked) return blocked;
+      const result = await api.applyOperation({ name, input, baseRevision: this.state.project.revision, author: "user" });
+      if (result.ok) this.receiveProject(result);
+      return result;
+    });
 
   /** Apply several operations atomically (one revision, one undo step); see core `applyBatch`. */
-  applyBatch = async (operations: { name: string; input: unknown }[]): Promise<ChangeResult> => {
-    const blocked = this.editBlocked();
-    if (blocked) return blocked;
-    const result = await api.applyBatch({ operations, baseRevision: this.state.project.revision, author: "user" });
-    if (result.ok) this.receiveProject(result);
-    return result;
-  };
+  applyBatch = (operations: { name: string; input: unknown }[]): Promise<ChangeResult> =>
+    this.inOrder(async () => {
+      const blocked = this.editBlocked();
+      if (blocked) return blocked;
+      const result = await api.applyBatch({ operations, baseRevision: this.state.project.revision, author: "user" });
+      if (result.ok) this.receiveProject(result);
+      return result;
+    });
 
   /** Partially update a character type; see core `updateCharacter`. */
   updateCharacter = (input: unknown): Promise<ChangeResult> => this.applyOperation("updateCharacter", input);
 
-  undo = async (): Promise<ChangeResult> => {
-    const blocked = this.editBlocked();
-    if (blocked) return blocked;
-    const result = await api.undo({ baseRevision: this.state.project.revision, author: "user" });
-    if (result.ok) this.receiveProject(result);
-    else this.reportProblem(result.error.message);
-    return result;
-  };
+  undo = (): Promise<ChangeResult> =>
+    this.inOrder(async () => {
+      const blocked = this.editBlocked();
+      if (blocked) return blocked;
+      const result = await api.undo({ baseRevision: this.state.project.revision, author: "user" });
+      if (result.ok) this.receiveProject(result);
+      else this.reportProblem(result.error.message);
+      return result;
+    });
 
   canPlay(): boolean {
     const s = this.state;

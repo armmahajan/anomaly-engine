@@ -45,7 +45,9 @@ export function wikiGaps(project: ProjectSpec): WikiGap[] {
   }
   const written = new Set(pages.map((p) => p.characterId));
   for (const character of project.characters) {
-    if (!written.has(character.id)) {
+    // A deeper region's tougher variant (the Architect's difficulty pass) is its original's page.
+    const variantOf = character.kind === "enemy" ? character.variantOf : undefined;
+    if (!written.has(character.id) && !(variantOf && written.has(variantOf))) {
       gaps.push({
         code: "unwritten_character",
         characterId: character.id,

@@ -7,7 +7,7 @@ import {
   wikiKinds,
   wikiLinks,
   type OperationResult,
-  type ProjectSpec,
+  ProjectSpec,
 } from "../src/index.ts";
 
 const page = (id: string, extra: Record<string, unknown> = {}) => ({ id, kind: "character", title: id, status: "draft", ...extra });
@@ -77,5 +77,15 @@ describe("links, kinds and gaps", () => {
       ["unwritten_character", "player"],
       ["unwritten_character", "crawler"],
     ]);
+  });
+
+  it("a deeper region's variant of an enemy is written by its original's page", () => {
+    const base = withPages(page("crawler_page", { characterId: "crawler" }));
+    const crawler = base.characters.find((c) => c.id === "crawler")!;
+    const project = ProjectSpec.parse({ ...base, characters: [...base.characters, { ...crawler, id: "crawler_d1", name: "Crawler (Deep)", variantOf: "crawler" }] });
+    const unwritten = wikiGaps(project).filter((g) => g.code === "unwritten_character").map((g) => g.characterId);
+    expect(unwritten).toContain("player");
+    expect(unwritten).not.toContain("crawler");
+    expect(unwritten).not.toContain("crawler_d1");
   });
 });
