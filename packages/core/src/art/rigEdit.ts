@@ -283,7 +283,7 @@ export function reassignPart(project: ProjectSpec, input: unknown): OperationRes
 }
 
 /**
- * Pair two bones and, down their chains, their children in order (while both have the same number of
+ * Pair two bones and, down their branches, their children in order (while both have the same number of
  * children): a near/far upper arm with its forearm and hand, say.
  */
 export function bonePairs(rig: Rig, a: string, b: string): [string, string][] {
@@ -300,7 +300,7 @@ export function bonePairs(rig: Rig, a: string, b: string): [string, string][] {
 
 /**
  * Two limbs labelled the wrong way round (the near arm planned as the far one): the bones of the two
- * chains (bonePairs) trade names, and their parts trade draw order, so each name now belongs to the
+ * branches (bonePairs) trade names, and their parts trade draw order, so each name now belongs to the
  * limb it says. Nothing moves: joints, drawings and textures stay where they are. A part named after
  * its bone takes the new name too. Clips keep their bone names, so a clip's near arm drives the arm
  * that is now near; clips written for the rig stay current.
@@ -315,7 +315,7 @@ export function swapBones(project: ProjectSpec, input: unknown): OperationResult
   if (missing) return missing;
   const { rig } = found;
   if (a === b) return fail("invalid_input", "pick two different bones to swap");
-  if (boneSubtree(rig, a).has(b) || boneSubtree(rig, b).has(a)) return fail("invalid_input", `"${a}" and "${b}" are on the same chain: swap two separate limbs`);
+  if (boneSubtree(rig, a).has(b) || boneSubtree(rig, b).has(a)) return fail("invalid_input", `"${a}" and "${b}" are on the same branch: swap two separate limbs`);
   const swap = new Map<string, string>();
   for (const [x, y] of bonePairs(rig, a, b)) swap.set(x, y).set(y, x);
   const rename = (id: string) => swap.get(id) ?? id;

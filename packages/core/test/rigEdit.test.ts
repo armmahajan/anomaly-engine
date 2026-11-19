@@ -290,11 +290,11 @@ describe("swapBones: two limbs labelled the wrong way round", () => {
     expect(heroOf(back).rig).toEqual(heroOf(p).rig);
   });
 
-  it("refuses the same bone or two bones on one chain", () => {
+  it("refuses the same bone or two bones on one branch", () => {
     let p = ok(applyOperation(createDefaultProject(), "createAsset", { asset: { id: "hero", name: "Hero", kind: "character", brief: "a hero" }, assignTo: "player" }));
     p = ok(applyOperation(p, "setRig", { assetId: "hero", rig: mislabelled }));
     expect(applyOperation(p, "swapBones", { assetId: "hero", a: "near_upper", b: "near_upper" })).toMatchObject({ ok: false });
     const chain = applyOperation(p, "swapBones", { assetId: "hero", a: "near_upper", b: "near_lower" });
-    expect(chain.ok ? "" : chain.error.message).toMatch(/same chain/);
+    expect(chain.ok ? "" : chain.error.message).toMatch(/same branch/);
   });
 });
