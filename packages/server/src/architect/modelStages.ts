@@ -40,7 +40,7 @@ export function modelStageRunners(runner: TurnRunner): Pick<StageRunners, "plan"
           [...new Set(project.architect.rooms.filter((r) => r.contents.some((c) => c.kind === "enemy" && c.characterId === id)).map((r) => r.regionId))].join(", ");
         const guardians = new Set(project.architect.rooms.flatMap((r) => r.contents.flatMap((c) => (c.kind === "enemy" && c.lockRoom ? [c.characterId] : []))));
         const list = toCast.map((id) => `${id} (in ${where(id)}${guardians.has(id) ? "; a guardian that locks its room and is fought in a long pattern" : ""})`).join("; ");
-        const message = `Create these enemy characters for the world plan, with ids exactly as given: ${list}. Read their wiki pages (and the regions' pages) and give each a fitting size, stats and a behavior built from the primitives; guardians get several attacks with clear windups and phases. Write each at first-region strength: stats rise automatically in deeper regions. Don't add spawns or rooms: the Architect places them. Don't queue art.`;
+        const message = `Create these enemy characters for the world plan, with ids exactly as given: ${list}. Read their wiki pages (and the regions' pages) and give each a fitting size, stats and a behavior built from the primitives; guardians get several attacks with clear windups and phases. Write each at first-region strength: stats rise automatically in deeper regions. One that fights with a weapon gets it as a weapon (the weapon tools and a useWeapon action), never as part of its look. Don't add spawns or rooms: the Architect places them. Don't queue art.`;
         const after = await agentTurn(runner, buildAgent, project, message, ctx);
         project = after.project;
         reply = after.reply;

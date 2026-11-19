@@ -38,6 +38,14 @@ function proportions(character: Character): string {
 
 // --- concepts ----------------------------------------------------------------
 
+/**
+ * For characters drawn empty-handed (core drawnEmptyHanded: the player, and enemies that attack with
+ * a weapon): their weapons are separate art the game puts in the hand, so the design leaves the hands
+ * free. Parts of the body (claws, horns, tails, built-in blades) stay.
+ */
+export const EMPTY_HANDS =
+  "Hands empty and open, ready to grip: draw no weapon, shield or other held equipment, even if the description mentions one (the game draws the character's weapons separately and puts them in its hand). Armour, clothing and parts of the body (claws, horns, tails) are fine.";
+
 export function conceptPrompt(input: {
   character: Character;
   brief: string;
@@ -47,6 +55,8 @@ export function conceptPrompt(input: {
   refining: boolean;
   /** Ask for designs ready to rig: a neutral pose, limbs apart, distinct colours, the whole figure inside its cell. */
   rigReady?: boolean;
+  /** Draw the hands empty (EMPTY_HANDS): the character's weapons are separate art. */
+  emptyHanded?: boolean;
 }): string {
   const { character, brief, direction, feedback, refining } = input;
   const lines = [
@@ -63,12 +73,13 @@ export function conceptPrompt(input: {
           "2x2 grid of four distinct design variations. Each is one full-body side view facing RIGHT (head toward the right edge), whole body visible and centered in its quadrant, separated by clear gaps, on a plain flat light-grey background.",
         ]),
     `Body proportions: ${proportions(character)}.`,
+    input.emptyHanded ? EMPTY_HANDS : "",
     input.rigReady
       ? "Designed to be rebuilt from simple flat shapes: a bold readable silhouette, a few large parts, no tiny details, no texture."
       : "Designed to be rebuilt from simple flat shapes: a bold readable silhouette, a few large parts, clearly separated limbs, no tiny details, no texture.",
     `Style: ${directionText(direction)}`,
     "No text, no labels, no frames, no ground scenery.",
-  ];
+  ].filter(Boolean);
   if (feedback?.trim()) lines.push(`Creator's direction for this round: ${feedback.trim()}`);
   return lines.join("\n");
 }
@@ -77,14 +88,17 @@ export const FACING_PROMPT =
   'Which way is this character facing: toward the left or the right edge of the image (where its head/face is)? Reply with JSON only: {"facing": "left" | "right"}';
 
 /** Image edit: the chosen design redrawn as clean flat art, so tracing it gives clean shapes. */
-export function flatRedrawPrompt(brief: string): string {
+export function flatRedrawPrompt(brief: string, emptyHanded = false): string {
   return [
     `Redraw the attached character as clean flat 2D game art for a cut-out animation puppet: ${brief}.`,
+    emptyHanded ? `${EMPTY_HANDS} If the attached design holds one, leave it out and draw the hand empty.` : "",
     "Keep exactly the same character: design, costume, proportions, pose and the side view facing RIGHT. Keep every colour exactly as in the attached image (the same hair colour, skin tone and clothing colours, picked from the image), only flattened.",
     "Flat colour only: every area one solid colour, no shading, gradients, highlights, texture or brush strokes. Adjacent parts in clearly different colours or values (sleeves vs torso, shirt vs trousers, hands vs cuffs).",
     "One clean, even, dark outline around the figure and around each limb; simple clean shapes; small features (eyes, ears, hands, feet) kept clear and readable.",
     "The whole figure centered with wide empty space on every side, on a plain flat light-grey background. Nothing else: no shadow, ground, effects, text or frame.",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Image edit: the character taken apart into separate puppet pieces, each drawn whole. */
@@ -107,7 +121,7 @@ export const RIG_READY_MARK = "ready to be cut apart into an animation puppet";
 /** Whether a concept sheet was drawn rig-ready (its stored prompt). */
 export const isRigReadySheet = (prompt: string) => prompt.includes(RIG_READY_MARK);
 
-export function pickPrompt(brief: string, direction: ArtDirection, feedback?: string, rigReady?: { cutOff: number[] }): string {
+export function pickPrompt(brief: string, direction: ArtDirection, feedback?: string, rigReady?: { cutOff: number[] }, emptyHanded = false): string {
   return [
     "The image is a 2x2 concept sheet: cells 0 (top-left), 1 (top-right), 2 (bottom-left), 3 (bottom-right).",
     `Brief: ${brief}`,
@@ -116,6 +130,7 @@ export function pickPrompt(brief: string, direction: ArtDirection, feedback?: st
     rigReady
       ? `The design will be cut apart and animated, so prefer one in a neutral pose whose limbs are clearly apart from the body and whose adjacent parts have clearly different colours.${rigReady.cutOff.length > 0 ? ` Cells ${rigReady.cutOff.join(", ")} run off their quadrant's edge (cut off or crowded): do not pick them.` : ""}`
       : "",
+    emptyHanded ? "The character's weapons are drawn separately and held in its hand during play: prefer a design whose hands are empty (no weapon, shield or held equipment drawn in)." : "",
     'Pick the single best design. Reply with JSON only: {"cell": 0-3, "reason": "<one short sentence>"}',
   ]
     .filter(Boolean)
@@ -155,6 +170,7 @@ export function rigSystemPrompt(direction: ArtDirection, canvas: { width: number
     "Guidelines:",
     "- Trace the concept's silhouette and proportions closely, then its colors; simplify details into a few clean shapes. 8-30 parts is typical.",
     "- Put everything that should move separately (head, each limb, wings, tail, antennae, cloak) on its own bone with a sensible pivot.",
+    "- Leave out weapons and other held equipment, even if the concept shows one: the game draws weapons separately and holds them in the hand. Draw the hand empty.",
     "- Draw limbs as whole shapes that start AT their bone's pivot, so rotating the bone swings them naturally.",
     "- Blobs need enough points (8-20) to follow curves; never let an outline cross itself. Big curved features (horns, shells, cloaks) need many points along the curve.",
     `Art direction: ${directionText(direction)}`,
@@ -216,7 +232,8 @@ export function cutoutSystemPrompt(canvas: { width: number; height: number }): s
     CUTOUT_SPEC,
     `The image is ${canvas.width}x${canvas.height} pixels.`,
     "Guidelines:",
-    "- One part per piece that should move on its own: head, torso, each leg / arm / wing, tail, antennae, a weapon. A body that should flex may be split into two parts on two bones. 4-16 parts is typical.",
+    "- One part per piece that should move on its own: head, torso, each leg / arm / wing, tail, antennae. A body that should flex may be split into two parts on two bones. 4-16 parts is typical.",
+    "- A weapon or other held equipment is not a part of its own: weapons are separate art the game holds in the hand. If one is drawn in, leave it in the hand's part.",
     "- Pieces that move together (eyes on a head, a mask on a face) belong to the same part: do not cut them out separately.",
     "- Pivots decide how the pieces swing: put each one at the joint, never in the middle of a limb.",
   ].join("\n\n");
@@ -362,6 +379,8 @@ export function animPrompt(input: {
   feedback?: string;
   limits?: string;
   limbJoints?: boolean;
+  /** The character's weapons are separate sprites held at its hand (core drawnEmptyHanded). */
+  emptyHanded?: boolean;
 }): string {
   const { character, rig, slots } = input;
   const custom = input.custom ?? [];
@@ -386,6 +405,9 @@ export function animPrompt(input: {
       ? 'death plays once when it is killed (loop false) and its last frame is held until it fades: recoil from the blow, then collapse, topple or come apart into a still final pose (no return to rest, nothing still moving at t=1; keep it at ground level, the feet are at y 0).'
       : "",
     "Keep motion believable for this body: legs alternate, heavy parts move less, wind-ups lean back before striking. Only animate bones listed above.",
+    input.emptyHanded
+      ? "Its weapons are separate sprites the game puts in its hand (none is part of this rig): move the arm and hand as if gripping one; weapon attacks get their own clips."
+      : "",
     input.limbJoints ? BEND_LIMBS : "",
     input.limits ? piecesText(input.limits) : "",
     input.feedback ? `Creator's direction: ${input.feedback}` : "",
@@ -431,6 +453,7 @@ export function detailSystemPrompt(direction: ArtDirection, canvas: { width: num
     `The rig render is ${canvas.width}x${canvas.height} pixels.`,
     "Guidelines:",
     "- The design shows WHICH details exist, their colours and the light direction; the rig render shows WHERE they go. The design may differ from the rig in pose and proportions: put each detail on the rig's own shapes, never at the design's coordinates.",
+    "- Never add a weapon, shield or other held equipment, even if the design shows one: the game draws weapons separately in the hand.",
     "- Shading first: one darker band per big part on its shadow side (and a lighter one on its lit side where the design has it), following the part's shape. Then the design's most telling details. Then small touches.",
     "- Readable at small size: a few bold shapes beat many tiny ones. Nothing thinner than about 1.5% of the figure's height; folds and seams a little darker than the part, not black.",
     "- Keep the silhouette, the face's features (eyes, mouth, brows) and the existing detail parts readable: never cover them, never redraw a part.",

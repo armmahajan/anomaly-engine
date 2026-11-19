@@ -112,6 +112,18 @@ export function playerWeaponIds(project: Pick<ProjectSpec, "weapons" | "world">)
   return ids;
 }
 
+/**
+ * Whether a character's design is drawn empty-handed: its weapons are separate art the game holds at
+ * the hand (the weapon system), so a weapon drawn into the design, its rig or its clips would double
+ * up with the held one. The player always (the player's attacks are the weapon system's, or the
+ * built-in attack), and an enemy that attacks with useWeapon. Other enemies may hold things as part
+ * of their body (claws, a built-in blade) and swing them in their own attack clips.
+ */
+export function drawnEmptyHanded(project: Pick<ProjectSpec, "weapons" | "world">, character: ProjectSpec["characters"][number]): boolean {
+  if (character.kind === "player") return true;
+  return Object.values(character.behavior.states).some((s) => s.action.type === "useWeapon");
+}
+
 /** Weapons a character wields: the player's (playerWeaponIds), an enemy's from its useWeapon actions. */
 export function wieldedWeapons(project: Pick<ProjectSpec, "weapons" | "world">, character: ProjectSpec["characters"][number]): Weapon[] {
   const ids =

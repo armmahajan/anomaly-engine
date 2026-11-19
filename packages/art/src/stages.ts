@@ -2,6 +2,7 @@ import { detailLook } from "./dress.ts";
 import { attackTiming, checkWeaponClip, fitWeaponClip, gripBones, heldLength, weaponClipBrief, withHandGrip } from "./weapons.ts";
 import { z } from "zod";
 import {
+  drawnEmptyHanded,
   attackClipName,
   CLIP_SLOTS,
   wantedWeaponClips,
@@ -291,6 +292,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
     feedback: input.feedback,
     refining: reference !== null,
     rigReady,
+    emptyHanded: drawnEmptyHanded(project, character),
   });
   // Rig-ready: cells whose figure runs off the cell's edge are never recommended; a sheet with none whole is drawn again (once).
   let generated: Awaited<ReturnType<ImageModel["generate"]>>;
@@ -324,7 +326,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
     recommended = await askJson(
       ctx,
       z.object({ cell: z.number().int().min(0).max(3), reason: z.string().max(500) }),
-      { system: PICK_SYSTEM, content: [image(generated.image), text(pickPrompt(brief, project.art.direction, input.feedback, cutOff ? { cutOff } : undefined))], maxTokens: 3000 },
+      { system: PICK_SYSTEM, content: [image(generated.image), text(pickPrompt(brief, project.art.direction, input.feedback, cutOff ? { cutOff } : undefined, drawnEmptyHanded(project, character)))], maxTokens: 3000 },
       "picking a design",
     );
     const fits = cells?.filter((c) => !c.touchesEdge) ?? [];
@@ -469,7 +471,7 @@ export async function redrawFlat(ctx: ArtContext, input: RedrawInput): Promise<S
   const chosen = await ctx.files.get(asset.chosen.file);
   checkAbort(ctx);
   const generated = await ctx.image.generate({
-    prompt: flatRedrawPrompt(asset.brief),
+    prompt: flatRedrawPrompt(asset.brief, drawnEmptyHanded(project, character)),
     references: [chosen],
     signal: ctx.signal,
     ...(input.quality ? { quality: input.quality } : {}),
@@ -1156,6 +1158,7 @@ export async function animate(ctx: ArtContext, input: AnimateInput): Promise<Sta
                     feedback: input.feedback,
                     limits: limitsLine,
                     limbJoints,
+                    emptyHanded: drawnEmptyHanded(project, character),
                   }),
                 ),
               ],

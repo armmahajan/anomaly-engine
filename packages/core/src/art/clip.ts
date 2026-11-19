@@ -87,7 +87,7 @@ export const CLIP_SLOTS = {
   walk: "Patrolling or moving slowly.",
   run: "Chasing or moving fast.",
   windup: "Telegraphing an attack: a readable anticipation pose.",
-  attack: "Charging or striking (the player's sword swings too, unless slash_forward/slash_up/slash_down exist).",
+  attack: "Charging or striking (also the player's built-in attack, unless slash_forward/slash_up/slash_down exist; weapon attacks have their own clips).",
   hurt: "Just took a hit (plays once).",
   jump: "Rising in the air.",
   fall: "Falling.",
@@ -146,7 +146,7 @@ export function clipSlotsFor(actionType: string, phase: string | null = null, fl
   return slots;
 }
 
-/** Clip slots every enemy uses, whatever its behavior: struck by the sword, and killed. */
+/** Clip slots every enemy uses, whatever its behavior: struck by the player, and killed. */
 export const ENEMY_CLIP_SLOTS: readonly ClipSlot[] = ["hurt", "death"];
 
 /** Clips that play once and hold their last frame whatever the behavior does (the runtime stops acting on death). */

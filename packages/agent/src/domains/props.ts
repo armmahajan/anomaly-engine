@@ -27,7 +27,7 @@ const itemFields = { name: z.string(), description: z.string().optional(), color
 export const propTools: DomainTools<Op> = {
   descriptions: {
     addProp:
-      "Add a prop: a rectangle in a room (px, top-left). Handlers hear touch, interact (Up; shows prompt), hit (sword; bounce: down strikes bounce), destroyed (`health` hits). Pickups, barriers, switches = props + flags + items + handlers.",
+      "Add a prop: a rectangle in a room (px, top-left). Handlers hear touch, interact (Up; shows prompt), hit (the player's attacks; bounce: down strikes bounce), destroyed (`health` hits). Pickups, barriers, switches = props + flags + items + handlers.",
     updateProp: "Change the given fields of a prop (also id, art {biome, piece}).",
     removeProp: "Remove a prop from a room.",
     createItem: "Create an item the player can carry (counted); id from the name.",
