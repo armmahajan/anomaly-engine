@@ -1,5 +1,5 @@
 extends SceneTree
-## Headless probe for game/test/hud.test.ts: how many health pips fit in a row beside the boss bars.
+## Headless probe for game/test/hud.test.ts: how many health pips fit in a row beside the enemy health bars.
 ##   godot --headless --path game --script res://tests/hud_probe.gd -- out.json
 
 

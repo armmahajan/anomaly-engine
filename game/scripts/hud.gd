@@ -1,5 +1,5 @@
 extends Node2D
-## Play-mode HUD: the player's health as rows of pips (left of the boss bars), the items they hold (icon or color, and count) under it,
+## Play-mode HUD: the player's health as rows of pips (left of the enemy health bars), the items they hold (icon or color, and count) under it,
 ## the weapons in their loadout slots (with ammo counts) under those, and a titled health
 ## bar for every enemy alive in the current room whose spawn asks for one
 ## (spawn.healthBar), stacked in spawn order from the top.
@@ -25,7 +25,7 @@ const PIP_ROW := 24.0
 var _pip_extra := 0.0
 
 
-## Health pips in one row: as many as fit left of the centred boss bars, 5 to 10.
+## Health pips in one row: as many as fit left of the centred enemy health bars, 5 to 10.
 static func pips_per_row(viewport_width: float) -> int:
 	var room := (viewport_width - BAR_WIDTH) / 2.0 - 40.0
 	return clampi(int(room / 26.0), 5, 10)
@@ -38,7 +38,7 @@ func _process(_delta: float) -> void:
 func _draw() -> void:
 	if player == null:
 		return
-	# The pips wrap into rows that stay left of the centred boss bars (a big health pool used to run under them).
+	# The pips wrap into rows that stay left of the centred enemy health bars (a big health pool used to run under them).
 	var per_row := pips_per_row(get_viewport_rect().size.x)
 	_pip_extra = (ceili(float(player.max_health) / per_row) - 1) * PIP_ROW
 	for i in player.max_health:

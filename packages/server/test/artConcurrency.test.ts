@@ -115,6 +115,27 @@ describe("art jobs at once", () => {
     expect(revisions.at(-1)).toBe(store.getState().project.revision);
   });
 
+  it("the game-art job picks a character up where it stands: concept sheets already drawn are chosen from, not drawn again", async () => {
+    const { art, store } = await open();
+    await art.start({ stage: "concepts", characterId: "charger", brief: "a horned beetle" });
+    await art.drained();
+    const sheets = () => {
+      const a = store.getState().project.art.assets.find((x) => x.name === "Charger");
+      return a?.kind === "character" ? a : null;
+    };
+    expect(sheets()?.concepts).toHaveLength(1);
+    expect(sheets()?.chosen).toBeFalsy();
+    expect(await art.start({ stage: "gameArt", steps: ["character:charger"] })).toMatchObject({ ok: true });
+    await art.drained();
+    const job = art.getState().jobs.at(-1)!;
+    expect(job.outcome).toBe("committed");
+    // The sheet it had was chosen from; no new sheet was painted.
+    expect(sheets()?.concepts).toHaveLength(1);
+    expect(sheets()?.chosen).toBeTruthy();
+    expect(sheets()?.rig).toBeTruthy();
+    expect(job.summary).not.toContain("new concept sheet");
+  });
+
   it("STUDIO_ART_CONCURRENCY=1 keeps one job at a time", async () => {
     const { art, image } = await open({ concurrency: 1 });
     image.hold();

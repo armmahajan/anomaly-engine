@@ -447,9 +447,16 @@ export class ArtService {
           break;
         case "auto": {
           const c = { characterId: r.characterId! };
-          add("concepts", () => generateConcepts(ctx, c), true);
-          add("choose", () => chooseConcept(ctx, c));
-          add("rig", () => buildRig(ctx, c));
+          // Pick up where the character stands (a job stopped part-way, the creator's own sheets): concept
+          // sheets already drawn are chosen from, a chosen design is built on; only what's missing is drawn.
+          const character = project.characters.find((ch) => ch.id === r.characterId);
+          const asset = character?.appearance ? project.art.assets.find((a) => a.id === character.appearance) : undefined;
+          const drawn = asset?.kind === "character" ? asset : undefined;
+          const sheets = (drawn?.concepts.length ?? 0) > 0;
+          const chosen = !!drawn?.chosen;
+          if (!chosen && !sheets) add("concepts", () => generateConcepts(ctx, c), true);
+          if (!chosen) add("choose", () => chooseConcept(ctx, c), sheets);
+          add("rig", () => buildRig(ctx, c), chosen);
           add("animate", () => animate(ctx, c));
           break;
         }

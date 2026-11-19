@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// The HUD's health pips wrap into rows that stay left of the centred boss bars (hud.gd).
+// The HUD's health pips wrap into rows that stay left of the centred enemy health bars (hud.gd).
 const GAME_DIR = join(import.meta.dirname, "..");
 
 describe("HUD health pips", () => {
-  it("fit as many per row as stay clear of the boss bars, 5 to 10", () => {
+  it("fit as many per row as stay clear of the enemy health bars, 5 to 10", () => {
     const dir = mkdtempSync(join(tmpdir(), "anomaly-hud-"));
     try {
       execFileSync(process.env.GODOT ?? "godot", ["--headless", "--path", GAME_DIR, "--script", "res://tests/hud_probe.gd", "--", join(dir, "out.json")], { stdio: "pipe", timeout: 60_000 });

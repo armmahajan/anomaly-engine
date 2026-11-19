@@ -69,7 +69,7 @@ test("a modal authored in the Game tab opens on entering a room, and its button 
   // Delete: refused while the room handler shows it, saying where.
   await page.getByRole("tab", { name: "Game" }).click();
   await panel.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByText(/modal "new_modal" is shown by world\.rooms\.0\.handlers\.0/)).toBeVisible();
+  await expect(page.getByText(/modal "new_modal" is shown by a handler of the room "[^"]+"/)).toBeVisible();
   expect((await project(page)).world.modals).toHaveLength(1);
   // An unused one goes.
   await panel.getByRole("button", { name: "+ Modal" }).click();
