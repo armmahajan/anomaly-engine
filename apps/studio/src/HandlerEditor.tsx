@@ -326,7 +326,8 @@ function Fields({ value, options, hide = [], ctx, label, onChange, disc = "type"
               const shownValue = (v as string | undefined) ?? (field instanceof z.ZodDefault && typeof field.def.defaultValue === "string" ? field.def.defaultValue : "");
               return (
                 <select key={key} aria-label={name} title={key} value={shownValue} disabled={locked} onChange={(e) => setField(key, e.target.value || undefined)}>
-                  {(optional || !choices.includes(shownValue)) && <option value="">{optional ? `(any ${key})` : `${key}?`}</option>}
+                  {/* A defaulted field always has its value; only a truly optional one can be left out ("any"). */}
+                  {((optional && !(field instanceof z.ZodDefault)) || !choices.includes(shownValue)) && <option value="">{optional && !(field instanceof z.ZodDefault) ? `(any ${key})` : `${key}?`}</option>}
                   {choices.map((c) => (
                     <option key={c}>{c}</option>
                   ))}

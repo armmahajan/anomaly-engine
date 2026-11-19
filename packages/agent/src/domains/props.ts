@@ -20,6 +20,7 @@ const fields = {
   health: z.number().nullable().optional(),
   bounce: z.boolean().optional(),
   prompt: z.string().nullable().optional(),
+  art: z.unknown().optional().describe("{biome, piece} | {object, idle, scale}"),
   handlers: z.array(z.unknown()).optional(),
 };
 const itemFields = { name: z.string(), description: z.string().optional(), color: z.string().optional() };
@@ -27,10 +28,10 @@ const itemFields = { name: z.string(), description: z.string().optional(), color
 export const propTools: DomainTools<Op> = {
   descriptions: {
     addProp:
-      "Add a prop: a rectangle in a room (px, top-left). Handlers hear touch, interact (Up; shows prompt), hit (the player's attacks; bounce: down strikes bounce), destroyed (`health` hits). Pickups, barriers, switches = props + flags + items + handlers.",
-    updateProp: "Change the given fields of a prop (also id, art {biome, piece}).",
-    removeProp: "Remove a prop from a room.",
-    createItem: "Create an item the player can carry (counted); id from the name.",
+      "Add a prop: a rectangle in a room (px, top-left). Handlers hear touch, interact (Up; shows prompt), hit (bounce: the player pogoes off it), destroyed (`health` hits). Pickups, barriers, switches = props + flags + items + handlers.",
+    updateProp: "Change fields of a prop (also its id).",
+    removeProp: "Remove a prop.",
+    createItem: "An item the player carries (counted); id from the name.",
     updateItem: "Change an item.",
     deleteItem: "Delete an item (refused while anything uses it).",
   },
