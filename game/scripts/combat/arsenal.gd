@@ -66,8 +66,10 @@ func busy() -> bool:
 	return runner != null
 
 
-## Stop the attack being made (the player was hurt).
+## Stop the attack being made (the player was hurt); its projectiles still charging go with it.
 func cancel() -> void:
+	if runner != null:
+		runner.drop()
 	if runner != null and view != null:
 		view.set_phase(runner.attack, "", runner.aim, 1.0)
 	runner = null

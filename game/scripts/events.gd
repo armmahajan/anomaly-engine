@@ -18,22 +18,22 @@ var items := {}
 var checkpoint := {}
 ## timer id -> seconds left.
 var timers := {}
+## Marker events fired this run, oldest first (the last MAX_MARKERS): {name, from} (state `markers`).
+var markers: Array = []
 
 var _effects := {}
 var _queue: Array = []
 var _flushing := false
 
 const MAX_EVENTS_PER_FLUSH := 200
+const MAX_MARKERS := 50
 
 
 func _init(world_run: Node) -> void:
 	run = world_run
 	for type in ["setFlag", "giveItem", "takeItem", "grantAbility", "giveWeapon", "takeWeapon", "heal", "damage", "respawn", "returnToSafeGround", "setCheckpoint", "saveRun", "startTimer"]:
 		register(type, Callable(self, "_effect_" + type))
-	# The animation effects (core art/animation.ts): placeholders until the runtime plays objects
-	# (art/object_view.gd); the systems that draw props, spawns, the player and fx register theirs.
-	for type in ["playAnimation", "spawnEffect"]:
-		register(type, func(_effect: Dictionary, _context: Dictionary) -> void: pass)
+	# The animation effects (playAnimation, spawnEffect: core art/animation.ts) are fx.gd's.
 
 
 ## Add (or replace) an effect: `callable(effect: Dictionary, context: Dictionary)`.
@@ -50,6 +50,7 @@ func reset() -> void:
 	items = {}
 	checkpoint = {}
 	timers = {}
+	markers = []
 	_queue = []
 
 
@@ -58,6 +59,20 @@ func fire(event: Dictionary) -> void:
 	if not event.has("room"):
 		event.room = run.room_id
 	_queue.append(event)
+
+
+## A clip crossed a marker (art/rig_view.gd, through what plays it): fire {type: "marker", name, source}
+## with what played it: {source: "prop:<id>", prop} | {source: "spawn:<id>", spawn} | {source: "player",
+## player: true} | {source: "effect:<object>"}. Only while the run plays (not paused).
+func marker(name: String, from: Dictionary) -> void:
+	if not run.active or run.paused:
+		return
+	markers.append({"name": name, "from": str(from.source)})
+	if markers.size() > MAX_MARKERS:
+		markers = markers.slice(markers.size() - MAX_MARKERS)
+	var event := {"type": "marker", "name": name}
+	event.merge(from)
+	fire(event)
 
 
 func flush() -> void:
@@ -109,6 +124,8 @@ func _handlers_for(event: Dictionary) -> Array:
 func _matches(on: Dictionary, event: Dictionary, scope: Dictionary) -> bool:
 	if on.get("type") != event.get("type"):
 		return false
+	if event.type == "marker":
+		return _matches_marker(on, event, scope)
 	# Prop events only reach the prop they are about.
 	if event.has("prop") and scope.get("prop") != event.prop:
 		return false
@@ -119,6 +136,31 @@ func _matches(on: Dictionary, event: Dictionary, scope: Dictionary) -> bool:
 		if wanted != null and not event.has(key) and key != "room":
 			return false
 	return true
+
+
+## Markers (core events.ts `marker`; interpret.ts matchesMarker): a prop's or spawn's handlers hear
+## the markers of its own clips; world and room handlers hear every marker, filtered by `name` and
+## `from` (whose clips: the player, a prop, a spawn; `self` means nothing there).
+func _matches_marker(on: Dictionary, event: Dictionary, scope: Dictionary) -> bool:
+	if on.get("name") != null and str(on.name) != str(event.get("name", "")):
+		return false
+	if scope.has("room") and event.get("room") != scope.room:
+		return false
+	if scope.has("prop"):
+		return event.get("prop") == scope.prop
+	if scope.has("spawn"):
+		return event.get("spawn") == scope.spawn
+	var from = on.get("from")
+	if typeof(from) != TYPE_DICTIONARY:
+		return true
+	match str(from.get("kind", "")):
+		"player":
+			return bool(event.get("player", false))
+		"prop":
+			return event.get("prop") == from.get("prop")
+		"spawn":
+			return event.get("spawn") == from.get("spawn")
+	return false
 
 
 func holds(condition) -> bool:

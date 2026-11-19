@@ -67,6 +67,11 @@ var _weapon_view: Node2D = null
 var _shown_weapon := ""
 ## The rig is posed by an attack's own clip (manual time) until the attack ends.
 var _clip_posed := false
+## A clip a playAnimation plays (core art/animation.ts; "" = none), what follows it ("idle" | "hold"),
+## and whether it ended and is held on its last frame.
+var _anim_clip := ""
+var _anim_then := "idle"
+var _anim_held := false
 ## How attacks aim (project controls.aim): "mouse" (toward the cursor, the aim keys winning while
 ## held) or "keys" (only the aim keys: up, forward, down).
 var aim_mode := "mouse"
@@ -176,6 +181,8 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 	if not asset.is_empty():
 		_rig = CharacterArt.make_view(asset, art)
 		_rig.show_behind_parent = true  # the sword swing (drawn by the player) stays on top
+		_rig.emit_markers = true
+		_rig.marker.connect(_on_marker)
 		add_child(_rig)
 		_update_rig()
 
@@ -351,6 +358,18 @@ func _update_rig() -> void:
 	_rig.scale.x = facing_sign()
 	var blinking := _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07
 	_rig.modulate = Color(1, 0.45, 0.45, 0.6) if blinking else Color.WHITE
+	if _anim_clip != "" and _preview_clip == "":
+		if _clip_posed:
+			_rig.manual_time = false
+			_clip_posed = false
+		_rig.play(_anim_clip)
+		if _rig.clip_ended() and not _anim_held:
+			if _anim_then == "hold":
+				_anim_held = true
+			else:
+				_anim_clip = ""
+		if _anim_clip != "":
+			return
 	if attacking:
 		_clip_posed = arsenal.runner.pose_rig(_rig, CharacterArt.first_clip)
 		return
@@ -371,6 +390,33 @@ func _update_rig() -> void:
 	else:
 		slots = ["idle"]
 	_rig.play(CharacterArt.first_clip(_rig, slots))
+
+
+## playAnimation: play `clip` from its start over the movement's clips, then go back to them ("idle")
+## or hold its last frame ("hold"). False (ignored) without art or such a clip.
+func play_animation(clip: String, then := "idle") -> bool:
+	if _rig == null or not _rig.has_clip(clip):
+		return false
+	_anim_clip = clip
+	_anim_then = then
+	_anim_held = false
+	if _clip_posed:
+		_rig.manual_time = false
+		_clip_posed = false
+	_rig.play(clip, true)
+	return true
+
+
+## The clip a playAnimation is playing (until it ends), else null (state: playerPlaying).
+func anim_playing() -> Variant:
+	return _anim_clip if _anim_clip != "" and not _anim_held else null
+
+
+## Any clip the player's art plays crossed a marker: a `marker` event from the player.
+func _on_marker(marker_name: String, _clip: String) -> void:
+	var main = pointer
+	if main != null and is_instance_valid(main) and "_run" in main and main._mode == "play" and main._run.active:
+		main._run.events.marker(marker_name, {"source": "player", "player": true})
 
 
 ## Ground jump (with coyote time and buffering), wall jump, ground pound or mid-air jump.

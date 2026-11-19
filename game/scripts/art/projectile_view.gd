@@ -60,3 +60,46 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, r, Color(_color, 0.25))
 	draw_circle(Vector2.ZERO, r * 0.6, _color)
 	draw_circle(Vector2.ZERO, r * 0.3, _color.lerp(Color.WHITE, 0.6))
+
+
+# --- object art (core art/animation.ts ProjectileArt) ------------------------------------------
+# Projectiles with a look's `art` (weapon projectiles, the enemy shoot action) are drawn as an
+# object (object_view.gd) pointing right: `charge` while charging, `fly` in flight (null = idle),
+# and `burst` shown as an effect where it breaks. Without art they draw as they always did.
+
+const ObjectView := preload("res://scripts/art/object_view.gd")
+
+
+## An ObjectView child of `node` for `art` ({object, charge, fly, burst}) playing its `part` clip, or
+## null (no art, or no such object: the projectile keeps its usual drawing). Its markers fire as
+## from "effect:<object>".
+static func object_for(node: Node2D, art: Variant, part: String) -> Node2D:
+	if typeof(art) != TYPE_DICTIONARY:
+		return null
+	var main := ObjectView.main_of(node)
+	var all_art = main._project.get("art", {}) if main != null else {}
+	var asset := ObjectView.find_asset(all_art, str(art.get("object", "")))
+	if asset.is_empty():
+		return null
+	var view = ObjectView.new()
+	view.setup(asset, all_art, "idle")
+	var object := str(art.object)
+	view.marker.connect(func(marker_name: String, _clip: String): main._run.events.marker(marker_name, {"source": "effect:" + object}))
+	node.add_child(view)
+	play_part(view, art, part)
+	return view
+
+
+## Play the art's `part` clip (charge, fly) as the projectile's usual, looping clip (null = idle).
+static func play_part(view: Node2D, art: Variant, part: String) -> void:
+	var clip = art.get(part) if typeof(art) == TYPE_DICTIONARY else null
+	view.play_loop(str(clip) if clip != null and view.has_clip(str(clip)) else "idle")
+
+
+## A projectile with art broke at `at` (room px): its `burst` clip plays there as an effect.
+static func burst(node: Node, art: Variant, at: Vector2, angle := 0.0) -> void:
+	if typeof(art) != TYPE_DICTIONARY or art.get("burst") == null:
+		return
+	var main := ObjectView.main_of(node)
+	if main != null and main._fx != null:
+		main._fx.spawn_object(str(art.object), str(art.burst), at, 1.0, "front", angle)

@@ -5,6 +5,14 @@ extends Node
 ## them (the rest are hit-stop frames), so every step the room takes is the
 ## normal fixed step: headless simulations stay deterministic and the player
 ## still moves exactly as the movement model says.
+##
+## The animation effects (core art/animation.ts) live here too: playAnimation (a clip on a prop, a
+## spawn or the player) and spawnEffect (an object shown once at a place, under the room, so a new
+## room drops it), and spawn_object for projectile bursts.
+
+const ObjectView := preload("res://scripts/art/object_view.gd")
+## Group of the room's live effects (spawnEffect, bursts): the runtime state's `effects`.
+const EFFECTS_GROUP := "anim_effects"
 
 var main: Node = null
 
@@ -41,6 +49,144 @@ func register(events) -> void:
 	events.register("flash", func(e, _c): flash(Color(str(e.get("color", "#ffffff"))), float(e.get("seconds", 0.2))))
 	events.register("hitStop", func(e, _c): main.hit_stop(int(e.get("frames", 6))))
 	events.register("slowMotion", func(e, _c): slow_motion(float(e.get("scale", 0.3)), float(e.get("seconds", 0.8))))
+	events.register("playAnimation", _play_animation)
+	events.register("spawnEffect", _spawn_effect)
+
+
+# --- animation ----------------------------------------------------------------------------
+
+## playAnimation {target, clip, then}: the target's art plays the clip (a missing one is ignored).
+func _play_animation(effect: Dictionary, context: Dictionary) -> void:
+	var clip := str(effect.get("clip", ""))
+	var then := str(effect.get("then", "idle"))
+	var target = effect.get("target", {"kind": "self"})
+	if typeof(target) != TYPE_DICTIONARY:
+		return
+	var kind := str(target.get("kind", "self"))
+	if kind == "self":
+		if typeof(context.get("prop")) == TYPE_DICTIONARY:
+			kind = "prop"
+			target = {"prop": context.prop.id}
+		elif typeof(context.get("spawn")) == TYPE_DICTIONARY:
+			kind = "spawn"
+			target = {"spawn": context.spawn.id}
+		else:
+			return
+	match kind:
+		"player":
+			if _alive(main._player):
+				main._player.play_animation(clip, then)
+		"prop":
+			if main._props != null and is_instance_valid(main._props):
+				main._props.play_animation(str(target.get("prop", "")), clip, then)
+		"spawn":
+			var enemy := enemy_for(str(target.get("spawn", "")))
+			if enemy != null:
+				enemy.play_animation(clip, then)
+
+
+## spawnEffect {object, clip, at, offset, scale, layer}: show the object's clip once at the place
+## (a missing object, clip or place: nothing).
+func _spawn_effect(effect: Dictionary, context: Dictionary) -> void:
+	var at = place_of(effect.get("at", {"kind": "self"}), context)
+	if at == null:
+		return
+	var offset = effect.get("offset", [0, 0])
+	if typeof(offset) == TYPE_ARRAY and offset.size() >= 2:
+		at += Vector2(float(offset[0]), float(offset[1]))
+	spawn_object(str(effect.get("object", "")), str(effect.get("clip", "idle")), at, float(effect.get("scale", 1.0)), str(effect.get("layer", "front")))
+
+
+## Show `object` playing `clip` centred at `at` (room px) in the current room: removed when a clip that
+## doesn't loop ends; a looping one stays until the room changes. Its markers fire as from
+## "effect:<object>". Returns the view, or null (no such object or clip, no room).
+func spawn_object(object: String, clip: String, at: Vector2, scale := 1.0, layer := "front", rotation := 0.0) -> Node2D:
+	var world: Node = main._world
+	if world == null or not is_instance_valid(world):
+		return null
+	var art: Dictionary = main._project.get("art", {})
+	var asset := ObjectView.find_asset(art, object)
+	if asset.is_empty():
+		return null
+	var view = ObjectView.new()
+	view.setup(asset, art, "")
+	if not view.has_clip(clip):
+		view.free()
+		return null
+	view.position = at
+	view.rotation = rotation
+	view.scale = Vector2(scale, scale)
+	view.set_meta("object", object)
+	view.set_meta("clip", clip)
+	view.add_to_group(EFFECTS_GROUP)
+	view.marker.connect(func(marker_name: String, _clip: String): main._run.events.marker(marker_name, {"source": "effect:" + object}))
+	if view.clip_loops(clip):
+		view.play_loop(clip)
+	else:
+		view.play_once(clip, "hold")
+		view.finished.connect(func(_c): view.queue_free())
+	if layer == "back":
+		world.add_child(view)
+		# Behind the characters, like the props.
+		var player = main._player
+		if _alive(player) and player.get_parent() == world:
+			world.move_child(view, player.get_index())
+	else:
+		view.z_index = 4
+		world.add_child(view)
+	return view
+
+
+## The room's live effects: [{object, clip, x, y}] (state `effects`).
+func effects_state() -> Array:
+	var out := []
+	var world: Node = main._world
+	if world == null or not is_instance_valid(world):
+		return out
+	for view in world.get_children():
+		if view.is_in_group(EFFECTS_GROUP) and not view.is_queued_for_deletion():
+			out.append({"object": str(view.get_meta("object")), "clip": str(view.get_meta("clip")), "x": view.position.x, "y": view.position.y})
+	return out
+
+
+## A place (core EffectPlace: self, player, prop, spawn, point) in room px, or null when it isn't here.
+func place_of(at: Variant, context: Dictionary) -> Variant:
+	if typeof(at) != TYPE_DICTIONARY:
+		return null
+	match str(at.get("kind", "self")):
+		"self":
+			if typeof(context.get("prop")) == TYPE_DICTIONARY:
+				return place_of({"kind": "prop", "prop": context.prop.id}, {})
+			if typeof(context.get("spawn")) == TYPE_DICTIONARY:
+				return place_of({"kind": "spawn", "spawn": context.spawn.id}, {})
+		"player":
+			if _alive(main._player):
+				return main._player.center()
+		"prop":
+			if main._props != null and is_instance_valid(main._props):
+				return main._props.center_of(str(at.get("prop", "")))
+		"spawn":
+			var enemy := enemy_for(str(at.get("spawn", "")))
+			if enemy != null:
+				return enemy.center()
+		"point":
+			return Vector2(float(at.get("x", 0)), float(at.get("y", 0)))
+	return null
+
+
+## The living enemy of a spawn in the current room, or null.
+func enemy_for(spawn_id: String) -> Node:
+	var world: Node = main._world
+	if world == null or not is_instance_valid(world):
+		return null
+	for child in world.get_children():
+		if child is CharacterBody2D and child != main._player and "spawn_id" in child and child.spawn_id == spawn_id and not child.dead:
+			return child
+	return null
+
+
+func _alive(node) -> bool:
+	return node != null and is_instance_valid(node)
 
 
 ## Shake the play camera by up to `strength` px, easing out over `seconds`.

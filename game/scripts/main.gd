@@ -227,6 +227,11 @@ func run_state() -> Dictionary:
 		"mapOpen": _modals.map_open(),
 		"healthBars": _hud.health_bars(),
 		"props": _props.state() if _props != null and is_instance_valid(_props) else [],
+		# Animation in play (core art/animation.ts): what the player plays, live effects, fired markers, projectiles.
+		"playerPlaying": _player.anim_playing() if playing and _player != null and is_instance_valid(_player) else null,
+		"effects": _fx.effects_state() if playing else [],
+		"markers": events.markers.duplicate() if playing else [],
+		"projectiles": _projectile_states(),
 		"camera": _camera_state(),
 		"controls": _controls_state(),
 		"aim": _aim_state(),
@@ -414,7 +419,19 @@ func _entity_states() -> Array:
 				"behaviorState": child.behavior_state if child.behavior_state != "" else null,
 				"phase": child.phase if "phase" in child and child.phase != "" else null,
 				"health": child.health,
+				"playing": child.anim_playing() if child.has_method("anim_playing") else null,
 			})
+	return out
+
+
+## Projectiles alive in the room (combat/projectile.gd, weapon_projectile.gd): {x, y, charging, object, owner}.
+func _projectile_states() -> Array:
+	var out := []
+	if _world == null:
+		return out
+	for child in _world.get_children():
+		if child.is_in_group("projectiles") and not child.is_queued_for_deletion():
+			out.append(child.describe())
 	return out
 
 
@@ -585,7 +602,7 @@ var _textures := {}
 ## Show what the studio's mode asks for: the playtest room, one character, a biome room or a world room.
 func _apply_stage() -> void:
 	var mode := str(_stage.get("mode", "game"))
-	if mode != "character" and _stage_view != null:
+	if not mode in ["character", "object"] and _stage_view != null:
 		_stage_view.queue_free()
 		_stage_view = null
 	if mode != "world" and _world_stage != null:
@@ -603,7 +620,7 @@ func _apply_stage() -> void:
 			else:
 				_edit_camera.make_current()
 				_fit_edit_camera()
-		"character":
+		"character", "object":
 			if _project.is_empty():
 				return
 			if _stage_view == null:
