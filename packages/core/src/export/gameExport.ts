@@ -89,8 +89,8 @@ export function exportFileName(name: string): string {
 
 /**
  * Every image the runtime is sent for this project (sorted, once each): the kits of biomes that dress
- * rooms or draw props, modal images, item icons, cutout rigs' images, rig part textures, and weapon
- * and projectile sprites. The studio sends the same set.
+ * rooms or draw props, modal images, item icons, the images of every rig (characters and objects:
+ * cutout sources, part textures), and weapon and projectile sprites. The studio sends the same set.
  */
 export function runtimeImageRefs(project: Pick<ProjectSpec, "world" | "art"> & Partial<Pick<ProjectSpec, "weapons">>): FileRef[] {
   const biomes = usedBiomeIds(project);

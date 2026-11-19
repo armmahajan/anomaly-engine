@@ -20,7 +20,28 @@ function directionText(direction: ArtDirection): string {
   return `${direction.style}\nPreferred palette: ${direction.palette.join(", ")}.`;
 }
 
-function roleOf(character: Character): string {
+/**
+ * An object the pipeline draws (core isObjectAsset): an animated thing that isn't a game character
+ * (a lever, a trap, a shockwave, a bolt). Its brief says what it is; `uses` says where the game shows
+ * it, in the creator's words.
+ */
+export interface DrawnObject {
+  kind: "object";
+  id: string;
+  name: string;
+  /** About how big it is in the game (px). */
+  size: { width: number; height: number };
+  /** Where the game uses it ("the prop "Trap" in "Arena"", "the attack "shot" of weapon "wand""). */
+  uses: string[];
+}
+
+/** What a stage draws: a game character, or an object. */
+export type Subject = Character | DrawnObject;
+
+export const isDrawnObject = (subject: Subject): subject is DrawnObject => subject.kind === "object";
+
+function roleOf(character: Subject): string {
+  if (character.kind === "object") return "animated object (not a character: no face or limbs unless the brief gives it some)";
   if (character.kind === "player") return "player character (the hero)";
   // `movement` arrives with flying enemies; older schemas have ground enemies only.
   const movement = (character as { movement?: string }).movement;
@@ -28,12 +49,17 @@ function roleOf(character: Character): string {
 }
 
 /** Width:height in words, so concepts come out with roughly the right build. */
-function proportions(character: Character): string {
+function proportions(character: Subject): string {
   const { width, height } = character.size;
   const ratio = width / height;
   if (ratio > 1.3) return `wider than tall (about ${ratio.toFixed(1)}:1)`;
   if (ratio < 0.77) return `taller than wide (about 1:${(1 / ratio).toFixed(1)})`;
   return "about as wide as tall";
+}
+
+/** Where the game uses an object, as one sentence (empty when unused). */
+function usesText(object: DrawnObject): string {
+  return object.uses.length > 0 ? ` The game uses it as ${object.uses.slice(0, 6).join("; ")}.` : "";
 }
 
 // --- concepts ----------------------------------------------------------------
@@ -47,7 +73,7 @@ export const EMPTY_HANDS =
   "Hands empty and open, ready to grip: draw no weapon, shield or other held equipment, even if the description mentions one (the game draws the character's weapons separately and puts them in its hand). Armour, clothing and parts of the body (claws, horns, tails) are fine.";
 
 export function conceptPrompt(input: {
-  character: Character;
+  character: Subject;
   brief: string;
   direction: ArtDirection;
   feedback?: string;
@@ -59,6 +85,7 @@ export function conceptPrompt(input: {
   emptyHanded?: boolean;
 }): string {
   const { character, brief, direction, feedback, refining } = input;
+  if (character.kind === "object") return objectConceptPrompt({ ...input, object: character });
   const lines = [
     refining
       ? `Concept art sheet: four variations on the attached character design for a 2D side-view action platformer ${roleOf(character)}: ${brief}.`
@@ -84,11 +111,47 @@ export function conceptPrompt(input: {
   return lines.join("\n");
 }
 
+/** Concept sheet for an object: no turnaround, limbs or hands; its moving parts drawn apart and readable. */
+function objectConceptPrompt(input: { object: DrawnObject; brief: string; direction: ArtDirection; feedback?: string; refining: boolean; rigReady?: boolean }): string {
+  const { object, brief, direction, feedback, refining } = input;
+  const lines = [
+    refining
+      ? `Concept art sheet: four variations on the attached design of an ${roleOf(object)} for a 2D side-view action platformer: ${brief}.`
+      : `Concept art sheet for an ${roleOf(object)} in a 2D side-view action platformer: ${brief}.`,
+    input.rigReady
+      ? `2x2 grid of four distinct design variations, exactly one object per quadrant, each in plain side view, at rest, ${RIG_READY_MARK}: every part that moves on its own (an arm, a lid, a jaw, a spring, a flame) clearly visible, a little apart from the rest and not hidden behind it. If it has a front or a direction of travel, it points RIGHT.`
+      : "2x2 grid of four distinct design variations, exactly one object per quadrant, each in plain side view, at rest; if it has a front or a direction of travel, it points RIGHT.",
+    "Draw each object SMALL: it spans only about two thirds of its quadrant, centered, with a wide empty band of plain flat light-grey background all around. No part may touch or cross a quadrant's edge. Nothing else in a quadrant: no character, hands, ground, scenery, shadows or bits of the neighbouring designs.",
+    `Proportions: ${proportions(object)}.`,
+    "Adjacent parts in clearly different colours or values so each can be told apart at a glance.",
+    "Designed to be rebuilt from simple flat shapes: a bold readable silhouette, a few large parts, no tiny details, no texture.",
+    `Style: ${directionText(direction)}`,
+    "No text, no labels, no frames, no ground scenery.",
+  ];
+  if (feedback?.trim()) lines.push(`Creator's direction for this round: ${feedback.trim()}`);
+  return lines.join("\n");
+}
+
 export const FACING_PROMPT =
   'Which way is this character facing: toward the left or the right edge of the image (where its head/face is)? Reply with JSON only: {"facing": "left" | "right"}';
 
+/** Objects: which way its front, tip or direction of travel points (right when it has none). */
+export const OBJECT_FACING_PROMPT =
+  'Which way does this object point: toward the left or the right edge of the image (its front, tip, muzzle or the way it would move)? If it has no clear front, answer "right". Reply with JSON only: {"facing": "left" | "right"}';
+
+export const facingPrompt = (subject: Subject) => (subject.kind === "object" ? OBJECT_FACING_PROMPT : FACING_PROMPT);
+
 /** Image edit: the chosen design redrawn as clean flat art, so tracing it gives clean shapes. */
-export function flatRedrawPrompt(brief: string, emptyHanded = false): string {
+export function flatRedrawPrompt(brief: string, emptyHanded = false, object = false): string {
+  if (object) {
+    return [
+      `Redraw the attached object as clean flat 2D game art for a cut-out animation puppet: ${brief}.`,
+      "Keep exactly the same object: design, proportions, parts, the side view and which way it points. Keep every colour exactly as in the attached image, only flattened.",
+      "Flat colour only: every area one solid colour, no shading, gradients, highlights, texture or brush strokes. Parts that move on their own in clearly different colours or values from what they sit on.",
+      "One clean, even, dark outline around the object and around each moving part; simple clean shapes; small features kept clear and readable.",
+      "The whole object centered with wide empty space on every side, on a plain flat light-grey background. Nothing else: no character, hands, shadow, ground, effects, text or frame.",
+    ].join("\n");
+  }
   return [
     `Redraw the attached character as clean flat 2D game art for a cut-out animation puppet: ${brief}.`,
     emptyHanded ? `${EMPTY_HANDS} If the attached design holds one, leave it out and draw the hand empty.` : "",
@@ -121,14 +184,17 @@ export const RIG_READY_MARK = "ready to be cut apart into an animation puppet";
 /** Whether a concept sheet was drawn rig-ready (its stored prompt). */
 export const isRigReadySheet = (prompt: string) => prompt.includes(RIG_READY_MARK);
 
-export function pickPrompt(brief: string, direction: ArtDirection, feedback?: string, rigReady?: { cutOff: number[] }, emptyHanded = false): string {
+export function pickPrompt(brief: string, direction: ArtDirection, feedback?: string, rigReady?: { cutOff: number[] }, emptyHanded = false, object = false): string {
+  const ready = object
+    ? "The design will be cut apart and animated, so prefer one whose moving parts are clearly visible and apart from the rest, with clearly different colours."
+    : "The design will be cut apart and animated, so prefer one in a neutral pose whose limbs are clearly apart from the body and whose adjacent parts have clearly different colours.";
   return [
     "The image is a 2x2 concept sheet: cells 0 (top-left), 1 (top-right), 2 (bottom-left), 3 (bottom-right).",
     `Brief: ${brief}`,
     feedback ? `Creator's direction: ${feedback}` : "",
     `Style: ${directionText(direction)}`,
     rigReady
-      ? `The design will be cut apart and animated, so prefer one in a neutral pose whose limbs are clearly apart from the body and whose adjacent parts have clearly different colours.${rigReady.cutOff.length > 0 ? ` Cells ${rigReady.cutOff.join(", ")} run off their quadrant's edge (cut off or crowded): do not pick them.` : ""}`
+      ? `${ready}${rigReady.cutOff.length > 0 ? ` Cells ${rigReady.cutOff.join(", ")} run off their quadrant's edge (cut off or crowded): do not pick them.` : ""}`
       : "",
     emptyHanded ? "The character's weapons are drawn separately and held in its hand during play: prefer a design whose hands are empty (no weapon, shield or held equipment drawn in)." : "",
     'Pick the single best design. Reply with JSON only: {"cell": 0-3, "reason": "<one short sentence>"}',
@@ -162,7 +228,28 @@ function exampleCanvasRig(): string {
   return JSON.stringify(toCanvasSpace(exampleRig(), { scale: 1 / 8, anchor: [256, 430] }));
 }
 
-export function rigSystemPrompt(direction: ArtDirection, canvas: { width: number; height: number }): string {
+/**
+ * Objects are rigged as parts on hinges, not as a body with limbs: these rules replace the
+ * character ones (feet, limbs, held weapons) wherever the specs say otherwise.
+ */
+export const OBJECT_RIG =
+  "This is an OBJECT, not a character: rig it as parts and hinges, not limbs. The root bone sits where it rests or is fixed (the middle of its base on the ground or wall), or at its centre if it floats or flies (a projectile, a burst, an effect), instead of at feet. Give every part that moves on its own its own bone, pivoting where it is hinged or attached (a lever's arm pivots where it meets its base, a trap's two jaws pivot at their shared hinge, a lid at its hinge, a spring at its fixed end, the rings or sparks of an effect at its centre); parts that never move stay on the root (or one body bone). 2-8 bones is typical. No head, limbs or hands unless the brief gives it some.";
+
+export function rigSystemPrompt(direction: ArtDirection, canvas: { width: number; height: number }, object = false): string {
+  if (object) {
+    return [
+      "You are a 2D game rigger. You rebuild an animated object from a concept image as a vector rig: flat shapes on bones, which the game draws and animates.",
+      RIG_SPEC,
+      OBJECT_RIG,
+      `The concept image is ${canvas.width}x${canvas.height} pixels.`,
+      "Guidelines:",
+      "- Trace the concept's silhouette and proportions closely, then its colors; simplify details into a few clean shapes. 4-24 parts is typical.",
+      "- Draw each moving part as a whole shape that reaches its hinge, so turning the bone swings it about the hinge naturally; let it overlap what it is hinged to.",
+      "- Blobs need enough points (8-20) to follow curves; never let an outline cross itself.",
+      `Art direction: ${directionText(direction)}`,
+      `Example of a valid rig (a small beetle in a 512x512 image), for format only:\n${exampleCanvasRig()}`,
+    ].join("\n\n");
+  }
   return [
     "You are a 2D game character rigger. You rebuild a character from a concept image as a vector rig: flat shapes on bones, which the game draws and animates.",
     RIG_SPEC,
@@ -182,7 +269,15 @@ export function rigSystemPrompt(direction: ArtDirection, canvas: { width: number
 export const LIMB_JOINTS =
   "Split every arm and leg at its elbow / knee (hock, for animals): an upper piece and a lower piece (with the hand / foot / paw) on two bones, the lower bone's parent the upper bone and its pivot at the elbow / knee. Necks and tails may get two bones too.";
 
-export function rigAuthorPrompt(character: Character, brief: string, canvas: { width: number; height: number }, options: { limbJoints?: boolean } = {}): string {
+export function rigAuthorPrompt(character: Subject, brief: string, canvas: { width: number; height: number }, options: { limbJoints?: boolean } = {}): string {
+  if (character.kind === "object") {
+    return [
+      `Build the rig for the object in the image (${canvas.width}x${canvas.height}px): ${brief}.`,
+      `It is an ${roleOf(character)}; in the game it is about ${character.size.width}x${character.size.height}px, so keep the overall proportions.${usesText(character)}`,
+      "Trace it in image pixel coordinates. Ignore the background and the grid. Plan its moving parts and their hinges first.",
+      'Reply with JSON only: {"rig": {"bones": [...], "parts": [...]}, "notes": "<one sentence>"}',
+    ].join("\n");
+  }
   return [
     `Build the rig for the character in the image (${canvas.width}x${canvas.height}px): ${brief}.`,
     `It is a ${roleOf(character)}; in the game its body is about ${character.size.width}x${character.size.height}px, so keep the overall proportions.`,
@@ -195,7 +290,7 @@ export function rigAuthorPrompt(character: Character, brief: string, canvas: { w
 }
 
 export function rigCritiquePrompt(input: {
-  character: Character;
+  character: Subject;
   brief: string;
   rig: Rig;
   warnings: string[];
@@ -206,7 +301,7 @@ export function rigCritiquePrompt(input: {
     `Brief: ${input.brief}. Coordinates are pixels of the ${input.canvas.width}x${input.canvas.height} concept image.`,
     input.warnings.length > 0 ? `Renderer warnings: ${input.warnings.join("; ")}` : "",
     `Current rig:\n${JSON.stringify(input.rig)}`,
-    "Score how well the render matches the concept (0 = unrecognizable, 10 = clearly the same character, clean and appealing). Then fix the biggest problems: silhouette and proportions first (move points to where the concept's outline is), then missing features, colors, draw order, outlines crossing.",
+    `Score how well the render matches the concept (0 = unrecognizable, 10 = clearly the same ${input.character.kind === "object" ? "object" : "character"}, clean and appealing). Then fix the biggest problems: silhouette and proportions first (move points to where the concept's outline is), then missing features, colors, draw order, outlines crossing.${input.character.kind === "object" ? " Moving parts keep their own bones, pivoting at their hinges." : ""}`,
     'Reply with JSON only: {"score": 0-10, "issues": ["<short>", ...], "rig": <the full improved rig, same coordinates>}',
   ]
     .filter(Boolean)
@@ -226,7 +321,18 @@ Part: {"id": "snake_case", "bone": "<bone id>", "z": int, "region": [[x,y], ...3
   region: a ROUGH polygon around the piece (a few points is enough; it may spill onto the background). Every pixel of the character goes to the part whose region holds it (the smallest region where they overlap), else to the nearest part, so regions only need to separate the pieces.
   z: draw order where pieces overlap when they move (higher = in front): far-side limbs lowest, body, head, near-side limbs highest.`;
 
-export function cutoutSystemPrompt(canvas: { width: number; height: number }): string {
+export function cutoutSystemPrompt(canvas: { width: number; height: number }, object = false): string {
+  if (object) {
+    return [
+      "You are a 2D game rigger. You split a drawing of an animated object into pieces on bones so the game can animate the drawing itself (like a paper cutout puppet).",
+      CUTOUT_SPEC,
+      OBJECT_RIG,
+      `The image is ${canvas.width}x${canvas.height} pixels.`,
+      "Guidelines:",
+      "- One part per piece that moves on its own (a lever arm, each jaw, a lid, a spring, a flame); the rest of the object is one part on the root. 2-10 parts is typical.",
+      "- Pivots decide how the pieces swing: put each one at its hinge or attachment point, on the seam between the piece and what it is attached to.",
+    ].join("\n\n");
+  }
   return [
     "You are a 2D game character rigger. You split a character drawing into pieces on bones so the game can animate the drawing itself (like a paper cutout puppet).",
     CUTOUT_SPEC,
@@ -244,11 +350,21 @@ const FEATURES =
   'Also list "features": a point [x, y] on each small detail that must stay visible when the drawing is redrawn as flat shapes (eyes, ears, nose, mouth, hands, buttons, small marks), at most 16.';
 
 export function cutoutAuthorPrompt(
-  character: Character,
+  character: Subject,
   brief: string,
   canvas: { width: number; height: number },
   options: { limbJoints?: boolean; features?: boolean } = {},
 ): string {
+  if (character.kind === "object") {
+    return [
+      `Plan the cutout rig for the object in the image (${canvas.width}x${canvas.height}px): ${brief}.`,
+      `It is an ${roleOf(character)}, about ${character.size.width}x${character.size.height}px in the game.${usesText(character)}`,
+      options.features ? FEATURES : "",
+      `Reply with JSON only: {"bones": [...], "parts": [...]${options.features ? ', "features": [[x, y], ...]' : ""}, "notes": "<one sentence>"}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   return [
     `Plan the cutout rig for the character in the image (${canvas.width}x${canvas.height}px): ${brief}.`,
     `It is a ${roleOf(character)}, about ${character.size.width}x${character.size.height}px in the game.`,
@@ -288,7 +404,7 @@ export const PUPPET_SYSTEM =
   "You are a 2D game character rigger. You assemble a cut-out animation puppet from separately drawn pieces of a character and check that it matches the character's design.";
 
 /** The cutout plan, plus how each piece is drawn alone on a parts sheet. */
-export function puppetPlanPrompt(character: Character, brief: string, canvas: { width: number; height: number }): string {
+export function puppetPlanPrompt(character: Subject, brief: string, canvas: { width: number; height: number }): string {
   return [
     cutoutAuthorPrompt(character, brief, canvas, { limbJoints: true }),
     'The pieces will be drawn again one by one on a puppet parts sheet. For each part also give "piece": what that piece is when drawn alone, in a few words (e.g. "the head with its hair", "the upper arm, shoulder to elbow", "the lower leg with the foot"). A far-side limb drawn like its near-side twin gets "twin": that part\'s id (drawn once, reused); its region still covers the far limb.',
@@ -417,8 +533,8 @@ export function animPrompt(input: {
     .join("\n");
 }
 
-export function animCritiquePrompt(input: { slots: string[]; clipsJson: string; framesPerClip: number; limits?: string }): string {
-  const oneShots = ONE_SHOT_CLIP_SLOTS.filter((s) => input.slots.includes(s));
+export function animCritiquePrompt(input: { slots: string[]; clipsJson: string; framesPerClip: number; limits?: string; object?: boolean }): string {
+  const oneShots = input.object ? [] : ONE_SHOT_CLIP_SLOTS.filter((s) => input.slots.includes(s));
   return [
     `The image shows the clips as filmstrips: one row per clip in this order: ${input.slots.join(", ")}; ${input.framesPerClip} evenly spaced frames per row, left to right.`,
     `Current clips:\n${input.clipsJson}`,
@@ -427,7 +543,66 @@ export function animCritiquePrompt(input: { slots: string[]; clipsJson: string; 
     oneShots.length > 0
       ? `${oneShots.join(" and ")} ${oneShots.length > 1 ? "play" : "plays"} once (loop false) and ${oneShots.length > 1 ? "hold their" : "holds its"} last frame${oneShots.includes("death") ? "; death must end in a still, clearly defeated pose" : ""}.`
       : "",
+    input.object ? "It is an object: parts turn about their hinges. Keep each clip's loop setting and its markers (move a marker only if its moment moved)." : "",
     'Reply with JSON only: {"score": 0-10, "issues": ["<short>", ...], "clips": {<the full improved clips, same names>}}',
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// --- objects: clips and markers ---------------------------------------------------------------
+
+/** What common object clips mean (the prop idle loop, the projectile look's clips). Other clips are written from their name and direction. */
+export const OBJECT_CLIP_HINTS: Readonly<Record<string, string>> = {
+  idle: "at rest where it sits: nearly still, or a subtle living motion such as a glow pulsing or a slight sway",
+  charge: "forming or charging up before it is launched: growing, crackling, pulsing in place",
+  fly: "in flight, pointing right: spinning, flickering or a trailing wobble; the game moves it, the clip animates it in place",
+  burst: "breaking apart where it hits: a quick burst that ends small or gone, its parts hidden or scaled down at the end",
+};
+
+/** The words object clip prompts start with (scripted backends recognize them). */
+export const OBJECT_CLIPS_MARK = "The image shows the object's rig at rest.";
+
+const MARKER_SPEC =
+  'Markers: a clip may carry "markers": [{"t": 0..1, "name": "snake_case"}] (at most 16, in time order): named moments the game reacts to, e.g. a trap\'s snap gets "strike" when its jaws close, a lever\'s pull gets "click" when it locks, a slam gets "impact" when it lands. Put each marker exactly on the frame its moment happens.';
+
+/** One object clip to write. */
+export interface ObjectClipBrief {
+  name: string;
+  /** true: loops; false: plays once; null: up to the animator. */
+  loop: boolean | null;
+  /** What it should be (the creator's direction, a known meaning, or its name in words). */
+  direction: string;
+}
+
+/** Clips for an object: parts turning about their hinges, never a walk cycle; one-shot clips carry markers. */
+export function objectAnimPrompt(input: {
+  object: DrawnObject;
+  brief: string;
+  rig: Rig;
+  clips: ObjectClipBrief[];
+  /** Marker names the game's handlers listen for on this object. */
+  heard: string[];
+  limits?: string;
+  feedback?: string;
+}): string {
+  const { object, clips } = input;
+  const how = (c: ObjectClipBrief) => (c.loop === true ? "loops seamlessly" : c.loop === false ? "plays once, loop false" : "loop or once, as fits");
+  const once = clips.filter((c) => c.loop !== true);
+  return [
+    `${OBJECT_CLIPS_MARK} Object: ${input.brief}. An ${roleOf(object)}, about ${object.size.width}x${object.size.height}px in the game.${usesText(object)}`,
+    rigSummary(input.rig),
+    `Write exactly these clips, named by name: ${clips.map((c) => `"${c.name}" (${c.direction}; ${how(c)})`).join("; ")}.`,
+    "It is an object, not a creature: it moves only the way such a thing can (parts turning about their hinges, sliding, springing, squash and stretch, scaling, flickering with visibility); the root bone may move it as a whole (a jolt, a shudder, a hop). Nothing walks or breathes unless the brief says it is alive. Only animate bones listed above.",
+    once.length > 0
+      ? "A clip that plays once starts from rest (the idle pose) and ends in its final pose, which the game may hold (a pulled lever stays pulled, a sprung trap stays shut): a readable anticipation, then the fast part, then a short settle."
+      : "",
+    MARKER_SPEC,
+    once.length > 0 ? `Give each clip that plays once (${once.map((c) => c.name).join(", ")}) markers for its key moments.` : "",
+    input.heard.length > 0 ? `The game listens for these markers on this object: ${input.heard.join(", ")}. Put each one on the clip and moment where it happens.` : "",
+    input.limits ? piecesText(input.limits) : "",
+    input.feedback ? `Creator's direction: ${input.feedback}` : "",
+    'Reply with JSON only: {"clips": {"<name>": <clip with "markers">, ...}, "notes": "<one sentence>"}',
   ]
     .filter(Boolean)
     .join("\n");
@@ -446,20 +621,24 @@ const DETAIL_SPEC = `A detail is JSON: {"id": "snake_case", "on": "<part id>", "
   ink: outline around the detail (default 0 = none; 0.5-1 only for accessories that need their own outline).
 Coordinates: pixels of the rig render (origin top-left, y down), the same as the rig's parts.`;
 
-export function detailSystemPrompt(direction: ArtDirection, canvas: { width: number; height: number }): string {
+export function detailSystemPrompt(direction: ArtDirection, canvas: { width: number; height: number }, object = false): string {
   return [
-    "You are a 2D game character artist. A character is drawn in the game as a vector rig: flat shapes (parts) on bones, which the game animates. It animates well but looks plain next to its design. You add vector detail shapes on top of its parts so it reads like the design: shading bands on the side away from the light, highlights and rim light, folds and creases, seams and stitching, plates, panels and rivets, patterns, hair strands and locks, fur tufts, small accessories (buttons, buckles, straps, pockets), wear marks.",
+    object
+      ? "You are a 2D game artist. An animated object is drawn in the game as a vector rig: flat shapes (parts) on bones, which the game animates. It animates well but looks plain next to its design. You add vector detail shapes on top of its parts so it reads like the design: shading bands on the side away from the light, highlights and rim light, plates, panels, rivets and bolts, grain, rust and wear marks, glows, patterns."
+      : "You are a 2D game character artist. A character is drawn in the game as a vector rig: flat shapes (parts) on bones, which the game animates. It animates well but looks plain next to its design. You add vector detail shapes on top of its parts so it reads like the design: shading bands on the side away from the light, highlights and rim light, folds and creases, seams and stitching, plates, panels and rivets, patterns, hair strands and locks, fur tufts, small accessories (buttons, buckles, straps, pockets), wear marks.",
     DETAIL_SPEC,
     `The rig render is ${canvas.width}x${canvas.height} pixels.`,
     "Guidelines:",
     "- The design shows WHICH details exist, their colours and the light direction; the rig render shows WHERE they go. The design may differ from the rig in pose and proportions: put each detail on the rig's own shapes, never at the design's coordinates.",
-    "- Never add a weapon, shield or other held equipment, even if the design shows one: the game draws weapons separately in the hand.",
+    object ? "" : "- Never add a weapon, shield or other held equipment, even if the design shows one: the game draws weapons separately in the hand.",
     "- Shading first: one darker band per big part on its shadow side (and a lighter one on its lit side where the design has it), following the part's shape. Then the design's most telling details. Then small touches.",
     "- Readable at small size: a few bold shapes beat many tiny ones. Nothing thinner than about 1.5% of the figure's height; folds and seams a little darker than the part, not black.",
     "- Keep the silhouette, the face's features (eyes, mouth, brows) and the existing detail parts readable: never cover them, never redraw a part.",
     "- Colours: shades and tints of the part's own fill, or colours picked from the design.",
     `Art direction: ${directionText(direction)}`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /** Parts as a compact list (id, bone, fill, bounds in the render's pixels) plus their shapes. */

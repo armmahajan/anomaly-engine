@@ -17,3 +17,4 @@ export * from "./puppet.ts";
 export * from "./texture.ts";
 export * from "./dress.ts";
 export * from "./weapons.ts";
+export * from "./objects.ts";
