@@ -10,6 +10,8 @@ import {
   Effect,
   gameArtPlan,
   isDefaultArtDirection,
+  objectAsset,
+  objectAssets,
   GameCondition,
   GameEvent,
   EnemyCharacter,
@@ -373,6 +375,7 @@ const GenerateCharacterArtInput = z.strictObject({
   characterId: Id,
   brief: z.string().max(2000).optional().describe("Its look; needed the first time unless its wiki page describes it."),
 });
+const GenerateObjectArtInput = z.strictObject({ objectId: Id, brief: z.string().max(2000).optional() });
 const GenerateWorldInput = z.strictObject({
   theme: z.string().min(3).max(2000).describe("What the place is."),
   name: z.string().max(80).optional(),
@@ -411,6 +414,19 @@ const artTools: ToolSpec[] = [
         Boolean(p.data.brief?.trim()) || draft.current.art.assets.some((a) => a.id === character.appearance) || draft.current.wiki.pages.some((pg) => pg.characterId === character.id);
       if (!hasBrief) return { ok: false, error: { code: "invalid_input", message: "give a brief: what it should look like" } };
       return queue(draft, { stage: "auto", characterId: character.id, brief: p.data.brief?.trim() || undefined }, `art for ${character.name}`);
+    },
+  },
+  {
+    name: "generateObjectArt",
+    description: "Queue an object's whole art pipeline (as generateCharacterArt).",
+    schema: GenerateObjectArtInput,
+    run: (draft, args) => {
+      const p = GenerateObjectArtInput.safeParse(args);
+      if (!p.success) return { ok: false, error: { code: "invalid_input", message: p.error.issues.map((i) => i.message).join("; ") } };
+      const object = objectAsset(draft.current, p.data.objectId);
+      if (!object) return { ok: false, error: { code: "not_found", message: `no object "${p.data.objectId}" (createObject makes one; objects: ${objectAssets(draft.current).map((a) => a.id).join(", ") || "none"})` } };
+      if (!p.data.brief?.trim() && !object.brief.trim()) return { ok: false, error: { code: "invalid_input", message: "give a brief: what it is and looks like" } };
+      return queue(draft, { stage: "auto", objectId: object.id, brief: p.data.brief?.trim() || undefined }, `art for the object ${object.name}`);
     },
   },
   {

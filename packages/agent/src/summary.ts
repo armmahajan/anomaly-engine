@@ -1,4 +1,4 @@
-import { gridCols, gridRows, gridSize, lintProject, movementModel, movementParams, TILE, type Action, type Character, type Condition, type ProjectSpec, type Transition, type WorldRoom } from "@anomaly/core";
+import { gridCols, gridRows, gridSize, lintProject, movementModel, movementParams, objectAssets, objectUses, TILE, type Action, type CharacterAsset, type Character, type Condition, type ProjectSpec, type Transition, type WorldRoom } from "@anomaly/core";
 import { handlerTools } from "./domains/handlers.ts";
 import { propTools } from "./domains/props.ts";
 import { modalTools } from "./domains/modals.ts";
@@ -60,7 +60,7 @@ export function summarizeProject(project: ProjectSpec): string {
         `\nTiles of ${test.room} (row 0 at the top; . empty, # solid, = ledge, - one-way, ^ hazard, % breakable):\n${testRoom.grid.rows.join("\n")}`
       : "No playtest room set (setPlaytest).",
     "Characters:",
-    ...project.characters.map((c) => describeCharacter(project, c) + (c.appearance ? ` Drawn by art asset "${c.appearance}".` : " No art yet (a colored box).")),
+    ...project.characters.map((c) => describeCharacter(project, c) + (c.appearance ? ` Drawn by art asset "${c.appearance}"${artClips(project, c.appearance)}.` : " No art yet (a colored box).")),
     ...worldSummary(project),
     ...handlerTools.summary(project),
     ...propTools.summary(project),
@@ -70,10 +70,38 @@ export function summarizeProject(project: ProjectSpec): string {
     ...controlTools.summary(project),
     ...weaponTools.summary(project),
     ...artSummary(project),
+    ...objectSummary(project),
     warnings.length ? `Warnings:\n${warnings.map((w) => `- ${w.message}`).join("\n")}` : "Warnings: none",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** A clip list with its markers: "idle, attack (impact@0.5)". */
+const clipList = (asset: CharacterAsset): string =>
+  Object.entries(asset.clips)
+    .map(([id, clip]) => (clip.markers.length ? `${id} (${clip.markers.map((m) => `${m.name}@${m.t}`).join(", ")})` : id))
+    .join(", ");
+
+/** A character's art clips (what playAnimation can play on its spawns and the player; markers fire marker events). */
+function artClips(project: ProjectSpec, assetId: string): string {
+  const asset = project.art.assets.find((a) => a.id === assetId);
+  return asset?.kind === "character" && Object.keys(asset.clips).length ? `, clips ${clipList(asset)}` : "";
+}
+
+/** Objects (animated things that aren't characters): their clips and markers, and where the game uses them. */
+function objectSummary(project: ProjectSpec): string[] {
+  const objects = objectAssets(project);
+  if (objects.length === 0) return ["Objects: none (createObject makes one: an animated lever, trap, effect or projectile)."];
+  const uses = objectUses(project);
+  return [
+    "Objects (createObject; generateObjectArt draws one; props, spawnEffect and projectile looks use them):",
+    ...objects.map((o) => {
+      const used = uses.filter((u) => u.object === o.id).map((u) => u.what);
+      const art = o.rig ? (Object.keys(o.clips).length ? `clips ${clipList(o)}` : "rigged, no clips yet") : "not drawn yet";
+      return `- ${o.id} "${o.name}": ${art}; ${used.length ? `used by ${used.join(", ")}` : "unused"}`;
+    }),
+  ];
 }
 
 /** Biomes and their rooms, so the agent can refer to them (world rooms list their dressing). */

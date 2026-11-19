@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { artStaleness, type ArtActivityEntry, type ArtJobRequest, type ArtRunningJob, type ArtState, type Character, type ProjectSpec, type RigMode } from "@anomaly/core";
+import { artStaleness, type ArtActivityEntry, type ArtJobRequest, type ArtRunningJob, type ArtState, type ProjectSpec, type RigMode } from "@anomaly/core";
 import { fileUrl } from "./api.ts";
-import { characterAsset } from "./CharacterBench.tsx";
 import type { Session } from "./session.ts";
+import { isSubjectJob, subjectRef, type ArtSubject } from "./characters/subject.ts";
+import { ObjectUsesPanel } from "./objects/ObjectUsesPanel.tsx";
 
 /**
  * Characters mode sidebar: the inputs and actions for each stage, and the
@@ -12,7 +13,8 @@ import type { Session } from "./session.ts";
  */
 
 interface Props {
-  character: Character;
+  /** A character (its appearance) or an object asset: art jobs send characterId or objectId. */
+  subject: ArtSubject;
   project: ProjectSpec;
   art: ArtState;
   session: Session;
@@ -33,11 +35,11 @@ const RIG_MODE_CHOICES: { id: RigMode; label: string; title: string }[] = [
   { id: "traced", label: "Traced", title: "The design cut into pieces on bones, each redrawn as flat shapes with the art direction's outline: close to the concept, matching the vector art" },
 ];
 
-export function ArtPanel({ character, project, art, session, locked }: Props) {
-  const asset = characterAsset(project, character);
-  const job = art.runningJobs.find((j) => j.characterId === character.id) ?? null;
+export function ArtPanel({ subject, project, art, session, locked }: Props) {
+  const asset = subject.asset;
+  const job = art.runningJobs.find((j) => isSubjectJob(j, subject)) ?? null;
   const mine = job !== null;
-  const lastJob = [...art.jobs].reverse().find((j) => j.characterId === character.id);
+  const lastJob = [...art.jobs].reverse().find((j) => isSubjectJob(j, subject));
   const [brief, setBrief] = useState(asset?.brief ?? "");
   const [conceptNote, setConceptNote] = useState("");
   const [rigNote, setRigNote] = useState("");
@@ -46,10 +48,10 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
   const [rigMode, setRigMode] = useState<RigMode>(asset?.rig?.mode ?? project.art.direction.rigMode ?? "vector");
   const [zoom, setZoom] = useState<string | null>(null);
   // Another character's job doesn't block this one: it runs alongside (or queues behind what it conflicts with).
-  const queued = art.pending.some((p) => p.characterId === character.id);
+  const queued = art.pending.some((p) => isSubjectJob(p, subject));
   const disabled = locked || mine || queued || !art.available;
 
-  const start = (request: Omit<ArtJobRequest, "characterId">) => void session.startArtJob({ characterId: character.id, ...request });
+  const start = (request: Omit<ArtJobRequest, "characterId" | "objectId">) => void session.startArtJob({ ...subjectRef(subject), ...request } as ArtJobRequest);
 
   // Where each step stands, and the one thing to do next. A later step built from an earlier
   // version of the one before it (another design chosen since, the bones changed since) is out of date.
@@ -79,7 +81,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
   const next = !asset?.chosen
     ? sheets
       ? "Click a design in the workbench to build from it, or generate more."
-      : `Describe ${character.name} and generate concepts (or tick Auto to do every step).`
+      : `Describe ${subject.name} and generate concepts (or tick Auto to do every step).`
     : !asset.rig
       ? "Build the rig from the chosen design."
       : rigStale
@@ -92,7 +94,11 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
 
   return (
     <section className="art-panel" data-testid="art-panel">
-      <h2>{character.name}</h2>
+      <h2>
+        {subject.name}
+        {subject.kind === "object" && <span className="kind"> object</span>}
+      </h2>
+      {subject.kind === "object" && <ObjectUsesPanel objectId={subject.id} project={project} session={session} locked={locked} />}
       <div className="art-meta">
         {art.available ? (
           <>
@@ -115,13 +121,13 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
 
       <StepHead n="①" title="Concepts" state={conceptState} status={conceptStatus} />
       <label className="art-label" htmlFor="art-brief">
-        What should {character.name} look like?
+        What should {subject.name} look like?
       </label>
       <textarea
         id="art-brief"
         className="art-text"
         rows={3}
-        placeholder="e.g. a lanky courier in a patched raincoat with an oversized satchel"
+        placeholder={subject.kind === "object" ? "e.g. a rusted floor lever with a red knob" : "e.g. a lanky courier in a patched raincoat with an oversized satchel"}
         value={brief}
         disabled={disabled}
         onChange={(e) => setBrief(e.target.value)}
@@ -211,7 +217,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         </>
       )}
 
-      <JobLog art={art} job={job} lastJob={lastJob} onCancel={(id) => void session.cancelArtJob(id)} onZoom={setZoom} subject={character.name} />
+      <JobLog art={art} job={job} lastJob={lastJob} onCancel={(id) => void session.cancelArtJob(id)} onZoom={setZoom} subject={subject.name} />
       {zoom && <Zoom file={zoom} onClose={() => setZoom(null)} />}
     </section>
   );
@@ -311,7 +317,7 @@ export function JobLog({
       )}
       {others.length > 0 && (
         <p className="hint" data-testid="art-others">
-          Also drawing: {others.map((o) => (o.stage === "gameArt" ? `the whole game${o.underLock ? " (the Architect)" : ""}` : `${o.characterId ?? o.weaponId ?? o.biomeId ?? (o.stage === "worldKit" ? "a new biome" : o.stage)} (${o.stage})`)).join(", ")}.
+          Also drawing: {others.map((o) => (o.stage === "gameArt" ? `the whole game${o.underLock ? " (the Architect)" : ""}` : `${o.characterId ?? o.objectId ?? o.weaponId ?? o.biomeId ?? (o.stage === "worldKit" ? "a new biome" : o.stage)} (${o.stage})`)).join(", ")}.
         </p>
       )}
       {art.queued > 0 && (

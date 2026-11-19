@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { artStaleness, type ArtState, type Character, type CharacterAsset, type ProjectSpec } from "@anomaly/core";
+import { artStaleness, type ArtState, type CharacterAsset, type ProjectSpec } from "@anomaly/core";
 import { fileBase64, fileUrl } from "./api.ts";
 import type { Session } from "./session.ts";
 import { AnimationList } from "./characters/AnimationList.tsx";
 import { BoneEditor } from "./characters/BoneEditor.tsx";
+import { isSubjectJob, subjectRef, subjectStage, type ArtSubject } from "./characters/subject.ts";
+
+export { characterAsset } from "./characters/subject.ts";
 
 /**
  * Characters mode workbench (main area). Big visuals here; inputs and actions
@@ -18,17 +21,13 @@ type Step = "concepts" | "rig" | "animation";
 const JOB_STEPS: Record<string, Step> = { concepts: "concepts", choose: "concepts", auto: "concepts", rig: "rig", animate: "animation" };
 
 interface Props {
-  character: Character;
+  /** A character (its appearance) or an object asset. */
+  subject: ArtSubject;
   project: ProjectSpec;
   art: ArtState;
   session: Session;
   /** A playtest or an AI turn holds the project. */
   locked: boolean;
-}
-
-export function characterAsset(project: ProjectSpec, character: Character): CharacterAsset | null {
-  const asset = project.art.assets.find((a) => a.id === character.appearance);
-  return asset && asset.kind === "character" ? asset : null;
 }
 
 /**
@@ -41,8 +40,9 @@ function defaultStep(asset: CharacterAsset | null): Step {
   return asset?.chosen ? "rig" : "concepts";
 }
 
-export function CharacterBench({ character, project, art, session, locked }: Props) {
-  const asset = characterAsset(project, character);
+export function CharacterBench({ subject, project, art, session, locked }: Props) {
+  const asset = subject.asset;
+  const isObject = subject.kind === "object";
   const [step, setStep] = useState<Step>(() => defaultStep(asset));
   const [sheet, setSheet] = useState<number | null>(null); // null = latest
   const [clip, setClip] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
   const [editBones, setEditBones] = useState(false);
   const [pose, setPose] = useState<Record<string, number> | null>(null);
   const editing = editBones && step === "rig" && Boolean(asset?.rig);
-  const job = art.runningJobs.find((j) => j.characterId === character.id) ?? null;
+  const job = art.runningJobs.find((j) => isSubjectJob(j, subject)) ?? null;
   const busy = job !== null;
 
   const clipIds = asset ? Object.keys(asset.clips) : [];
@@ -123,17 +123,17 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
       image = "";
       sentDesign.current = null;
     }
-    session.setStage({
-      mode: "character",
-      characterId: character.id,
-      clip: editing ? null : currentClip,
-      time: step === "animation" && !playing ? time : null,
-      speed,
-      flip: editing ? false : flip,
-      bones: editing ? false : bones,
-      onion: { image, alpha: step === "rig" ? onion : 0 },
-    });
-  }, [session, character.id, currentClip, step, playing, step === "animation" && !playing ? time : -1, speed, flip, bones, onion, designRef, designData, project.revision, editing]);
+    session.setStage(
+      subjectStage(subject, {
+        clip: editing ? null : currentClip,
+        time: step === "animation" && !playing ? time : null,
+        speed,
+        flip: editing ? false : flip,
+        bones: editing ? false : bones,
+        onion: { image, alpha: step === "rig" ? onion : 0 },
+      }),
+    );
+  }, [session, subject.kind, subject.id, currentClip, step, playing, step === "animation" && !playing ? time : -1, speed, flip, bones, onion, designRef, designData, project.revision, editing]);
 
   const sheets = asset?.concepts ?? [];
   const sheetIndex = sheet ?? sheets.length - 1;
@@ -196,9 +196,11 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
               <label>
                 <input type="checkbox" checked={bones} onChange={(e) => setBones(e.target.checked)} /> Bones
               </label>
-              <label>
-                <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} /> Face left
-              </label>
+              {!isObject && (
+                <label>
+                  <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} /> Face left
+                </label>
+              )}
             </>
           )}
         </div>
@@ -223,7 +225,7 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
                     disabled={disabled}
                     aria-label={`design ${cell + 1} of sheet ${sheetIndex + 1}`}
                     title={picked ? `AI pick: ${shown.recommended?.reason}` : `Build from design ${cell + 1}`}
-                    onClick={() => start({ characterId: character.id, stage: "choose", sheet: sheetIndex, cell })}
+                    onClick={() => start({ ...subjectRef(subject), stage: "choose", sheet: sheetIndex, cell })}
                   >
                     {picked && <span className="art-badge">AI pick</span>}
                     {chosen && <span className="art-badge chosen">chosen</span>}
@@ -239,17 +241,26 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
           ) : (
             <Empty>
               <div className="bench-howto" data-testid="bench-howto">
-                <h3>{character.name}'s art, in three steps</h3>
+                <h3>{subject.name}'s art, in three steps</h3>
                 <ol>
                   <li>
-                    <b>Concepts.</b> Describe {character.name} in the sidebar and generate: four designs, for about a quarter of a cent. Click one to
+                    <b>Concepts.</b> Describe {subject.name} in the sidebar and generate: four designs, for about a quarter of a cent. Click one to
                     build from it.
                   </li>
                   <li>
-                    <b>Rig.</b> The chosen design is cut into parts on bones; the live rig shows on the right.
+                    <b>Rig.</b> The chosen design is cut into parts on bones{isObject ? " and hinges" : ""}; the live rig shows on the right.
                   </li>
                   <li>
-                    <b>Animation.</b> Idle, run, jump, fall, attack and hurt clips, played here with a timeline.
+                    {isObject ? (
+                      <>
+                        <b>Animation.</b> Idle and the clips the game plays on it (props, effects, projectiles), played here with a timeline; markers
+                        on a clip fire events in play.
+                      </>
+                    ) : (
+                      <>
+                        <b>Animation.</b> Idle, run, jump, fall, attack and hurt clips, played here with a timeline.
+                      </>
+                    )}
                   </li>
                 </ol>
                 <p className="hint">Tick Auto in the sidebar to run every step, taking the AI's picks.</p>
@@ -295,7 +306,7 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
         {step === "animation" &&
           (clipIds.length > 0 && asset ? (
             <AnimationList
-              character={character}
+              subject={subject}
               asset={asset}
               project={project}
               art={art}
