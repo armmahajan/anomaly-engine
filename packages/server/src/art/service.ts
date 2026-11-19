@@ -45,6 +45,14 @@ export const DEFAULT_ART_CONCURRENCY = 3;
 export interface ArtModels {
   image: ImageModel;
   vision: VisionModel;
+  /** Image models the creator can pick for concept sheets (the art direction's conceptModel), first = default. */
+  concept?: { id: string; label: string; model: ImageModel }[];
+}
+
+/** The concept-sheet model the art direction picks, if the studio offers it (else the default image model). */
+export function conceptModelFor(models: ArtModels, picked: string | undefined): ImageModel | undefined {
+  const offered = models.concept ?? [];
+  return (picked ? offered.find((m) => m.id === picked) : undefined)?.model ?? offered[0]?.model;
 }
 
 export interface ArtServiceOptions {
@@ -188,7 +196,11 @@ export class ArtService {
     }));
     return {
       available: this.options.models !== null,
-      models: { image: this.options.models?.image.id ?? "none", vision: this.options.models?.vision.id ?? "none" },
+      models: {
+        image: this.options.models?.image.id ?? "none",
+        vision: this.options.models?.vision.id ?? "none",
+        concept: (this.options.models?.concept ?? []).map(({ id, label }) => ({ id, label })),
+      },
       budget: this.options.budget,
       concurrency: this.concurrency,
       runningJobs,
@@ -562,6 +574,7 @@ export class ArtService {
     const ctx: ArtContext = {
       project: () => this.store.getState().project,
       image: models.image,
+      conceptImage: conceptModelFor(models, this.store.getState().project.art.direction.conceptModel),
       vision: models.vision,
       renderer: this.options.renderer,
       files: this.options.files,

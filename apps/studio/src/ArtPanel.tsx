@@ -130,6 +130,7 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         disabled={disabled}
         onChange={(e) => setConceptNote(e.target.value)}
       />
+      <ConceptModelPicker art={art} project={project} session={session} disabled={locked} />
       <div className="art-actions">
         <button
           type="button"
@@ -210,6 +211,31 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
       <JobLog art={art} job={job} lastJob={lastJob} onCancel={(id) => void session.cancelArtJob(id)} onZoom={setZoom} subject={character.name} />
       {zoom && <Zoom file={zoom} onClose={() => setZoom(null)} />}
     </section>
+  );
+}
+
+/** Which image model draws concept sheets (the art direction's conceptModel; the studio lists the offered ones). */
+export function ConceptModelPicker({ art, project, session, disabled }: { art: ArtState; project: ProjectSpec; session: Session; disabled: boolean }) {
+  const offered = art.models.concept;
+  if (offered.length < 2) return null;
+  const picked = project.art.direction.conceptModel;
+  const value = offered.some((m) => m.id === picked) ? picked! : offered[0]!.id;
+  const choose = async (id: string) => {
+    const result = await session.applyOperation("setArtDirection", { changes: { conceptModel: id === offered[0]!.id ? null : id } });
+    if (!result.ok) session.reportProblem(result.error.message);
+  };
+  return (
+    <label className="art-label art-concept-model">
+      Concept model
+      <select aria-label="Concept model" value={value} disabled={disabled} onChange={(e) => void choose(e.target.value)}>
+        {offered.map((m, i) => (
+          <option key={m.id} value={m.id}>
+            {m.label}
+            {i === 0 ? " (default)" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

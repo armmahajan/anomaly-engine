@@ -288,7 +288,12 @@ export type ArtRunningJob = z.infer<typeof ArtRunningJob>;
 export const ArtState = z.object({
   /** False when no model key is configured; jobs are refused. */
   available: z.boolean(),
-  models: z.object({ image: z.string(), vision: z.string() }),
+  models: z.object({
+    image: z.string(),
+    vision: z.string(),
+    /** Image models offered for concept sheets (the art direction's conceptModel picks one; the first is the default). */
+    concept: z.array(z.object({ id: z.string(), label: z.string() })).default([]),
+  }),
   /** USD limit per job. */
   budget: z.number(),
   /** How many jobs may run at once (STUDIO_ART_CONCURRENCY). */

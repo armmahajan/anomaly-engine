@@ -128,15 +128,20 @@ export class OpenRouterImageModel implements ImageModel {
   readonly id: string;
   private readonly options: OpenRouterOptions;
   private readonly extra: Record<string, unknown>;
+  private readonly supports: readonly string[] | undefined;
 
-  /** `extra`: request fields for this model, e.g. {quality: "low"} or {resolution: "768"}. */
-  constructor(options: OpenRouterOptions, id: string, extra: Record<string, unknown> = {}) {
+  /**
+   * `extra`: request fields for this model, e.g. {quality: "low"} or {resolution: "768"}. `supports`: the
+   * optional fields it accepts (OpenRouter's supported_parameters); others are left out. Absent = send all.
+   */
+  constructor(options: OpenRouterOptions, id: string, extra: Record<string, unknown> = {}, supports?: readonly string[]) {
     if (isClaudeOnOpenRouter(id) && !options.allowClaude) {
       throw new Error(`${id} would be billed through OpenRouter: Claude runs on the Claude Code subscription (ClaudeCodeVisionModel); set allowClaude to pay through OpenRouter on purpose`);
     }
     this.options = options;
     this.id = id;
     this.extra = extra;
+    this.supports = supports;
   }
 
   async generate(request: ImageRequest): Promise<GeneratedImage> {
@@ -152,6 +157,10 @@ export class OpenRouterImageModel implements ImageModel {
         ? { input_references: request.references.map((r) => ({ type: "image_url", image_url: { url: dataUrl(r) } })) }
         : {}),
     };
+    if (this.supports) {
+      const keep = new Set(["model", "prompt", ...this.supports]);
+      for (const key of Object.keys(body)) if (!keep.has(key)) delete (body as Record<string, unknown>)[key];
+    }
     const json = (await postJson(this.options, "/images", body, request.signal)) as {
       data?: { b64_json?: string; media_type?: string }[];
       usage?: unknown;

@@ -16,7 +16,7 @@ import type { LiveSettings } from "@anomaly/core";
 export { ProjectStore } from "./projectStore.ts";
 export { ChatService, describeCall } from "./chat.ts";
 export { createApiHandler, type ArtApi, type Chats, type Middleware } from "./http.ts";
-export { ArtService, type ArtModels, type ArtServiceOptions } from "./art/service.ts";
+export { ArtService, conceptModelFor, type ArtModels, type ArtServiceOptions } from "./art/service.ts";
 export { FileStore } from "./art/files.ts";
 export { modelStageRunners } from "./architect/modelStages.ts";
 export { LiveService, behaviorMessage, type LiveServiceOptions } from "./live/service.ts";
@@ -81,6 +81,10 @@ export {
   DEFAULT_CLAUDE_VISION_MODEL,
   DEFAULT_IMAGE_MODEL,
   DEFAULT_VISION_MODEL,
+  DEFAULT_CONCEPT_MODELS,
+  IMAGE_MODEL_PARAMS,
+  conceptModelIds,
+  imageModelLabel,
 } from "./art/config.ts";
 export { ClaudeCodeVisionModel } from "./art/claudeCodeVision.ts";
 

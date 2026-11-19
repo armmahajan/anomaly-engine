@@ -149,3 +149,25 @@ function colorCount(png: Buffer, rgb: number[]): number {
   for (let i = 0; i < data.length; i += 4) if (Math.hypot(data[i]! - rgb[0]!, data[i + 1]! - rgb[1]!, data[i + 2]! - rgb[2]!) < 18) n++;
   return n;
 }
+
+test("art: the concept model picker draws concept sheets with the model picked", async ({ page }) => {
+  await openStudio(page);
+  await page.getByTestId("character-charger").click();
+  await page.getByRole("tab", { name: "Characters" }).click();
+  const panel = page.getByTestId("art-panel");
+  const picker = panel.getByLabel("Concept model");
+  await expect(picker).toHaveValue("fake/image");
+  await picker.selectOption("fake/image-alt");
+  await expect.poll(() => page.evaluate(() => window.studio!.getProject().art.direction.conceptModel)).toBe("fake/image-alt");
+
+  await panel.getByLabel("What should Charger look like?").fill("a horned beetle");
+  await panel.getByRole("button", { name: "Generate concepts" }).click();
+  await expect(page.getByTestId("character-bench").getByTestId("sheet-0")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("art-job")).toContainText("committed", { timeout: 30_000 });
+  await page.getByTestId("art-job").locator("summary").click();
+  await expect(page.getByTestId("art-job")).toContainText("concept sheet (fake/image-alt)");
+
+  // Back to the default: the setting is cleared.
+  await picker.selectOption("fake/image");
+  await expect.poll(() => page.evaluate(() => window.studio!.getProject().art.direction.conceptModel ?? null)).toBe(null);
+});

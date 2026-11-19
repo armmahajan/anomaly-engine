@@ -78,12 +78,13 @@ export class FakeRenderer {
 }
 
 export class FakeImageModel implements ImageModel {
-  readonly id = "fake/image";
+  readonly id: string;
   readonly requests: ImageRequest[] = [];
   private readonly image: Buffer;
 
-  constructor(image: Buffer = TINY_PNG) {
+  constructor(image: Buffer = TINY_PNG, id = "fake/image") {
     this.image = image;
+    this.id = id;
   }
 
   async generate(request: ImageRequest): Promise<GeneratedImage> {

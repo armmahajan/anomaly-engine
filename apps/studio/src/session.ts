@@ -109,7 +109,7 @@ export class Session {
       lastProblem: null,
       chats: { build: idleChat, narrative: idleChat, architect: idleChat },
       seed: null,
-      art: { available: false, models: { image: "", vision: "" }, budget: 0, concurrency: 1, runningJobs: [], running: null, jobs: [], queued: 0, pending: [], totalCost: 0 },
+      art: { available: false, models: { image: "", vision: "", concept: [] }, budget: 0, concurrency: 1, runningJobs: [], running: null, jobs: [], queued: 0, pending: [], totalCost: 0 },
       architect: { running: null, last: null, log: [] },
       live: {
         settings: { cast: false, rooms: false },
