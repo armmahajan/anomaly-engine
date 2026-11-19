@@ -205,6 +205,37 @@ describe("the stages' contract", () => {
     expect(build(once)).toEqual(once);
   });
 
+  it("an ending after the guardian: no marker; the game ends the moment the room's guardian falls, and the checker proves it", () => {
+    const fight = { kind: "enemy" as const, characterId: "crawler", count: 1, lockRoom: true, grants: [], healthBar: true };
+    const game = build(handBuiltProject({ contents: { peak_1: [fight, { kind: "ending", after: "guardian" }] } }));
+    const peak = roomOf(game, "peak_1");
+    expect(peak.props.some((p) => p.handlers.some((h) => h.do.some((e) => e.type === "endGame")))).toBe(false);
+    const ends = peak.spawns.flatMap((sp) => sp.handlers).filter((h) => h.do.some((e) => e.type === "endGame"));
+    expect(ends).toHaveLength(1);
+    expect(ends[0]!.on.type).toBe("enemyKilled");
+    expect(game.world.modals.some((m) => m.id === "ending")).toBe(true);
+    const result = checkGame(game);
+    expect(result).toMatchObject({ hasEnding: true, beatable: true, deadStates: [] });
+    expect(result.route!.at(-1)!.action).toContain("defeat");
+    // With no guardian to wait on, population says so.
+    const lonely = populationStage(handBuiltProject({ contents: { peak_1: [{ kind: "ending", after: "guardian" }] } }));
+    expect(lonely.issues).toContainEqual(expect.objectContaining({ code: "ending-no-guardian", roomId: "peak_1" }));
+  });
+
+  it("a prop rebuilt in its old place keeps its drawn art (running population again doesn't undo the art)", () => {
+    const once = build(handBuiltProject());
+    const room = once.world.rooms.find((r) => r.props.length > 0)!;
+    const target = room.props[0]!;
+    // (No real kit in this fixture: the stage only carries the reference over.)
+    const drawn: Project = {
+      ...once,
+      world: { ...once.world, rooms: once.world.rooms.map((r) => (r.id === room.id ? { ...r, props: r.props.map((p) => (p.id === target.id ? { ...p, art: { biome: "kit", piece: "lamp" } } : p)) } : r)) },
+    };
+    const again = populationStage(drawn).project;
+    expect(roomOf(again, room.id).props.find((p) => p.id === target.id)?.art).toEqual({ biome: "kit", piece: "lamp" });
+    expect(roomOf(again, room.id).props.filter((p) => p.id !== target.id).every((p) => p.art === null)).toBe(true);
+  });
+
   it("a plan naming an enemy that doesn't exist yet gets a placeholder for the cast stage", () => {
     const project = handBuiltProject({ contents: { depths_1: [{ kind: "enemy", characterId: "ember_moth", count: 1, lockRoom: false, grants: [], healthBar: false }] } });
     const out = populationStage(project);

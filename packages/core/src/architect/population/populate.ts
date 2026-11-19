@@ -195,6 +195,7 @@ function populateRoom(ctx: Context, plan: RoomPlan, room: WorldRoom): Built {
   const counts = { enemies: 0, pickups: 0, saves: 0, locks: 0, gates: 0 };
   let start: Built["start"] = null;
   let ending = false;
+  let endOnGuardian = false;
   const used = new Set<string>();
   const unique = (base: string) => {
     let id = base;
@@ -224,6 +225,8 @@ function populateRoom(ctx: Context, plan: RoomPlan, room: WorldRoom): Built {
 
   const contents = plan.contents.map((c, i) => ({ c, i })).sort((a, b) => ORDER[a.c.kind] - ORDER[b.c.kind] || lockFirst(a.c, b.c) || a.i - b.i);
   const tracked: { beaten: string; lock: boolean; downs: string[] }[] = [];
+  // Each tracked spawn's victory: when it fires (its handler's conditions) and the fight it wins.
+  const victories: { spawn: string; beaten: string; when: GameCondition[] }[] = [];
   const victoryFx = (beaten: string, grants: string[], lock: boolean): Effect[] => [
     { type: "setFlag", flag: beaten, value: true },
     ...grants.map((g) => grantEffect(project, g)),
@@ -242,6 +245,12 @@ function populateRoom(ctx: Context, plan: RoomPlan, room: WorldRoom): Built {
         break;
       }
       case "ending": {
+        if (c.after === "guardian") {
+          // No marker: the room's guardians' victory ends the game (added once the fights are built, below).
+          endOnGuardian = true;
+          ending = true;
+          break;
+        }
         const spot = spots.pick(ENDING);
         if (!spot) {
           issue("no-spot", "no reachable spot for the ending", "geometry");
@@ -301,14 +310,16 @@ function populateRoom(ctx: Context, plan: RoomPlan, room: WorldRoom): Built {
         c.grants.forEach((g) => ctx.grants.add(g));
         placed.forEach((spot, i) => {
           const victory = victoryFx(beaten, c.grants, c.lockRoom);
+          const victoryWhen: GameCondition[] = downs.length ? [allOf(downs.filter((_, j) => j !== i).map((d) => flag(d)))] : [];
           const own: Handler[] = !track
             ? []
             : downs.length
               ? [
                   { on: { type: "enemyKilled" }, when: [], do: [{ type: "setFlag", flag: downs[i]!, value: true }] },
-                  { on: { type: "enemyKilled" }, when: [allOf(downs.filter((_, j) => j !== i).map((d) => flag(d)))], do: victory },
+                  { on: { type: "enemyKilled" }, when: victoryWhen, do: victory },
                 ]
               : [{ on: { type: "enemyKilled" }, when: [], do: victory }];
+          if (track) victories.push({ spawn: ids[i]!, beaten, when: victoryWhen });
           spawns.push({
             id: ids[i]!,
             characterId: c.characterId,
@@ -323,6 +334,22 @@ function populateRoom(ctx: Context, plan: RoomPlan, room: WorldRoom): Built {
         if (track) tracked.push({ beaten, lock: c.lockRoom, downs });
         if (placed.length < c.count && track) issue("partial-fight", `${c.characterId}: only ${placed.length} of ${c.count} placed; the fight is won when those fall`);
         break;
+      }
+    }
+  }
+
+  // An ending after the guardian: when the last of the room's tracked fights is won, the game ends (each
+  // tracked spawn checks after its own victory, so whichever falls last ends it).
+  if (endOnGuardian) {
+    if (!tracked.length) {
+      issue("ending-no-guardian", "the ending waits on this room's guardian, but the room has none (an enemy that locks the room or gives something)", "plan");
+    } else {
+      // Conditions are read as the kill happens (before its effects): the end waits on this fight's own
+      // victory condition and on every other fight already won.
+      for (const v of victories) {
+        const others = [...new Set(tracked.map((t) => t.beaten).filter((b) => b !== v.beaten))].map((b) => flag(b));
+        const when = [...v.when, ...(others.length ? [allOf(others)] : [])];
+        spawns.find((sp) => sp.id === v.spawn)?.handlers.push({ on: { type: "enemyKilled" }, when, do: [{ type: "endGame", modal: ENDING_MODAL }] });
       }
     }
   }
@@ -343,7 +370,10 @@ function populateRoom(ctx: Context, plan: RoomPlan, room: WorldRoom): Built {
     counts.locks += locks.length;
   }
 
-  return { room: { ...room, spawns, props, handlers }, start, ending, counts };
+  // A prop rebuilt in its old place (the same id: the same pickup, save point, gate or ending) keeps its drawn art.
+  const drawn = new Map(room.props.flatMap((p) => (p.art ? [[p.id, p.art] as const] : [])));
+  const kept = props.map((p) => (!p.art && drawn.has(p.id) ? { ...p, art: drawn.get(p.id)! } : p));
+  return { room: { ...room, spawns, props: kept, handlers }, start, ending, counts };
 }
 
 const size = (s: { width: number; height: number }) => ({ width: s.width, height: s.height });

@@ -64,7 +64,7 @@ export function seedPlan(project: ProjectSpec, options: { maxRoomsPerRegion?: nu
   const mid = (list: RoomPlan[]) => list[Math.floor(list.length / 2)];
 
   if (p.start) add(byRegion.get(p.start)?.[0], { kind: "start" });
-  if (p.ending) add(byRegion.get(p.ending)?.at(-1), { kind: "ending" });
+  if (p.ending) add(byRegion.get(p.ending)?.at(-1), { kind: "ending", after: "touch" });
 
   for (const ability of p.abilities) {
     let list = ability.obtainedIn ? byRegion.get(ability.obtainedIn.regionId) : undefined;

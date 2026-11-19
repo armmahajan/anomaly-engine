@@ -71,7 +71,7 @@ export function handBuiltProject(options: Options = {}): Project {
     ],
     depths_1: [{ kind: "enemy", characterId: "charger", count: 1, lockRoom: false, grants: [], healthBar: false }, { kind: "save" }],
     depths_2: [{ kind: "enemy", characterId: "warden", count: 1, lockRoom: true, grants: ["wings"], healthBar: true }],
-    peak_1: [{ kind: "ending" }],
+    peak_1: [{ kind: "ending", after: "touch" }],
     ...options.contents,
   } as Record<string, RoomContent[]>;
   const plan = (id: string, regionId: string) => ({ id, name: id, regionId, contents: contents[id] ?? [], pinned: options.pinned?.includes(id) ?? false });

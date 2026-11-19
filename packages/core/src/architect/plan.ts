@@ -45,7 +45,13 @@ export const RoomContent = z.discriminatedUnion("kind", [
   }),
   z.strictObject({ kind: z.literal("save"), note: z.string().max(200).optional() }),
   z.strictObject({ kind: z.literal("start") }),
-  z.strictObject({ kind: z.literal("ending") }),
+  z.strictObject({
+    kind: z.literal("ending"),
+    after: z
+      .enum(["touch", "guardian"])
+      .default("touch")
+      .describe("touch: an ending marker the player reaches; guardian: the game ends the moment this room's guardians fall (its locked fight, or the enemies that give something)."),
+  }),
 ]);
 export type RoomContent = z.infer<typeof RoomContent>;
 

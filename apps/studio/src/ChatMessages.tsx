@@ -353,12 +353,56 @@ export function AutoGrowTextarea({
   );
 }
 
-/** The Markdown models write: paragraphs, headings, "-"/"1." lists, **bold**, *emphasis*, `code` and fenced code. */
+/** A Markdown table row's cells ("| a | b |"), or null when the line isn't one. */
+export function tableCells(line: string): string[] | null {
+  const t = line.trim();
+  if (!t.startsWith("|") || t.length < 2) return null;
+  return t.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+}
+
+/** The header/body divider ("|---|:---:|"). */
+const isDivider = (cells: string[]) => cells.length > 0 && cells.every((c) => /^:?-{2,}:?$/.test(c));
+
+/** The Markdown models write: paragraphs, headings, "-"/"1." lists, tables, **bold**, *emphasis*, `code` and fenced code. */
 export function FormattedText({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   let list: { ordered: boolean; items: string[] } | null = null;
   let code: string[] | null = null;
+  let table: string[][] | null = null;
+  const flushTable = () => {
+    if (!table) return;
+    const rows: string[][] = table;
+    table = null;
+    // A header row only when a divider follows it; otherwise every row is body.
+    const header = rows.length > 1 && isDivider(rows[1]!) ? rows[0]! : null;
+    const body = rows.filter((r, i) => !isDivider(r) && !(header && i === 0));
+    blocks.push(
+      <div key={blocks.length} className="msg-table-wrap">
+        <table className="msg-table">
+          {header && (
+            <thead>
+              <tr>
+                {header.map((c, i) => (
+                  <th key={i}>{inline(c)}</th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          <tbody>
+            {body.map((r, i) => (
+              <tr key={i}>
+                {r.map((c, j) => (
+                  <td key={j}>{inline(c)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>,
+    );
+  };
   const flush = () => {
+    flushTable();
     if (!list) return;
     const items = list.items.map((b, i) => <li key={i}>{inline(b)}</li>);
     blocks.push(list.ordered ? <ol key={blocks.length}>{items}</ol> : <ul key={blocks.length}>{items}</ul>);
@@ -379,6 +423,13 @@ export function FormattedText({ text }: { text: string }) {
       code.push(line);
       continue;
     }
+    const cells = tableCells(line);
+    if (cells) {
+      if (list) flush();
+      (table ??= []).push(cells);
+      continue;
+    }
+    flushTable();
     const bullet = /^\s*[-*•]\s+(.*)$/.exec(line);
     const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
     const item = bullet ?? numbered;

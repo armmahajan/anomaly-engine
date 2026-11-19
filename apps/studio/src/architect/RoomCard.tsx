@@ -186,7 +186,7 @@ function ContentChip({ content: c, characterName, abilityName }: { content: Room
     case "start":
       return <span className="content-chip start">▶ start</span>;
     case "ending":
-      return <span className="content-chip ending">★ ending</span>;
+      return <span className="content-chip ending">★ {c.after === "guardian" ? "ending on its fall" : "ending"}</span>;
   }
 }
 
@@ -252,7 +252,10 @@ function ContentsEditor({ room, project, ro, update }: { room: RoomPlan; project
             {c.kind === "ending" && (
               <>
                 <span className="content-kind">★ Ending</span>
-                <span className="hint grow">Reaching it ends the game.</span>
+                <select aria-label="Ending after" value={c.after} disabled={ro} onChange={(e) => void replace(i, { ...c, after: e.target.value as "touch" | "guardian" })}>
+                  <option value="touch">reaching it ends the game</option>
+                  <option value="guardian">the game ends when this room's guardian falls</option>
+                </select>
               </>
             )}
             <button type="button" className="arch-remove" aria-label={`Remove ${c.kind}`} disabled={ro} onClick={() => remove(i)}>
@@ -274,7 +277,7 @@ function ContentsEditor({ room, project, ro, update }: { room: RoomPlan; project
         <button type="button" disabled={ro || full || contents.some((c) => c.kind === "start")} onClick={() => add({ kind: "start" })}>
           + Start
         </button>
-        <button type="button" disabled={ro || full || contents.some((c) => c.kind === "ending")} onClick={() => add({ kind: "ending" })}>
+        <button type="button" disabled={ro || full || contents.some((c) => c.kind === "ending")} onClick={() => add({ kind: "ending", after: "touch" })}>
           + Ending
         </button>
       </div>

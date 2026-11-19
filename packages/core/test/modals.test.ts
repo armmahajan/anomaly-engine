@@ -37,7 +37,7 @@ describe("modal operations", () => {
     p = ok(op(p, "createModal", { id: "menu", buttons: [{ label: "Credits", do: [{ type: "showModal", modal: "credits" }] }] }));
     p = ok(op(p, "addHandler", { roomId: "arena", handler: { on: { type: "roomEntered" }, do: [{ type: "endGame", modal: "credits" }] } }));
     const refused = op(p, "deleteModal", { modalId: "credits" });
-    expect(refused).toMatchObject({ ok: false, error: { message: 'modal "credits" is shown by world.rooms.0.handlers.0, world.modals.1.buttons.0; change those first' } });
+    expect(refused).toMatchObject({ ok: false, error: { message: expect.stringMatching(/^modal "credits" is shown by a handler of the room "Arena", a button of the screen "[^"]+"; change those first$/) } });
     // A modal whose own button shows it again can still go.
     p = ok(op(p, "updateModal", { modalId: "menu", changes: { buttons: [{ label: "Again", do: [{ type: "showModal", modal: "menu" }] }] } }));
     expect(ok(op(p, "deleteModal", { modalId: "menu" })).world.modals.map((m) => m.id)).toEqual(["credits"]);

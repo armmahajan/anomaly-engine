@@ -525,3 +525,29 @@ button.chat-switch-to:hover {
   font-family: inherit;
   font-size: 11px;
 }
+
+.msg-table-wrap {
+  margin: 6px 0;
+  overflow-x: auto;
+}
+
+.msg-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.msg-table th,
+.msg-table td {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  /* Words stay whole in a cell; a table wider than the chat scrolls. */
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.msg-table th {
+  font-weight: 600;
+  background: var(--panel);
+}

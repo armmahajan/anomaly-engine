@@ -50,7 +50,10 @@ export function deleteModal(project: ProjectSpec, input: unknown): OperationResu
   const { modals } = project.world;
   if (!modals.some((m) => m.id === modalId)) return fail("not_found", `no modal "${modalId}"${known(modals.map((m) => m.id))}`);
   const users = modalUses(project, modalId).filter((u) => u.modal !== modalId);
-  if (users.length > 0) return fail("invalid_input", `modal "${modalId}" is shown by ${users.map((u) => u.path).join(", ")}; change those first`);
+  if (users.length > 0) {
+    const where = [...new Set(users.map((u) => placeOf(project, u.path)))];
+    return fail("invalid_input", `modal "${modalId}" is shown by ${where.join(", ")}; change those first`);
+  }
   return withWorld(project, { modals: modals.filter((m) => m.id !== modalId) });
 }
 
@@ -89,4 +92,25 @@ export function modalImageChoices(project: ProjectSpec): { file: string; label: 
   }
   for (const modal of project.world.modals) if (modal.image && !out.has(modal.image)) out.set(modal.image, modal.image);
   return [...out].map(([file, label]) => ({ file, label }));
+}
+
+/** Where a handler or button path is, in the creator's words: "the Pulse Pistol prop in Server Catacombs 3". */
+export function placeOf(project: ProjectSpec, path: string): string {
+  const rooms = project.world.rooms;
+  const room = /^world\.rooms\.(\d+)\.(props|spawns|handlers)(?:\.(\d+))?/.exec(path);
+  if (room) {
+    const r = rooms[Number(room[1])];
+    const roomName = r ? `"${r.name}"` : "a room";
+    const i = room[3] === undefined ? -1 : Number(room[3]);
+    if (room[2] === "props") return `the ${r?.props[i] ? `"${r.props[i]!.name}"` : ""} prop in ${roomName}`.replace("the  prop", "a prop");
+    if (room[2] === "spawns") return `the ${r?.spawns[i] ? `"${r.spawns[i]!.characterId}"` : ""} spawn in ${roomName}`.replace("the  spawn", "a spawn");
+    return `a handler of the room ${roomName}`;
+  }
+  if (/^world\.handlers/.test(path)) return "a game handler (Game > Game handlers)";
+  const modal = /^world\.modals\.(\d+)/.exec(path);
+  if (modal) {
+    const m = project.world.modals[Number(modal[1])];
+    return `a button of the screen "${m?.title || m?.id || "?"}"`;
+  }
+  return path;
 }
