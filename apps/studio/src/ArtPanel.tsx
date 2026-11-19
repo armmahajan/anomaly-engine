@@ -95,9 +95,13 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
       <h2>{character.name}</h2>
       <div className="art-meta">
         {art.available ? (
-          <span title={`budget ${money(art.budget)} per job`}>
-            {art.models.image} · {art.models.vision} · spent {money(art.totalCost)}
-          </span>
+          <>
+            <ImageModelPicker art={art} project={project} session={session} disabled={locked} />
+            <span title={`budget ${money(art.budget)} per job`}>
+              {art.models.imageChoices.length < 2 ? `${art.models.image} · ` : ""}
+              {art.models.vision} · spent {money(art.totalCost)}
+            </span>
+          </>
         ) : (
           <span className="field-error">Art generation is off: add OPENROUTER_API_KEY to the studio's .env.</span>
         )}
@@ -130,7 +134,6 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
         disabled={disabled}
         onChange={(e) => setConceptNote(e.target.value)}
       />
-      <ConceptModelPicker art={art} project={project} session={session} disabled={locked} />
       <div className="art-actions">
         <button
           type="button"
@@ -214,20 +217,24 @@ export function ArtPanel({ character, project, art, session, locked }: Props) {
   );
 }
 
-/** Which image model draws concept sheets (the art direction's conceptModel; the studio lists the offered ones). */
-export function ConceptModelPicker({ art, project, session, disabled }: { art: ArtState; project: ProjectSpec; session: Session; disabled: boolean }) {
-  const offered = art.models.concept;
+/**
+ * Which image model draws the art (the art direction's imageModel; the studio lists the offered ones). Steps
+ * the pick can't do (a reference image, a transparent background) fall back to the default, and the job log
+ * names the model that drew each image.
+ */
+export function ImageModelPicker({ art, project, session, disabled }: { art: ArtState; project: ProjectSpec; session: Session; disabled: boolean }) {
+  const offered = art.models.imageChoices;
   if (offered.length < 2) return null;
-  const picked = project.art.direction.conceptModel;
+  const picked = project.art.direction.imageModel;
   const value = offered.some((m) => m.id === picked) ? picked! : offered[0]!.id;
   const choose = async (id: string) => {
-    const result = await session.applyOperation("setArtDirection", { changes: { conceptModel: id === offered[0]!.id ? null : id } });
+    const result = await session.applyOperation("setArtDirection", { changes: { imageModel: id === offered[0]!.id ? null : id } });
     if (!result.ok) session.reportProblem(result.error.message);
   };
   return (
-    <label className="art-label art-concept-model">
-      Concept model
-      <select aria-label="Concept model" value={value} disabled={disabled} onChange={(e) => void choose(e.target.value)}>
+    <label className="art-image-model" title="Draws all the art: concepts, redraws, details, props, weapons, screens and scenery. Steps it can't do (a reference image, a transparent background) use the default.">
+      Image model
+      <select aria-label="Image model" value={value} disabled={disabled} onChange={(e) => void choose(e.target.value)}>
         {offered.map((m, i) => (
           <option key={m.id} value={m.id}>
             {m.label}

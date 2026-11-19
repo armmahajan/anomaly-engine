@@ -33,6 +33,8 @@ export interface GeneratedImage {
 
 export interface ImageModel {
   readonly id: string;
+  /** Whether it can take this request: reference images, a transparent background (absent = everything). */
+  accepts?(request: ImageRequest): boolean;
   generate(request: ImageRequest): Promise<GeneratedImage>;
 }
 
@@ -142,6 +144,13 @@ export class OpenRouterImageModel implements ImageModel {
     this.id = id;
     this.extra = extra;
     this.supports = supports;
+  }
+
+  accepts(request: ImageRequest): boolean {
+    if (!this.supports) return true;
+    if (request.references?.length && !this.supports.includes("input_references")) return false;
+    if (request.transparent && !this.supports.includes("background")) return false;
+    return true;
   }
 
   async generate(request: ImageRequest): Promise<GeneratedImage> {

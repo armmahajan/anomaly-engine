@@ -16,8 +16,8 @@ import { DEFAULT_ART_CONCURRENCY, type ArtServiceOptions } from "./service.ts";
  *   OPENROUTER_API_KEY         required for real generation (server-side only; images always use it)
  *   STUDIO_ART_IMAGE_MODEL     default openai/gpt-image-1-mini (concept sheets)
  *   STUDIO_ART_IMAGE_QUALITY   default low (models with a quality knob)
- *   STUDIO_ART_CONCEPT_MODELS  image models offered for concept sheets (comma-separated OpenRouter ids,
- *                              the image model first); the creator picks one in Characters > Concepts.
+ *   STUDIO_ART_IMAGE_CHOICES   image models the creator can pick for all art (comma-separated OpenRouter
+ *                              ids; the image model is always first, the default); picked in the art panel.
  *                              Default: the image model, Nano Banana 2 Lite, Seedream 5.5, FLUX.2 Pro,
  *                              Meta Muse Image
  *   STUDIO_ART_VISION_BACKEND  "claude-code" or "openrouter" (picks, rigs, critiques, animation).
@@ -40,14 +40,14 @@ import { DEFAULT_ART_CONCURRENCY, type ArtServiceOptions } from "./service.ts";
  */
 
 export const DEFAULT_IMAGE_MODEL = "openai/gpt-image-1-mini";
-/** Offered for concept sheets after the image model (OpenRouter's images API; all take reference images, for variations). */
-export const DEFAULT_CONCEPT_MODELS = ["google/gemini-3.1-flash-lite-image", "bytedance-seed/seedream-5-5", "black-forest-labs/flux.2-pro", "meta/muse-image"];
+/** Offered after the image model (OpenRouter's images API). */
+export const DEFAULT_IMAGE_CHOICES = ["google/gemini-3.1-flash-lite-image", "bytedance-seed/seedream-5-5", "black-forest-labs/flux.2-pro", "meta/muse-image"];
 const MODEL_LABELS: Record<string, string> = {
   "openai/gpt-image-1-mini": "GPT Image 1 mini",
   "google/gemini-3.1-flash-lite-image": "Nano Banana 2 Lite",
   "bytedance-seed/seedream-5-5": "Seedream 5.5",
   "black-forest-labs/flux.2-pro": "FLUX.2 Pro",
-  "meta/muse-image": "Meta Muse Image (no variations)",
+  "meta/muse-image": "Meta Muse Image",
 };
 /**
  * Request fields each offered model accepts (OpenRouter's images/models supported_parameters, 2026-11-19);
@@ -63,9 +63,9 @@ export const IMAGE_MODEL_PARAMS: Record<string, string[]> = {
 /** A readable name for an image model id. */
 export const imageModelLabel = (id: string) => MODEL_LABELS[id] ?? id;
 
-/** The concept-sheet models: the image model first, then the offered ones (env or defaults), each once. */
-export function conceptModelIds(env: NodeJS.ProcessEnv, imageModel: string): string[] {
-  const listed = env.STUDIO_ART_CONCEPT_MODELS?.split(",").map((s) => s.trim()).filter(Boolean) ?? DEFAULT_CONCEPT_MODELS;
+/** The image models the creator can pick: the image model first, then the offered ones (env or defaults), each once. */
+export function imageChoiceIds(env: NodeJS.ProcessEnv, imageModel: string): string[] {
+  const listed = env.STUDIO_ART_IMAGE_CHOICES?.split(",").map((s) => s.trim()).filter(Boolean) ?? DEFAULT_IMAGE_CHOICES;
   return [...new Set([imageModel, ...listed])].filter((id) => !isClaudeOnOpenRouter(id));
 }
 export const DEFAULT_VISION_MODEL = "anthropic/claude-haiku-5.5";
@@ -120,8 +120,8 @@ export function artOptionsFromEnv(
 
   if (env.STUDIO_ART_BACKEND === "fake") {
     const image = new FakeImageModel();
-    // Two scripted concept models, so the picker shows in tests.
-    return { ...base, models: { image, vision: new FakeVisionModel(), concept: [{ id: image.id, label: "Fake image", model: image }, { id: "fake/image-alt", label: "Fake image (alt)", model: new FakeImageModel(undefined, "fake/image-alt") }] } };
+    // Two scripted image models, so the picker shows in tests.
+    return { ...base, models: { image, vision: new FakeVisionModel(), imageChoices: [{ id: image.id, label: "Fake image", model: image }, { id: "fake/image-alt", label: "Fake image (alt)", model: new FakeImageModel(undefined, "fake/image-alt") }] } };
   }
   const apiKey = env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) {
@@ -161,7 +161,7 @@ export function artOptionsFromEnv(
     models: {
       image,
       vision,
-      concept: conceptModelIds(env, imageId).map((id) => ({ id, label: imageModelLabel(id), model: id === imageId ? image : imageModel(id) })),
+      imageChoices: imageChoiceIds(env, imageId).map((id) => ({ id, label: imageModelLabel(id), model: id === imageId ? image : imageModel(id) })),
     },
     // Vector: the full pipeline the creator voted for (rig-ready designs, a flat redraw, a vector rig with elbows
     // and knees checked over render-and-compare rounds, detail shapes). STUDIO_ART_RIG_MODE=traced or cutout picks another.

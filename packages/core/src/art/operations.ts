@@ -70,7 +70,7 @@ export const SetArtDirectionInput = z.strictObject({
     inkWidth: z.number().optional(),
     boil: z.number().optional(),
     rigMode: z.enum(["vector", "cutout", "traced"]).optional().describe("How characters are rigged: vector (flat shapes), cutout (pieces of the concept image) or traced (those pieces redrawn as flat shapes)."),
-    conceptModel: z.string().max(120).nullable().optional().describe("Image model for concept sheets (null = the studio's default)."),
+    imageModel: z.string().max(120).nullable().optional().describe("Image model for all art (null = the studio's default)."),
   }),
 });
 
@@ -78,10 +78,10 @@ export const SetArtDirectionInput = z.strictObject({
 export function setArtDirection(project: ProjectSpec, input: unknown): OperationResult {
   const p = parse(SetArtDirectionInput, input, "setArtDirection");
   if (!p.ok) return p;
-  const { conceptModel, ...changes } = p.data.changes;
+  const { imageModel, ...changes } = p.data.changes;
   const merged: Record<string, unknown> = { ...project.art.direction, ...changes };
-  if (conceptModel === null) delete merged.conceptModel;
-  else if (conceptModel !== undefined) merged.conceptModel = conceptModel;
+  if (imageModel === null) delete merged.imageModel;
+  else if (imageModel !== undefined) merged.imageModel = imageModel;
   const direction = ArtDirection.safeParse(merged);
   if (!direction.success) return fail("invalid_input", "art direction would be invalid", issuesOf(direction.error, "changes."));
   return commit({ ...project, art: { ...project.art, direction: direction.data } });

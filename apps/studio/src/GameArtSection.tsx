@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { artDirectionWanted, gameArtPlan, isDefaultArtDirection, type ArtState, type ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
-import { money } from "./ArtPanel.tsx";
+import { ImageModelPicker, money } from "./ArtPanel.tsx";
 
 /**
  * "Make the art": what the game still needs drawn (core gameArtPlan) and one
@@ -20,6 +20,7 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
   return (
     <div className="game-art" data-testid="game-art">
       <ArtDirectionView project={project} session={session} art={art} locked={locked} />
+      <ImageModelPicker art={art} project={project} session={session} disabled={locked} />
       {plan.length === 0 ? (
         <p className="hint">Everything is drawn.</p>
       ) : (

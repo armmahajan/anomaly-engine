@@ -150,15 +150,15 @@ function colorCount(png: Buffer, rgb: number[]): number {
   return n;
 }
 
-test("art: the concept model picker draws concept sheets with the model picked", async ({ page }) => {
+test("art: the image model picker draws the art with the model picked", async ({ page }) => {
   await openStudio(page);
   await page.getByTestId("character-charger").click();
   await page.getByRole("tab", { name: "Characters" }).click();
   const panel = page.getByTestId("art-panel");
-  const picker = panel.getByLabel("Concept model");
+  const picker = panel.getByLabel("Image model");
   await expect(picker).toHaveValue("fake/image");
   await picker.selectOption("fake/image-alt");
-  await expect.poll(() => page.evaluate(() => window.studio!.getProject().art.direction.conceptModel)).toBe("fake/image-alt");
+  await expect.poll(() => page.evaluate(() => window.studio!.getProject().art.direction.imageModel)).toBe("fake/image-alt");
 
   await panel.getByLabel("What should Charger look like?").fill("a horned beetle");
   await panel.getByRole("button", { name: "Generate concepts" }).click();
@@ -167,7 +167,9 @@ test("art: the concept model picker draws concept sheets with the model picked",
   await page.getByTestId("art-job").locator("summary").click();
   await expect(page.getByTestId("art-job")).toContainText("concept sheet (fake/image-alt)");
 
-  // Back to the default: the setting is cleared.
-  await picker.selectOption("fake/image");
-  await expect.poll(() => page.evaluate(() => window.studio!.getProject().art.direction.conceptModel ?? null)).toBe(null);
+  // The same pick shows in Game > Art; back to the default clears it.
+  await page.getByRole("tab", { name: "Game" }).click();
+  await expect(page.getByTestId("game-art").getByLabel("Image model")).toHaveValue("fake/image-alt");
+  await page.getByTestId("game-art").getByLabel("Image model").selectOption("fake/image");
+  await expect.poll(() => page.evaluate(() => window.studio!.getProject().art.direction.imageModel ?? null)).toBe(null);
 });

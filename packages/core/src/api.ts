@@ -291,8 +291,8 @@ export const ArtState = z.object({
   models: z.object({
     image: z.string(),
     vision: z.string(),
-    /** Image models offered for concept sheets (the art direction's conceptModel picks one; the first is the default). */
-    concept: z.array(z.object({ id: z.string(), label: z.string() })).default([]),
+    /** Image models the creator can pick for all art (the art direction's imageModel); the first is the default. */
+    imageChoices: z.array(z.object({ id: z.string(), label: z.string() })).default([]),
   }),
   /** USD limit per job. */
   budget: z.number(),

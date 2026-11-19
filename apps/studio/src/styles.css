@@ -1703,14 +1703,14 @@ body.resizing iframe {
   color: var(--accent);
 }
 
-/* The concept-sheet model picker (Characters > Concepts). */
-.art-concept-model {
+/* The image model picker (the art panel's model line, Game > Art). */
+.art-image-model {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 6px 0;
+  margin: 2px 0 6px;
 }
-.art-concept-model select {
+.art-image-model select {
   flex: 1;
   min-width: 0;
 }

@@ -45,14 +45,24 @@ export const DEFAULT_ART_CONCURRENCY = 3;
 export interface ArtModels {
   image: ImageModel;
   vision: VisionModel;
-  /** Image models the creator can pick for concept sheets (the art direction's conceptModel), first = default. */
-  concept?: { id: string; label: string; model: ImageModel }[];
+  /** Image models the creator can pick for all art (the art direction's imageModel), first = default. */
+  imageChoices?: { id: string; label: string; model: ImageModel }[];
 }
 
-/** The concept-sheet model the art direction picks, if the studio offers it (else the default image model). */
-export function conceptModelFor(models: ArtModels, picked: string | undefined): ImageModel | undefined {
-  const offered = models.concept ?? [];
-  return (picked ? offered.find((m) => m.id === picked) : undefined)?.model ?? offered[0]?.model;
+/**
+ * The image model a job draws with: the art direction's pick when the studio offers it, else the default.
+ * A request the pick can't take (a reference image, a transparent background) goes to the default instead,
+ * so every step still works; the result's `model` says which one drew it.
+ */
+export function imageModelFor(models: ArtModels, picked: string | undefined): ImageModel {
+  const choice = picked ? (models.imageChoices ?? []).find((m) => m.id === picked)?.model : undefined;
+  if (!choice || choice === models.image) return models.image;
+  const fallback = models.image;
+  return {
+    id: choice.id,
+    accepts: () => true,
+    generate: (request) => ((choice.accepts?.(request) ?? true) ? choice : fallback).generate(request),
+  };
 }
 
 export interface ArtServiceOptions {
@@ -199,7 +209,7 @@ export class ArtService {
       models: {
         image: this.options.models?.image.id ?? "none",
         vision: this.options.models?.vision.id ?? "none",
-        concept: (this.options.models?.concept ?? []).map(({ id, label }) => ({ id, label })),
+        imageChoices: (this.options.models?.imageChoices ?? []).map(({ id, label }) => ({ id, label })),
       },
       budget: this.options.budget,
       concurrency: this.concurrency,
@@ -573,8 +583,7 @@ export class ArtService {
     const { request } = running;
     const ctx: ArtContext = {
       project: () => this.store.getState().project,
-      image: models.image,
-      conceptImage: conceptModelFor(models, this.store.getState().project.art.direction.conceptModel),
+      image: imageModelFor(models, this.store.getState().project.art.direction.imageModel),
       vision: models.vision,
       renderer: this.options.renderer,
       files: this.options.files,

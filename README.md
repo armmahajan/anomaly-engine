@@ -1113,7 +1113,10 @@ player is behind them.
   process, and count against the subscription's usage limits. Each job has a budget
   (`STUDIO_ART_BUDGET`, default $0.25) and the sidebars show what was spent.
 - **Settings** (`.env`): `OPENROUTER_API_KEY` (required, for images),
-  `STUDIO_ART_IMAGE_MODEL`, `STUDIO_ART_IMAGE_QUALITY`,
+  `STUDIO_ART_IMAGE_MODEL` (the default image model), `STUDIO_ART_IMAGE_QUALITY`,
+  `STUDIO_ART_IMAGE_CHOICES` (image models the creator can pick for all art in the art panel and Game > Art;
+  default Nano Banana 2 Lite, Seedream 5.5, FLUX.2 Pro, Meta Muse Image; saved as the art direction's
+  `imageModel`; a step the pick can't do, a reference image or a transparent background, uses the default),
   `STUDIO_ART_VISION_BACKEND` (`claude-code` or `openrouter`; default
   `claude-code`, but `openrouter` when `STUDIO_CHAT_BACKEND=fake` or
   `STUDIO_ART_VISION_MODEL` is an OpenRouter id like `anthropic/claude-haiku-5.5`),

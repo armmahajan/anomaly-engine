@@ -137,7 +137,7 @@ export const ArtDirection = z.strictObject({
   inkWidth: z.number().min(0).max(12).describe("Base outline width in px."),
   boil: z.number().min(0).max(1).describe("Hand-drawn line wobble, 0 = none (re-drawn ~8 times a second)."),
   rigMode: z.enum(RIG_MODES).optional().describe("How characters are rigged: cutout (pieces of the concept image, default) or vector (flat shapes)."),
-  conceptModel: z.string().max(120).optional().describe("Image model for concept sheets (one the studio offers, ArtState.models.concept); unset = the studio's default."),
+  imageModel: z.string().max(120).optional().describe("Image model for all art (one the studio offers, ArtState.models.imageChoices); unset = the studio's default."),
 });
 export type ArtDirection = z.infer<typeof ArtDirection>;
 

@@ -107,9 +107,8 @@ export class BudgetExceeded extends Error {}
 export interface ArtContext {
   /** The project as it is now (including stages committed earlier in this job). */
   project(): ProjectSpec;
+  /** Draws every image (the art direction's imageModel when the studio offers it, else the default). */
   image: ImageModel;
-  /** The image model for concept sheets (the art direction's conceptModel), else `image`. */
-  conceptImage?: ImageModel;
   vision: VisionModel;
   renderer: ArtRenderer;
   files: FileStore;
@@ -303,7 +302,7 @@ export async function generateConcepts(ctx: ArtContext, input: ConceptsInput): P
   for (let attempt = 0; ; attempt++) {
     checkAbort(ctx);
     const asked = attempt === 0 ? prompt : `${prompt}\nThe last sheet drew the figures too big (they ran off their quadrants): draw them clearly smaller this time.`;
-    generated = await (ctx.conceptImage ?? ctx.image).generate({ prompt: asked, references: reference ? [reference] : undefined, signal: ctx.signal });
+    generated = await ctx.image.generate({ prompt: asked, references: reference ? [reference] : undefined, signal: ctx.signal });
     ctx.spend(generated.usage);
     // Rig-ready: a sheet that came back with a transparent background gets a flat one (the cutout needs it).
     if (rigReady) generated = { ...generated, image: await opaque(ctx, generated.image), ext: "png" };
