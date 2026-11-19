@@ -399,6 +399,8 @@ export const LiveState = z.object({
     /** What the live rooms did last or are doing. */
     message: z.string(),
     error: z.string().nullable(),
+    /** The message reports the live rooms' own preview build: out of date once the plan is no longer the preview's (core previewOwnsPlan). */
+    preview: z.boolean().default(false),
   }),
   /** Why background saves are waiting right now (a playtest, an AI turn), or null. */
   waiting: z.string().nullable(),

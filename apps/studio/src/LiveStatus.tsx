@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { ArtState, LiveState, ProjectSpec } from "@anomaly/core";
+import { previewOwnsPlan, type ArtState, type LiveState, type ProjectSpec } from "@anomaly/core";
 import type { Session } from "./session.ts";
 import { usePopover } from "./ui/usePopover.ts";
 
@@ -75,7 +75,7 @@ export function LiveStatus({ project, art, live, session }: { project: ProjectSp
           )}
           {live.waiting && <p className="menu-note">Saves wait while {live.waiting}.</p>}
           {live.cast.message && !live.cast.working.length && <p className="menu-note">From the wiki: {live.cast.message}</p>}
-          {live.rooms.message && live.rooms.status === "idle" && <p className="menu-note">Rooms: {live.rooms.message}</p>}
+          {live.rooms.status === "idle" && !stalePreview(live, project) && live.rooms.message && <p className="menu-note">Rooms: {live.rooms.message}</p>}
           {problem && <p className="field-error">{problem}</p>}
         </div>
       )}
@@ -92,9 +92,13 @@ export function characterWork(id: string, art: ArtState, live: LiveState): strin
   return null;
 }
 
+/** The live rooms' last preview build, once the plan is no longer the preview's (the Architect or the creator took it over): old news. */
+const stalePreview = (live: LiveState, project: ProjectSpec) => live.rooms.preview && !previewOwnsPlan(project);
+
 /** The live rooms' line for the Rooms and Architect sidebars. */
-export function RoomsLive({ live }: { live: LiveState }) {
+export function RoomsLive({ live, project }: { live: LiveState; project: ProjectSpec }) {
   if (!live.settings.rooms && live.rooms.status === "idle") return null;
+  if (live.rooms.status === "idle" && stalePreview(live, project)) return null;
   const text =
     live.rooms.status === "building"
       ? live.rooms.message || "building rooms from the progression…"

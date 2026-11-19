@@ -103,7 +103,7 @@ export class Session {
       live: {
         settings: { cast: false, rooms: false },
         cast: { working: [], message: "", error: null },
-        rooms: { status: "idle", message: "", error: null },
+        rooms: { status: "idle", message: "", error: null, preview: false },
         waiting: null,
       },
       worldPick: null,

@@ -4,6 +4,7 @@ import { MOVEMENT_ABILITIES, type MovementAbility } from "../../movement/params.
 import type { Ability } from "../../progression/progression.ts";
 import type { Item, Modal, World } from "../../world/world.ts";
 import type { Weapon } from "../../combat/weapon.ts";
+import { actionLabel, keysText } from "../../controls/controls.ts";
 
 /**
  * What the player gets, as primitives: a progression ability whose mechanic is
@@ -104,12 +105,33 @@ export function messageModal(project: ProjectSpec, id: string): Modal {
   const about = pageLine(project, page) || plainText(project, weapon?.description ?? "");
   if (about) lines.push(sentence(about));
   if (ability && isMovement(ability.mechanic)) lines.push(MOVEMENT_ABILITIES[ability.mechanic]);
+  if (weapon) {
+    const use = weaponUse(project, id);
+    if (use) lines.push(use);
+  }
   const opens = project.progression.connections
     .filter((c) => c.requires.includes(id))
     .map((c) => project.progression.regions.find((r) => r.id === c.to)?.name)
     .filter((n): n is string => !!n);
   if (opens.length) lines.push(`It opens the way to ${[...new Set(opens)].join(" and ")}.`);
   return { id: messageModalId(id), title: `You got ${name}`.slice(0, 120), body: lines.join("\n\n").slice(0, 4000), image: null, buttons: [] };
+}
+
+/**
+ * How the player uses a weapon they are given: the control of the loadout slot it lands in (giveWeapon
+ * with no slot fills the first empty one), else switching to it when the loadout cycles.
+ */
+export function weaponUse(project: ProjectSpec, weaponId: string): string | null {
+  const { slots, cycle } = project.weapons.loadout;
+  const bindings = project.controls.bindings as Partial<Record<string, readonly string[]>>;
+  const control = (action: string) => {
+    const keys = bindings[action] ?? [];
+    return keys.length ? `${actionLabel(action)} (${keysText(keys)})` : actionLabel(action);
+  };
+  const slot = slots.find((s) => s.start === weaponId) ?? slots.find((s) => s.start === null);
+  if (slot) return `Use it with ${control(slot.action)}, toward where you aim.`;
+  if (cycle) return `Switch to it with ${control("weapon_cycle")}.`;
+  return null;
 }
 
 /** The item a key is (its id is the ability's id). */

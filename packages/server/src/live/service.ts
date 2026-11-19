@@ -95,7 +95,7 @@ export class LiveService {
     this.options = options;
     this.path = join(store.dir, "live.json");
     this.persisted = persisted;
-    this.state = { cast: { working: [], message: "", error: null }, rooms: { status: "idle", message: "", error: null } };
+    this.state = { cast: { working: [], message: "", error: null }, rooms: { status: "idle", message: "", error: null, preview: false } };
     this.unsubscribe = [store.subscribe(() => this.schedule()), store.subscribeLocks(() => (this.emit(), this.schedule()))];
   }
 
@@ -138,7 +138,7 @@ export class LiveService {
     this.controller = new AbortController();
     await Promise.all([this.castJob, this.roomsJob]);
     this.persisted = { ...baseline(this.store.getState().project, this.persisted.settings), settings: this.persisted.settings };
-    this.state = { cast: { working: [], message: "", error: null }, rooms: { status: "idle", message: "", error: null } };
+    this.state = { cast: { working: [], message: "", error: null }, rooms: { status: "idle", message: "", error: null, preview: false } };
     await this.save();
     this.emit();
   }
@@ -302,7 +302,7 @@ export class LiveService {
     const signal = this.controller.signal;
     this.roomsJob = (canPreview(project) ? (previewOwnsPlan(project) ? this.buildRooms(project, fp, signal) : this.markStale(fp, signal)) : this.follow(fp))
       .catch((e: unknown) => {
-        this.state.rooms = { status: "idle", message: "", error: e instanceof Error ? e.message : String(e) };
+        this.state.rooms = { status: "idle", message: "", error: e instanceof Error ? e.message : String(e), preview: false };
       })
       .finally(() => {
         this.roomsJob = null;
@@ -318,7 +318,7 @@ export class LiveService {
 
   private async buildRooms(snapshot: ProjectSpec, fp: string, signal: AbortSignal): Promise<void> {
     const epoch = this.store.epoch();
-    this.state.rooms = { status: "building", message: `building rooms for ${snapshot.progression.regions.length} region(s)…`, error: null };
+    this.state.rooms = { status: "building", message: `building rooms for ${snapshot.progression.regions.length} region(s)…`, error: null, preview: false };
     this.emit();
     const outcome = await this.preview(snapshot);
     if (signal.aborted) return;
@@ -334,13 +334,13 @@ export class LiveService {
     if (!saved.ok) throw new Error(`the rooms could not be saved: ${saved.error.message}`);
     if (saved.revision === null) {
       // The progression moved on (or someone took over) meanwhile: the next tick follows.
-      this.state.rooms = { status: "idle", message: "", error: null };
+      this.state.rooms = { status: "idle", message: "", error: null, preview: false };
       return;
     }
     this.persisted.progression = fp;
     await this.save();
     const problems = outcome.issues.length ? `; ${outcome.issues.length} issue(s): ${outcome.issues.slice(0, 3).map((i) => i.message).join("; ")}` : "";
-    this.state.rooms = { status: "idle", message: `${outcome.summary} (a preview: no model, no art)`, error: problems ? problems.slice(2) : null };
+    this.state.rooms = { status: "idle", message: `${outcome.summary} (a preview: no model, no art)`, error: problems ? problems.slice(2) : null, preview: true };
   }
 
   private async markStale(fp: string, signal: AbortSignal): Promise<void> {
@@ -359,6 +359,7 @@ export class LiveService {
       status: "idle",
       message: saved.revision !== null ? "the progression changed: the Architect's stages are marked stale (rebuild from the Architect tab)" : "the progression changed; the plan is yours, so the rooms aren't rebuilt automatically",
       error: null,
+      preview: false,
     };
   }
 

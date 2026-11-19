@@ -407,7 +407,7 @@ export function RoomsPanel({ project, session, ui, setUi, locked, live, onOpenSc
   return (
     <section className="rooms-panel" data-testid="rooms-panel">
       <Section id="rooms:list" title="Rooms" top note={project.world.rooms.length}>
-        {live && <RoomsLive live={live} />}
+        {live && <RoomsLive live={live} project={project} />}
         <WorldMap project={project} selected={room?.id ?? null} onSelect={select} />
         <RoomList project={project} selected={room?.id ?? null} onSelect={select} />
         <div className="list-actions">

@@ -17,6 +17,7 @@ import {
   seedPlan,
   verifyStage,
   weaponsFromPages,
+  weaponUse,
   wikiGaps,
   type ArchitectPlan,
   type RoomContent,
@@ -188,7 +189,16 @@ describe("the Architect's weapon grants", () => {
     const gate = start.props.find((p) => p.id.startsWith("gate_"))!;
     expect(gate.solid).toEqual({ type: "not", of: { type: "weapon", weapon: "thorn_whip" } });
     expect(effectsIn(built)).toContainEqual({ type: "giveWeapon", weapon: "ember_blade", slot: null });
-    expect(built.world.modals.find((m) => m.id === "got_ember_blade")).toMatchObject({ title: "You got Ember Blade", body: "Ember Blade." });
+    // It says how to use it: the control of the loadout slot it lands in (the first empty one).
+    expect(built.world.modals.find((m) => m.id === "got_ember_blade")).toMatchObject({ title: "You got Ember Blade", body: "Ember Blade.\n\nUse it with Attack (X/J/Left click), toward where you aim." });
+    const sidearm = ProjectSpec.parse({
+      ...built,
+      weapons: { ...built.weapons, loadout: { slots: [{ id: "main", label: "Main", action: "attack", start: "thorn_whip" }, { id: "alt", label: "Alt", action: "alt_attack", start: null }], cycle: false } },
+    });
+    expect(weaponUse(sidearm, "ember_blade")).toBe("Use it with Alt attack (V/N/Right click), toward where you aim.");
+    const full = ProjectSpec.parse({ ...sidearm, weapons: { ...sidearm.weapons, loadout: { slots: [sidearm.weapons.loadout.slots[0]!], cycle: true } } });
+    expect(weaponUse(full, "ember_blade")).toBe("Switch to it with Switch weapon (Q/I).");
+    expect(weaponUse({ ...full, weapons: { ...full.weapons, loadout: { ...full.weapons.loadout, cycle: false } } }, "ember_blade")).toBeNull();
     // Weapons are not items.
     expect(built.world.items.map((i) => i.id)).not.toContain("thorn_whip");
   });

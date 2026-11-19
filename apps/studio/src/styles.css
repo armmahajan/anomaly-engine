@@ -53,6 +53,13 @@ button:disabled {
   cursor: default;
 }
 
+/* Locked fields (a playtest, an AI turn): textareas and selects read as locked like inputs do. */
+textarea:disabled,
+select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .viewport {
   position: relative;
   background: #000;

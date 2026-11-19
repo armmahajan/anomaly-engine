@@ -22,4 +22,4 @@ export { populationStage, doorRect, allOf, anyOf } from "./populate.ts";
 export { screensStage } from "./screens.ts";
 export { lintLegibility, silentGrants, skippableGuardians } from "./lint.ts";
 export { roomSpots, type RoomSpots, type Spot, type PickOptions } from "./spots.ts";
-export { messageModalId, messageModal, grantEffect, safeId } from "./grants.ts";
+export { messageModalId, messageModal, grantEffect, safeId, weaponUse } from "./grants.ts";

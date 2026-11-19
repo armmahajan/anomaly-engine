@@ -32,7 +32,7 @@ export function ArchitectMain(props: ArchitectProps) {
 export function ArchitectSidebar({ project, architect, session, locked, live, art }: ArchitectProps & { live?: LiveState; art?: ArtState }) {
   return (
     <>
-      {live && <RoomsLive live={live} />}
+      {live && <RoomsLive live={live} project={project} />}
       <RunPanel project={project} architect={architect} session={session} locked={locked} art={art} />
     </>
   );

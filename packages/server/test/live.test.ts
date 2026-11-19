@@ -313,7 +313,7 @@ describe("the live rooms", () => {
     expect(p.architect.stages.plan).toBeUndefined();
     expect(p.world.start?.room).toBe("gate_1");
     expect(p.world.playtest?.room).toBe("arena"); // the creator's playtest spot stays
-    expect(live.getState().rooms).toMatchObject({ status: "idle", error: null, message: expect.stringContaining("built 5 of 5 room(s)") });
+    expect(live.getState().rooms).toMatchObject({ status: "idle", error: null, message: expect.stringContaining("built 5 of 5 room(s)"), preview: true });
     expect(server.store.getHistory().at(-1)).toMatchObject({ author: "ai", summary: expect.stringContaining("architect preview") });
 
     await ok(op("updateRegion", { regionId: "city", changes: { rooms: 1 } }));
@@ -336,6 +336,7 @@ describe("the live rooms", () => {
     expect(p.architect.stages.geometry?.status).toBe("stale");
     expect(regionRooms(p)).toHaveLength(5);
     expect(live.getState().rooms.message).toContain("marked stale");
+    expect(live.getState().rooms.preview).toBe(false);
   });
 
   it("never touches a pinned room: pinning one stops the rebuilds", async () => {
