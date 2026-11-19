@@ -12,6 +12,7 @@ import {
   type Part,
   type ProjectSpec,
   type Rig,
+  rigFingerprint,
 } from "../src/index.ts";
 
 function ok(result: OperationResult): ProjectSpec {
@@ -75,6 +76,18 @@ describe("bone editor operations", () => {
     // A full turn back restores it (to rounding).
     const back = ok(applyOperation(after, "rotateBoneRest", { assetId: "beetle", bone: "head", degrees: -90 }));
     points(part(back, "horn")).forEach((q, i) => close(q, points(part(before, "horn"))[i]!));
+  });
+
+  it("rotateBoneRest without carry re-aims the bone: only the joints under it swing round, the drawing and grips stay", () => {
+    const before = beetle();
+    const after = ok(applyOperation(before, "rotateBoneRest", { assetId: "beetle", bone: "head", degrees: 90, carry: false }));
+    const [px, py] = bone(before, "head").pivot;
+    const turn = ([x, y]: readonly number[]) => [px - (y! - py), py + (x! - px)];
+    expect(bone(after, "head").pivot).toEqual([px, py]);
+    close(bone(after, "horn").pivot, turn(bone(before, "horn").pivot));
+    expect(bone(after, "body")).toEqual(bone(before, "body"));
+    expect(rigOf(after).parts).toEqual(rigOf(before).parts);
+    expect(rigOf(after).grips).toEqual(rigOf(before).grips);
   });
 
   it("scaleBone scales the bone's own parts about its pivot and moves child bones along the line to them", () => {
@@ -216,5 +229,72 @@ describe("bone editor operations", () => {
     ]));
     expect(batch.revision).toBe(before.revision + 1);
     expect(part(batch, "eye").bone).toBe("jaw");
+  });
+});
+
+describe("swapBones: two limbs labelled the wrong way round", () => {
+  const blob = (id: string, bone: string, z: number, x: number): Part => ({
+    id,
+    bone,
+    z,
+    shape: { type: "blob", points: [[x, -40], [x + 6, -40], [x + 6, -20], [x, -20]], smooth: 0, sharp: [] },
+    fill: "#888888",
+    ink: 1,
+    glow: false,
+    opacity: 1,
+  });
+  // The arm drawn in front (x 10) was planned as the far one, the one behind (x -10) as the near one.
+  const mislabelled: Rig = {
+    bones: [
+      { id: "root", parent: null, pivot: [0, 0] },
+      { id: "torso", parent: "root", pivot: [0, -30] },
+      { id: "near_upper", parent: "torso", pivot: [-10, -40] },
+      { id: "near_lower", parent: "near_upper", pivot: [-10, -30] },
+      { id: "far_upper", parent: "torso", pivot: [10, -40] },
+      { id: "far_lower", parent: "far_upper", pivot: [10, -30] },
+    ],
+    parts: [
+      blob("torso", "torso", 4, -5),
+      blob("near_upper", "near_upper", 7, -10),
+      blob("near_lower", "near_lower", 8, -10),
+      blob("far_upper", "far_upper", 1, 10),
+      { ...blob("far_lower", "far_lower", 2, 10), bendTo: "far_upper" },
+    ],
+  };
+  const swing = { duration: 1, loop: true, tracks: [{ bone: "near_upper", property: "rotate", keys: [[0, 0], [0.5, 30], [1, 0]] }] };
+
+  it("trades the chains' names and draw order; nothing moves; the clips stay current and drive the limb now named for them", () => {
+    let p = ok(applyOperation(createDefaultProject(), "createAsset", { asset: { id: "hero", name: "Hero", kind: "character", brief: "a hero" }, assignTo: "player" }));
+    p = ok(applyOperation(p, "setRig", { assetId: "hero", rig: mislabelled }));
+    p = ok(applyOperation(p, "setClip", { assetId: "hero", clipId: "walk", clip: swing }));
+    const heroOf = (q: ProjectSpec) => q.art.assets.find((a) => a.id === "hero") as CharacterAsset;
+    const after = ok(applyOperation(p, "swapBones", { assetId: "hero", a: "near_upper", b: "far_upper" }));
+    const rig = heroOf(after).rig!;
+    const pivot = (id: string) => rig.bones.find((b) => b.id === id)!.pivot;
+    expect(pivot("near_upper")).toEqual([10, -40]);
+    expect(pivot("near_lower")).toEqual([10, -30]);
+    expect(pivot("far_upper")).toEqual([-10, -40]);
+    expect(rig.bones.find((b) => b.id === "near_lower")!.parent).toBe("near_upper");
+    const at = (id: string) => rig.parts.find((x) => x.id === id)!;
+    // Each part keeps its drawing; the one in front is now the near one, drawn in front.
+    expect(at("near_upper").shape).toEqual(mislabelled.parts[3]!.shape);
+    expect([at("near_upper").bone, at("near_upper").z]).toEqual(["near_upper", 7]);
+    expect([at("near_lower").bone, at("near_lower").z, at("near_lower").bendTo]).toEqual(["near_lower", 8, "near_upper"]);
+    expect([at("far_upper").bone, at("far_upper").z]).toEqual(["far_upper", 1]);
+    expect(at("far_upper").shape).toEqual(mislabelled.parts[1]!.shape);
+    expect(at("torso")).toEqual(mislabelled.parts[0]);
+    expect(heroOf(after).clipsFor).toBe(rigFingerprint(rig));
+    expect(heroOf(after).clips.walk!.tracks[0]!.bone).toBe("near_upper");
+    // Swapping back restores the rig exactly.
+    const back = ok(applyOperation(after, "swapBones", { assetId: "hero", a: "near_upper", b: "far_upper" }));
+    expect(heroOf(back).rig).toEqual(heroOf(p).rig);
+  });
+
+  it("refuses the same bone or two bones on one chain", () => {
+    let p = ok(applyOperation(createDefaultProject(), "createAsset", { asset: { id: "hero", name: "Hero", kind: "character", brief: "a hero" }, assignTo: "player" }));
+    p = ok(applyOperation(p, "setRig", { assetId: "hero", rig: mislabelled }));
+    expect(applyOperation(p, "swapBones", { assetId: "hero", a: "near_upper", b: "near_upper" })).toMatchObject({ ok: false });
+    const chain = applyOperation(p, "swapBones", { assetId: "hero", a: "near_upper", b: "near_lower" });
+    expect(chain.ok ? "" : chain.error.message).toMatch(/same chain/);
   });
 });

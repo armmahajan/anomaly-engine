@@ -97,7 +97,7 @@ export interface ToolSpec {
 export const PIPELINE_ONLY_OPERATIONS = ["createAsset", "addConcept", "chooseConcept", "setRig", "setBiomeKit", "addRoom", "setRoomComposition"] as const;
 
 /** The bone editor's hands-on rig edits: the creator's tool in the studio, not the build assistant's (it rebuilds rigs with art jobs). */
-export const STUDIO_ONLY_OPERATIONS = ["moveBonePivot", "rotateBoneRest", "scaleBone", "reassignPart", "addBone", "removeBone"] as const;
+export const STUDIO_ONLY_OPERATIONS = ["moveBonePivot", "rotateBoneRest", "scaleBone", "reassignPart", "swapBones", "addBone", "removeBone"] as const;
 
 /** The build assistant's write tools: every operation except the wiki's and progression's (the director's), the Architect's plan ones, pipeline-only art ones and studio-only ones. */
 type BuildOperation = Exclude<

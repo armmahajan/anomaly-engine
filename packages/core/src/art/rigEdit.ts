@@ -5,7 +5,7 @@ import type { ProjectSpec } from "../schema.ts";
 import { commit, fail, issuesOf, known, parse, type Fail } from "../world/opHelpers.ts";
 import { CharacterAsset } from "./asset.ts";
 import type { Clip } from "./clip.ts";
-import { Grip, MAX_BONES, MAX_GRIPS, Point, Rig, type Part, type Shape } from "./rig.ts";
+import { Grip, MAX_BONES, MAX_GRIPS, Point, Rig, rigFingerprint, type Part, type Shape } from "./rig.ts";
 
 /**
  * Bone editor operations (the creator fixing a rig by hand before animating). Each edits one
@@ -36,13 +36,14 @@ import { Grip, MAX_BONES, MAX_GRIPS, Point, Rig, type Part, type Shape } from ".
 const AssetBone = { assetId: Id, bone: Id };
 
 export const MoveBonePivotInput = z.strictObject({ ...AssetBone, pivot: Point, carry: z.boolean().default(true) });
-export const RotateBoneRestInput = z.strictObject({ ...AssetBone, degrees: z.number().min(-180).max(180) });
+export const RotateBoneRestInput = z.strictObject({ ...AssetBone, degrees: z.number().min(-180).max(180), carry: z.boolean().default(true) });
 export const ScaleBoneInput = z.strictObject({ ...AssetBone, factor: z.number().min(0.25).max(4) });
 export const ReassignPartInput = z.strictObject({ assetId: Id, part: Id, bone: Id });
 export const AddBoneInput = z.strictObject({ assetId: Id, bone: z.strictObject({ id: Id, parent: Id, pivot: Point }) });
 export const RemoveBoneInput = z.strictObject(AssetBone);
 export const SetGripInput = z.strictObject({ assetId: Id, grip: Grip });
 export const RemoveGripInput = z.strictObject({ assetId: Id, gripId: Id });
+export const SwapBonesInput = z.strictObject({ assetId: Id, a: Id, b: Id });
 
 // --- geometry ---------------------------------------------------------------
 
@@ -202,16 +203,23 @@ export function moveBonePivot(project: ProjectSpec, input: unknown): OperationRe
   return save(project, found, moveBones(rig, subtree, translate(pivot[0] - from[0], pivot[1] - from[1])));
 }
 
-/** Turn a bone's resting angle: its drawing and everything under it rotate about its pivot. */
+/**
+ * Turn a bone's resting angle about its pivot. With carry (default) its drawing and everything under
+ * it turn too; without, only the joints under it swing round (the bone is re-aimed, the drawing stays).
+ */
 export function rotateBoneRest(project: ProjectSpec, input: unknown): OperationResult {
   const p = parse(RotateBoneRestInput, input, "rotateBoneRest");
   if (!p.ok) return p;
-  const { assetId, bone, degrees } = p.data;
+  const { assetId, bone, degrees, carry } = p.data;
   const found = findRig(project, assetId);
   if (!found.ok) return found;
   const missing = findBone(found, bone);
   if (missing) return missing;
   const subtree = boneSubtree(found.rig, bone);
+  if (!carry) {
+    const turn = rotate(found.rig.bones.find((b) => b.id === bone)!.pivot, degrees);
+    return save(project, found, { ...found.rig, bones: found.rig.bones.map((b) => (b.id !== bone && subtree.has(b.id) ? { ...b, pivot: turn.point(b.pivot) } : b)) });
+  }
   const images = imagesIn(found.rig, subtree, "Rotating the bone");
   if (images) return images;
   const pivot = found.rig.bones.find((b) => b.id === bone)!.pivot;
@@ -272,6 +280,73 @@ export function reassignPart(project: ProjectSpec, input: unknown): OperationRes
     return x.clipTo === partId ? onBone(x, moved.bone, moved.bendTo) : x;
   });
   return save(project, found, { ...rig, parts });
+}
+
+/**
+ * Pair two bones and, down their chains, their children in order (while both have the same number of
+ * children): a near/far upper arm with its forearm and hand, say.
+ */
+export function bonePairs(rig: Rig, a: string, b: string): [string, string][] {
+  const children = (id: string) => rig.bones.filter((x) => x.parent === id).map((x) => x.id);
+  const pairs: [string, string][] = [[a, b]];
+  for (let i = 0; i < pairs.length; i++) {
+    const [x, y] = pairs[i]!;
+    const cx = children(x);
+    const cy = children(y);
+    if (cx.length === cy.length) cx.forEach((c, j) => pairs.push([c, cy[j]!]));
+  }
+  return pairs;
+}
+
+/**
+ * Two limbs labelled the wrong way round (the near arm planned as the far one): the bones of the two
+ * chains (bonePairs) trade names, and their parts trade draw order, so each name now belongs to the
+ * limb it says. Nothing moves: joints, drawings and textures stay where they are. A part named after
+ * its bone takes the new name too. Clips keep their bone names, so a clip's near arm drives the arm
+ * that is now near; clips written for the rig stay current.
+ */
+export function swapBones(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(SwapBonesInput, input, "swapBones");
+  if (!p.ok) return p;
+  const { assetId, a, b } = p.data;
+  const found = findRig(project, assetId);
+  if (!found.ok) return found;
+  const missing = findBone(found, a) ?? findBone(found, b);
+  if (missing) return missing;
+  const { rig } = found;
+  if (a === b) return fail("invalid_input", "pick two different bones to swap");
+  if (boneSubtree(rig, a).has(b) || boneSubtree(rig, b).has(a)) return fail("invalid_input", `"${a}" and "${b}" are on the same chain: swap two separate limbs`);
+  const swap = new Map<string, string>();
+  for (const [x, y] of bonePairs(rig, a, b)) swap.set(x, y).set(y, x);
+  const rename = (id: string) => swap.get(id) ?? id;
+  // Draw order: each bone's parts take the other bone's place in the stack (its parts' lowest z), keeping their own spacing.
+  const lowest = new Map<string, number>();
+  for (const part of rig.parts) if (swap.has(part.bone)) lowest.set(part.bone, Math.min(lowest.get(part.bone) ?? Infinity, part.z));
+  const partIds = new Map<string, string>();
+  for (const part of rig.parts) if (swap.has(part.id) && part.id === part.bone && rig.parts.some((q) => q.id === swap.get(part.id) && q.bone === q.id)) partIds.set(part.id, swap.get(part.id)!);
+  const parts = rig.parts.map((part) => {
+    const other = swap.get(part.bone);
+    const z = other !== undefined && lowest.has(other) ? Math.max(-100, Math.min(100, part.z - lowest.get(part.bone)! + lowest.get(other)!)) : part.z;
+    return {
+      ...part,
+      id: partIds.get(part.id) ?? part.id,
+      bone: rename(part.bone),
+      ...(part.bendTo !== undefined && { bendTo: rename(part.bendTo) }),
+      ...(part.clipTo !== undefined && { clipTo: partIds.get(part.clipTo) ?? part.clipTo }),
+      z,
+    };
+  });
+  const swapped: Rig = {
+    ...rig,
+    bones: rig.bones.map((bone) => ({ ...bone, id: rename(bone.id), parent: bone.parent === null ? null : rename(bone.parent) })),
+    parts,
+    ...(rig.grips && { grips: rig.grips.map((g) => ({ ...g, bone: rename(g.bone) })) }),
+  };
+  const result = save(project, found, swapped);
+  if (!result.ok || found.asset.clipsFor !== rigFingerprint(rig)) return result;
+  // The clips were current and still are (they name bones by what they are): keep them current.
+  const assets = result.project.art.assets.map((x, i) => (i === found.index ? { ...x, clipsFor: rigFingerprint(swapped) } : x));
+  return { ...result, project: { ...result.project, art: { ...result.project.art, assets } } };
 }
 
 /** Add a bone under `parent`. */
@@ -344,4 +419,4 @@ export function removeGrip(project: ProjectSpec, input: unknown): OperationResul
   return save(project, found, left.length > 0 ? { ...rest, grips: left } : rest);
 }
 
-export const rigEditOperations = { moveBonePivot, rotateBoneRest, scaleBone, reassignPart, addBone, removeBone, setGrip, removeGrip };
+export const rigEditOperations = { moveBonePivot, rotateBoneRest, scaleBone, reassignPart, swapBones, addBone, removeBone, setGrip, removeGrip };

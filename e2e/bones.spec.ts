@@ -80,3 +80,43 @@ test("the bone editor: drag a joint (its drawing follows), turn a bone, pose tes
   expect((await bones(page)).find((b) => b.id === "jaw")?.parent).toBe("head");
   expect(consoleErrors).toEqual([]);
 });
+
+test("the bone editor: Swap trades two limbs' names and draw order without moving anything; turning without carry leaves the drawing", async ({ page }) => {
+  const consoleErrors = collectConsoleErrors(page);
+  await openStudio(page);
+  await rigTheCharger(page, false);
+  await page.getByTestId("character-charger").click();
+  await page.getByRole("tab", { name: "Characters" }).click();
+  await page.getByRole("button", { name: /② Rig/ }).click();
+  await page.getByLabel("Edit bones").check();
+  const editor = page.getByTestId("bone-editor");
+  const parts = async () =>
+    ((await page.evaluate(() => window.studio!.getProject())).art.assets.find((a) => a.id === "beetle") as { rig: { parts: { id: string; bone: string; z: number; shape: unknown }[] } }).rig.parts;
+
+  // Swap the front leg with the back one: the names trade places, the joints and drawings stay put.
+  const front = await pivot(page, "leg_front");
+  const back = await pivot(page, "leg_back");
+  const partsBefore = await parts(page);
+  await editor.getByTestId("bone-leg_front").click();
+  await editor.getByLabel("swap with bone").selectOption("leg_back");
+  let before = await projectRevision(page);
+  await editor.getByRole("button", { name: "Swap", exact: true }).click();
+  await expect.poll(() => projectRevision(page)).toBe(before + 1);
+  expect(await pivot(page, "leg_front")).toEqual(back);
+  expect(await pivot(page, "leg_back")).toEqual(front);
+  const shapes = (list: { shape: unknown }[]) => list.map((p) => JSON.stringify(p.shape)).sort();
+  expect(shapes(await parts(page))).toEqual(shapes(partsBefore));
+  await page.getByRole("button", { name: "↶ Undo" }).click();
+  await expect.poll(() => pivot(page, "leg_front")).toEqual(front);
+
+  // Without "Carry the drawing", the turn handle re-aims the bone: the horn's joint swings, the drawing stays.
+  await editor.getByLabel("Carry the drawing").uncheck();
+  await editor.getByTestId("bone-head").click();
+  const horn = await pivot(page, "horn");
+  before = await projectRevision(page);
+  await drag(page, page.getByTestId("bone-overlay").getByTestId("turn-handle"), 0, 30);
+  await expect.poll(() => projectRevision(page)).toBe(before + 1);
+  expect(await pivot(page, "horn")).not.toEqual(horn);
+  expect(await parts(page)).toEqual(partsBefore);
+  expect(consoleErrors).toEqual([]);
+});

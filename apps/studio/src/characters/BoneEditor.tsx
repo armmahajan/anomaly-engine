@@ -43,6 +43,13 @@ export function BoneEditor({ asset, direction, session, locked, pose, setPose }:
   const bone = rig.bones.find((b) => b.id === selected) ?? rig.bones[0]!;
   const cutout = rig.parts.some((p) => p.shape.type === "image");
   const movesImages = cutout && rig.parts.some((p) => boneSubtree(rig, bone.id).has(p.bone) && p.shape.type === "image");
+  // Turning without carrying only swings joints, so cutout pieces don't stop it.
+  const turnBlocked = movesImages && carry && !cutout;
+  // Bones the selected one can trade places with (another limb, not on its chain); the near/far twin first.
+  const swappable = rig.bones.filter((b) => b.parent !== null && bone.parent !== null && !boneSubtree(rig, bone.id).has(b.id) && !boneSubtree(rig, b.id).has(bone.id));
+  const twin = bone.id.replace(/near|far/, (w) => (w === "near" ? "far" : "near"));
+  const [swapWith, setSwapWith] = useState("");
+  const swapTarget = swappable.some((b) => b.id === swapWith) ? swapWith : (swappable.find((b) => b.id === twin) ?? swappable[0])?.id ?? "";
 
   useEffect(() => {
     if (!rig.bones.some((b) => b.id === selected)) setSelected(rig.bones[0]!.id);
@@ -56,7 +63,7 @@ export function BoneEditor({ asset, direction, session, locked, pose, setPose }:
   const id = asset.id;
   const ops = {
     movePivot: (b: string, pivot: Vec, withCarry = carry) => run("moveBonePivot", { assetId: id, bone: b, pivot: round(pivot), carry: withCarry && !cutout }),
-    turn: (b: string, degrees: number) => Math.abs(degrees) >= 0.5 && run("rotateBoneRest", { assetId: id, bone: b, degrees: Math.round(degrees * 10) / 10 }),
+    turn: (b: string, degrees: number) => Math.abs(degrees) >= 0.5 && run("rotateBoneRest", { assetId: id, bone: b, degrees: Math.round(degrees * 10) / 10, carry: carry && !cutout }),
     setGrip: (grip: Grip) => run("setGrip", { assetId: id, grip: { ...grip, at: round(grip.at) } }),
   };
 
@@ -94,8 +101,8 @@ export function BoneEditor({ asset, direction, session, locked, pose, setPose }:
   return (
     <div className="bone-editor" data-testid="bone-editor">
       <p className="hint">
-        Drag a joint on the stage to move it{cutout ? "" : carry ? " (its drawing comes along)" : " (the drawing stays: only the turning point moves)"}; drag the round handle to turn the bone's resting angle; drag a grip ◆ to
-        place it. Undo takes any edit back.
+        Drag a joint on the stage to move it{cutout ? "" : carry ? " (its drawing comes along)" : " (the drawing stays: only the turning point moves)"}; drag the blue
+        round handle to turn the bone{carry && !cutout ? " and its drawing" : " (the drawing stays: only the joints under it swing round)"}; drag a grip ◆ to place it. Undo takes any edit back.
       </p>
       <div className="bone-row">
         <label title={cutout ? "Cutout parts show the design at its place, so only the turning point moves" : "Move the bone's drawing and the bones under it with the joint"}>
@@ -139,11 +146,11 @@ export function BoneEditor({ asset, direction, session, locked, pose, setPose }:
         </label>
       </div>
       <div className="bone-row">
-        <label title="Turn the bone's resting angle (its drawing and the bones under it), clockwise">
+        <label title="Turn the bone's resting angle, clockwise: with Carry the drawing, its drawing and the bones under it; without, only the joints under it">
           Turn
-          <Num label="turn degrees" value={turn} min={-180} max={180} disabled={locked || movesImages} onCommit={setTurn} />°
+          <Num label="turn degrees" value={turn} min={-180} max={180} disabled={locked || turnBlocked} onCommit={setTurn} />°
         </label>
-        <button type="button" disabled={locked || movesImages} onClick={() => void ops.turn(bone.id, turn)}>
+        <button type="button" disabled={locked || turnBlocked} onClick={() => void ops.turn(bone.id, turn)}>
           Turn
         </button>
         <label title="Make the limb longer or shorter: its drawing scales about the joint, the bones under it move along">
@@ -155,6 +162,23 @@ export function BoneEditor({ asset, direction, session, locked, pose, setPose }:
         </button>
       </div>
       {movesImages && <p className="hint">Cutout pieces show the design at their place: move joints (without carrying), reassign parts and add or remove bones instead.</p>}
+      {swappable.length > 0 && (
+        <div className="bone-row">
+          <label title="For two limbs labelled the wrong way round (the near one planned as the far one): the two chains trade names and draw order; nothing moves">
+            Swap with
+            <select aria-label="swap with bone" value={swapTarget} disabled={locked} onChange={(e) => setSwapWith(e.target.value)}>
+              {swappable.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" disabled={locked || !swapTarget} onClick={() => void run("swapBones", { assetId: id, a: bone.id, b: swapTarget })}>
+            Swap
+          </button>
+        </div>
+      )}
 
       <h4>
         Parts on {bone.id} <span className="muted">{partsOn.length}</span>
@@ -223,7 +247,7 @@ export function BoneEditor({ asset, direction, session, locked, pose, setPose }:
         </button>
       </div>
 
-      <BoneOverlay rig={rig} direction={direction} selected={bone.id} onSelect={setSelected} locked={locked} pose={pose} setPose={setPose} carry={carry && !cutout} canTurn={!movesImages} ops={ops} />
+      <BoneOverlay rig={rig} direction={direction} selected={bone.id} onSelect={setSelected} locked={locked} pose={pose} setPose={setPose} carry={carry && !cutout} canTurn={!turnBlocked} ops={ops} />
     </div>
   );
 }
