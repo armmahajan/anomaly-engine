@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { OperationResult } from "../operations.ts";
 import type { ProjectSpec } from "../schema.ts";
 import { commit, fail, parse } from "../world/opHelpers.ts";
-import { actionLabel, ControlAction, controlConflicts, DEFAULT_BINDINGS, KeyName, keyLabel, MAX_KEYS_PER_ACTION, type ControlActionId, type ControlBindings } from "./controls.ts";
+import { actionLabel, AimMode, ControlAction, controlConflicts, DEFAULT_BINDINGS, KeyName, keyLabel, MAX_KEYS_PER_ACTION, type ControlActionId, type ControlBindings } from "./controls.ts";
 
 /** Controls operations: the game's own keys per action (players can still override them in their browser). */
 
@@ -12,7 +12,11 @@ export const SetControlKeysInput = z.strictObject({
     .array(KeyName)
     .min(1)
     .max(MAX_KEYS_PER_ACTION)
-    .describe("The action's keys, replacing its current ones: letters A-Z, digits 0-9, Space, Enter, Shift, Ctrl, Alt, Tab, Up, Down, Left, Right, Comma, Period, Slash, ..."),
+    .describe("The action's keys, replacing its current ones: letters A-Z, digits 0-9, Space, Enter, Shift, Ctrl, Alt, Tab, Up, Down, Left, Right, Comma, Period, Slash, ...; mouse buttons MouseLeft, MouseRight, MouseMiddle"),
+});
+
+export const SetAimModeInput = z.strictObject({
+  aim: AimMode.describe("mouse: attacks go toward the cursor, any direction (the aim keys still aim when the mouse isn't used); keys: only the aim keys aim (up, forward, down)."),
 });
 
 export const ResetControlsInput = z.strictObject({
@@ -48,5 +52,12 @@ export function resetControls(project: ProjectSpec, input: unknown): OperationRe
   return withBindings(project, { ...project.controls.bindings, [action]: [...DEFAULT_BINDINGS[action]] }, [action]);
 }
 
-export const controlOperations = { setControlKeys, resetControls };
+/** How the player aims attacks: toward the mouse cursor (the aim keys still work), or with the aim keys only. */
+export function setAimMode(project: ProjectSpec, input: unknown): OperationResult {
+  const p = parse(SetAimModeInput, input, "setAimMode");
+  if (!p.ok) return p;
+  return commit({ ...project, controls: { ...project.controls, aim: p.data.aim } });
+}
+
+export const controlOperations = { setControlKeys, resetControls, setAimMode };
 export const CONTROL_OPERATION_NAMES = Object.keys(controlOperations) as (keyof typeof controlOperations)[];

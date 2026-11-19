@@ -169,7 +169,7 @@ Operations (all in `packages/core/src/operations.ts`):
 | `setDoor` / `removeDoor` / `connectDoors` | Door openings and their links (right <-> left, bottom <-> top) |
 | `addRoomSpawn` / `moveRoomSpawn` / `removeRoomSpawn` | Enemies in rooms (spawns have stable ids like `charger_1`) |
 | `setWorldStart` / `setPlaytest` / `setGameRules` / `setLedgeThickness` | Where the game begins, what ▶ Play tests (room, spot, abilities), death/saving/hazard rules, ledge thickness |
-| `setControlKeys` / `resetControls` | The game's keys for one action (`{"action":"jump","keys":["L","Space"]}`); reset one action (`{action}`) or all (`{}`). See *Controls* |
+| `setControlKeys` / `resetControls` / `setAimMode` | The game's keys for one action (`{"action":"jump","keys":["L","Space"]}`); reset one action (`{action}`) or all (`{}`); how attacks aim (`{"aim":"mouse"}` or `"keys"`). See *Controls* |
 
 `POST /api/batch` applies several operations atomically, as one revision and
 one undo step; if any step fails nothing changes and the error names the step:
@@ -545,28 +545,36 @@ The game's keys are data: `project.controls.bindings`, one to four keys per acti
 no migration): move A/← and D/→, jump Space/Z, attack X/J, aim up W/↑, aim down S/↓, dash C/Shift/K,
 interact W/↑, map M/Tab. Keys are named by position (`A`–`Z`, `0`–`9`, `Space`, `Enter`, `Shift`,
 `Ctrl`, `Alt`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Comma`, `Period`, `Slash`, …; Escape is never
-bindable). Two actions read at the same time can't share a key (the schema and the operations refuse
+bindable); mouse buttons bind like keys (`MouseLeft`, `MouseRight`, `MouseMiddle`, shown "Left click"
+…; attack also has the left button, alt attack the right). `project.controls.aim` is `mouse` (attacks
+go toward the cursor; the aim keys still work) or `keys` (aim keys only). Two actions read at the same time can't share a key (the schema and the operations refuse
 it, naming the other action), except pairs that share on purpose (aim up and interact).
 Actions are one list (`CONTROL_ACTIONS`): a new one (e.g. an alternate attack) is one entry there
 plus the runtime code that reads it; older projects get its default keys.
 
-- **Operations:** `setControlKeys {action, keys}` (replaces that action's keys) and
-  `resetControls {action?}`, ordinary undoable edits (the build assistant has them too).
-- **Studio:** Game ▸ **Controls** lists every action with its keys: **Change** then press a key,
-  **+ Key** for another, × removes one, **Reset** per action or **Reset all to defaults**; a refused key
-  says why in the page. Below it, the studio's own shortcuts (undo, chat Enter / Shift+Enter, tabs,
-  lists…). Playtests use the game's keys; the inspector's ability hint and the Map setting show them.
+- **Operations:** `setControlKeys {action, keys}` (replaces that action's keys),
+  `resetControls {action?}` and `setAimMode {aim}`, ordinary undoable edits (the build assistant has
+  them too).
+- **Studio:** Game ▸ **Controls** lists every action with its keys: **Change** then press a key (or
+  click the waiting row's "click here" with a mouse button; no browser menu there), **+ Key** for
+  another, × removes one, **Reset** per action or **Reset all to defaults**; a refused key says why in
+  the page. A key held by an action the page hides (the loadout doesn't use it) moves over in the same
+  undo step. **Aim**: Mouse or Keys only. Below it, the studio's own shortcuts (undo, chat Enter /
+  Shift+Enter, tabs, lists…). Playtests use the game's keys (right click over the game opens no
+  browser menu); the inspector's ability hint and the Map setting show them.
 - **Runtime:** `main.gd` registers the actions with no keys and builds the keyboard part of Godot's
   InputMap from `project.controls` on every `load`, with the player's overrides on top (protocol
   `{type: "controls", overrides}`, accepted any time, kept across loads); other events (gamepad) are
   left alone. Menus also take Godot's ui keys (arrows, Enter, Space). The `state` message reports the
   keys in effect (`controls`).
 - **Players (exported games):** **?** ▸ **Change keys** lists the actions the game uses: Change /
-  + Key / Reset each, or **Reset to the game's defaults**. Their keys are kept in the browser
-  (localStorage `anomaly-controls:<name>`, beside the save), sent to the runtime before the game
-  loads and on every change, and the controls card shows them.
+  + Key / Reset each (a mouse button: click the waiting row's "click here"), or **Reset to the game's
+  defaults**. Their keys are kept in the browser (localStorage `anomaly-controls:<name>`, beside the
+  save), sent to the runtime before the game loads and on every change, and the controls card shows
+  them. The page shows no browser menu on right click over the game.
 - Tests: `packages/core/test/controls.test.ts`, `packages/core/test/gameExport.test.ts`,
-  `e2e/controls.spec.ts` (rebind jump on the page, playtest: the new key jumps, Space doesn't).
+  `e2e/controls.spec.ts` (rebind jump on the page, playtest: the new key jumps, Space doesn't; right
+  click binds attack; aim mode), `e2e/export.spec.ts` (a player binds attack to the right button).
 
 ## Props and items
 

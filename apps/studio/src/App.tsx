@@ -313,7 +313,8 @@ export function App({ session }: { session: Session }) {
 
       {/* The game stays mounted (and sized) in every mode so it never reboots; modes only move it. */}
       <main className={`viewport${documentTab ? " offstage" : ""}`} aria-hidden={documentTab}>
-        <iframe ref={frameRef} src="/game/index.html" title="Game" className="game-frame" />
+        {/* No browser menu on right click over the game: right click can be a game action (alt attack). */}
+        <iframe ref={frameRef} src="/game/index.html" title="Game" className="game-frame" onLoad={(e) => e.currentTarget.contentDocument?.addEventListener("contextmenu", noMenu)} />
         {tab === "playtest" && !playing && state.runtimeStatus === "ready" && (
           <div className="edit-badge" data-testid="edit-badge">
             Editing <b>{testRoom?.name ?? "the playtest room"}</b> · ▶ Play to try it
@@ -502,6 +503,8 @@ export function App({ session }: { session: Session }) {
     </div>
   );
 }
+
+const noMenu = (e: Event) => e.preventDefault();
 
 function statusText(status: string, mode: string): string {
   if (status === "booting") return "Loading game…";

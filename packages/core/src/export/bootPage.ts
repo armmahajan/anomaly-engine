@@ -53,6 +53,7 @@ button:focus-visible { outline: 2px solid #8fb3ff; outline-offset: 2px; }
 .key-row .key-keys { font-weight: 600; white-space: nowrap; text-align: right; }
 .key-row.changed .key-keys::after { content: " •"; color: #8fb3ff; }
 .key-row.listening .key-keys { color: #ffd479; }
+.key-capture { cursor: pointer; user-select: none; padding: 0 6px; border: 1px dashed #ffd479; border-radius: 4px; }
 .key-row button { padding: 2px 8px; font-size: 13px; }
 .key-row button:disabled { opacity: 0.4; cursor: default; }
 #keys-message { min-height: 1.4em; margin: 8px 0 0; color: #ffd479; }
@@ -74,7 +75,7 @@ body:not([data-status="playing"]) #help { display: none; }
 </div>
 <div id="keys-view" hidden>
 <h2>Change keys</h2>
-<p class="note">Change, then press the key you want (Escape cancels). Saved in this browser; • = changed.</p>
+<p class="note">Change, then press the key you want, or click “click here” with the mouse button you want (Escape cancels). Saved in this browser; • = changed.</p>
 <div id="key-list" role="list"></div>
 <p id="keys-message" role="status" aria-live="polite"></p>
 <div class="actions"><button type="button" id="reset-keys">Reset to the game's defaults</button><button type="button" id="keys-done">Done</button></div>
@@ -199,8 +200,9 @@ body:not([data-status="playing"]) #help { display: none; }
       var name = document.createElement("span");
       name.textContent = a.label;
       var current = document.createElement("span");
-      current.className = "key-keys";
-      current.textContent = waiting ? "press a key…" : keysText(bound(a.id));
+      current.className = "key-keys" + (waiting ? " key-capture" : "");
+      current.textContent = waiting ? "press a key or click here…" : keysText(bound(a.id));
+      if (waiting) current.title = "Press a key, or click here with the mouse button you want";
       row.appendChild(name);
       row.appendChild(current);
       [["replace", "Change", "Change " + a.label], ["add", "+ Key", "Add a key to " + a.label]].forEach(function (b) {
@@ -274,6 +276,29 @@ body:not([data-status="playing"]) #help { display: none; }
       event.stopPropagation();
     }
   }, true);
+  // Mouse buttons: a press on the waiting row's "click here" binds that button. The spot only exists
+  // once Change was clicked, so the click that started waiting is never the one bound.
+  function onCapture(target) { return listening && target && target.closest && target.closest(".key-capture"); }
+  window.addEventListener("mousedown", function (event) {
+    if (!onCapture(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    menuUntil = Date.now() + 1000; // this press's own context menu (the spot is gone by then)
+    var key = keys.browserButtons[String(event.button)];
+    if (!key) return message("That mouse button can't be used. Press another (Escape cancels).");
+    var said = bind(key);
+    listening = null;
+    renderKeys();
+    message(said);
+  }, true);
+  // No browser menu on right click over the game (right click can be a game action), nor for a
+  // captured button; the panel's text keeps it. The runtime's own page gets the same once it loads.
+  var menuUntil = 0;
+  function noMenu(event) { event.preventDefault(); }
+  window.addEventListener("contextmenu", function (event) {
+    var inPanel = event.target && event.target.closest && event.target.closest("#controls");
+    if (!inPanel || onCapture(event.target) || Date.now() < menuUntil) event.preventDefault();
+  });
 
   function hasSave() {
     try { return localStorage.getItem(data.saveKey) !== null; } catch (e) { return false; }
@@ -397,6 +422,9 @@ body:not([data-status="playing"]) #help { display: none; }
     frame.title = data.title;
     frame.allow = "autoplay; fullscreen; gamepad";
     frame.src = "runtime/index.html";
+    frame.addEventListener("load", function () {
+      try { frame.contentDocument.addEventListener("contextmenu", noMenu); } catch (e) {}
+    });
     document.getElementById("stage").appendChild(frame);
   }, function (e) { fail("This game could not load (" + e.message + ")."); });
 })();

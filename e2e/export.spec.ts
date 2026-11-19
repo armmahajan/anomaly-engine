@@ -60,8 +60,44 @@ async function serveStatic(root: string): Promise<{ server: Server; origin: stri
 
 const gameState = (page: Page) => page.evaluate(() => (window as unknown as { game: { state(): Promise<unknown> } }).game.state()) as Promise<Snapshot>;
 
+/**
+ * ? ▸ Change keys ▸ Change Attack ▸ right click on its row: the player's attack is the right button
+ * (kept in this browser under `storageKey`), with no browser menu there or over the game.
+ */
+async function rebindAttackToRightClick(page: Page, storageKey: string) {
+  const panel = page.getByRole("complementary", { name: "Controls" });
+  await expect(panel.locator("#help-list")).toContainText("X/J/Left click, toward the mouse");
+  // The card may still be up from the start (it hides itself after a few seconds); ? opens it.
+  await expect(async () => {
+    if (await panel.isHidden()) await page.getByRole("button", { name: "Controls" }).click();
+    await panel.getByRole("button", { name: "Change keys" }).click({ timeout: 1000 });
+  }).toPass();
+  await panel.getByRole("button", { name: "Change Attack" }).click();
+  const attack = panel.getByRole("listitem", { name: "Attack" });
+  await expect(attack.locator(".key-capture")).toHaveText("press a key or click here…");
+  const menus = await page.evaluate(() => {
+    const w = window as unknown as { menusShown: number };
+    w.menusShown = 0;
+    window.addEventListener("contextmenu", (e) => void (e.defaultPrevented || w.menusShown++));
+    // Over the page around the game, and inside the runtime's own page.
+    const stage = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+    document.getElementById("stage")!.dispatchEvent(stage);
+    const inner = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+    document.querySelector<HTMLIFrameElement>("#stage iframe")!.contentDocument!.body.dispatchEvent(inner);
+    return [stage.defaultPrevented, inner.defaultPrevented];
+  });
+  expect(menus).toEqual([true, true]);
+  await attack.locator(".key-capture").click({ button: "right" });
+  await expect(page.locator("#keys-message")).toHaveText("Attack: Right click");
+  await expect(attack.locator(".key-keys")).toHaveText("Right click");
+  expect(await page.evaluate(() => (window as unknown as { menusShown: number }).menusShown)).toBe(0);
+  expect(JSON.parse((await page.evaluate((key) => localStorage.getItem(key), storageKey)) ?? "{}")).toEqual({ attack: ["MouseRight"] });
+  await panel.getByRole("button", { name: "Done" }).click();
+  await expect(panel).toBeHidden();
+}
+
 /** Open the exported game at `url`: it boots on its title in the start room; Enter starts it. Only its own files are requested. */
-async function playExport(page: Page, url: string, origin: string, title: string, saveKey: string) {
+async function playExport(page: Page, url: string, origin: string, title: string, saveKey: string, changeKeys?: string) {
   const foreign: string[] = [];
   const errors: string[] = [];
   page.on("request", (r) => {
@@ -81,6 +117,7 @@ async function playExport(page: Page, url: string, origin: string, title: string
   await expect.poll(async () => (await gameState(page)).modal).toBeNull();
   // The game's rules save the run in this browser, under the game's own key.
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key) !== null, saveKey)).toBe(true);
+  if (changeKeys) await rebindAttackToRightClick(page, changeKeys);
   expect(foreign).toEqual([]);
   expect(errors).toEqual([]);
 }
@@ -125,14 +162,15 @@ test("Export game: the example exports as a standalone web game that plays from 
   expect(names).toContain("index.html");
   expect(names).toContain("runtime/index.wasm");
   expect(names.filter((n) => !/^(index\.html|game\.json|README\.txt|runtime\/index\.[a-z.-]+|files\/[0-9a-f]+\.(png|jpg|webp))$/.test(n))).toEqual([]);
-  const data = JSON.parse(await readFile(join(root, "game.json"), "utf8")) as { saveKey: string };
+  const data = JSON.parse(await readFile(join(root, "game.json"), "utf8")) as { saveKey: string; controls: { storageKey: string } };
 
   const { server, origin } = await serveStatic(root);
   try {
     for (const path of ["/", "/games/ours/"]) {
       const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
       try {
-        await playExport(await context.newPage(), origin + path, origin, name, data.saveKey);
+        // At the root, the player also binds attack to the right mouse button.
+        await playExport(await context.newPage(), origin + path, origin, name, data.saveKey, path === "/" ? data.controls.storageKey : undefined);
       } finally {
         await context.close();
       }

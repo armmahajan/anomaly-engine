@@ -71,6 +71,20 @@ describe("game export plan", () => {
     expect(controls.actions.find((a) => a.id === "jump")).toEqual({ id: "jump", label: "Jump", keys: ["Space", "Z"], context: "play", shares: [] });
     expect(controls.storageKey).toBe("anomaly-controls:descent-the-return");
     expect(controls.browserCodes).toMatchObject({ KeyK: "K", Space: "Space", ArrowLeft: "Left", ShiftRight: "Shift" });
+    // Mouse buttons: what a click on the page binds, how it is shown, and the attack line's mouse wording.
+    expect(controls.browserButtons).toEqual({ 0: "MouseLeft", 1: "MouseMiddle", 2: "MouseRight" });
+    expect(controls.keyLabels).toMatchObject({ MouseLeft: "Left click", MouseRight: "Right click", MouseMiddle: "Middle click" });
+    expect(controls.help.find((c) => c.action.startsWith("attack"))?.keys).toBe("X/J/Left click, toward the mouse (or hold W/↑ or S/↓ to aim)");
+  });
+
+  it("lets players bind mouse buttons, and keeps the browser menu off the game", () => {
+    const { page } = plan();
+    const script = page.slice(page.indexOf("<script>") + 8, page.indexOf("</script>"));
+    expect(script).toContain('window.addEventListener("mousedown"');
+    expect(script).toContain("keys.browserButtons[String(event.button)]");
+    expect(script).toContain('window.addEventListener("contextmenu"');
+    expect(script).toContain('frame.contentDocument.addEventListener("contextmenu", noMenu)');
+    expect(page).toContain("press a key or click here…");
   });
 
   it("exports the game's own keys, and the page fills in the player's", () => {
