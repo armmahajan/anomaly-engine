@@ -132,12 +132,18 @@ describe("studio token", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/?x=1");
     const setCookie = res.headers.get("set-cookie")!;
-    expect(setCookie).toContain(`anomaly_token=${TOKEN}`);
+    // Named for this port: a second studio on the same machine keeps its own and doesn't sign this one out.
+    const port = new URL(base).port;
+    expect(setCookie).toContain(`anomaly_token_${port}=${TOKEN}`);
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Strict");
 
     const cookie = setCookie.split(";")[0]!;
     expect((await fetch(`${base}/api/project`, { headers: { cookie } })).status).toBe(200);
+    // Another studio's cookie beside it changes nothing; the old shared name still works.
+    expect((await fetch(`${base}/api/project`, { headers: { cookie: `anomaly_token_1=other; ${cookie}` } })).status).toBe(200);
+    expect((await fetch(`${base}/api/project`, { headers: { cookie: `anomaly_token=${TOKEN}` } })).status).toBe(200);
+    expect((await fetch(`${base}/api/project`, { headers: { cookie: `anomaly_token_${port}=other` } })).status).toBe(401);
   });
 
   it("ignores a wrong ?token= and leaves non-API requests alone", async () => {

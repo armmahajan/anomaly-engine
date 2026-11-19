@@ -48,10 +48,21 @@ function cookie(req: IncomingMessage, name: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The cookie this studio keeps its token in. Cookies are per host, not per port, so two studios on one
+ * machine (5173 and a second one) sharing a name would sign each other out: each port has its own.
+ */
+export function tokenCookieName(req: IncomingMessage): string {
+  const port = /:(\d+)$/.exec(req.headers.host ?? "")?.[1];
+  return port ? `${TOKEN_COOKIE}_${port}` : TOKEN_COOKIE;
+}
+
 export function isAuthorized(req: IncomingMessage, token: string): boolean {
   const header = req.headers[TOKEN_HEADER];
-  const offered = (Array.isArray(header) ? header[0] : header) ?? cookie(req, TOKEN_COOKIE);
-  return offered !== undefined && safeEqual(offered, token);
+  const fromHeader = Array.isArray(header) ? header[0] : header;
+  if (fromHeader !== undefined) return safeEqual(fromHeader, token);
+  // This port's cookie, else the old shared one (set before cookies were per port).
+  return [cookie(req, tokenCookieName(req)), cookie(req, TOKEN_COOKIE)].some((offered) => offered !== undefined && safeEqual(offered, token));
 }
 
 export function createAuthMiddleware(token: string): Middleware {
@@ -64,7 +75,7 @@ export function createAuthMiddleware(token: string): Middleware {
     if (!isApi && req.method === "GET" && offered !== null && safeEqual(offered, token)) {
       url.searchParams.delete("token");
       res.statusCode = 302;
-      res.setHeader("set-cookie", `${TOKEN_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`);
+      res.setHeader("set-cookie", `${tokenCookieName(req)}=${token}; HttpOnly; SameSite=Strict; Path=/`);
       res.setHeader("location", url.pathname + url.search);
       res.end();
       return;
