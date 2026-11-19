@@ -50,6 +50,11 @@ export class RuntimeBridge {
     };
   }
 
+  /** Whether a runtime frame is attached (messages can be sent). */
+  get attached(): boolean {
+    return Boolean(this.frame?.contentWindow);
+  }
+
   send(message: StudioToRuntime): boolean {
     const target = this.frame?.contentWindow;
     if (!target) {

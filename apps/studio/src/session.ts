@@ -530,5 +530,6 @@ export class Session {
   };
 
   /** Edit mode: show a modal of the loaded project over the game (null = close it). */
-  previewModal = (modalId: string | null): boolean => this.bridge.send({ type: "previewModal", modalId });
+  // Clearing a preview with no runtime attached (a tab closing while the frame reloads) has nothing to clear: not a problem.
+  previewModal = (modalId: string | null): boolean => (modalId === null && !this.bridge.attached ? true : this.bridge.send({ type: "previewModal", modalId }));
 }
