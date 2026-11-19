@@ -40,6 +40,9 @@ var _trail: Array = []
 var _sparks: Array = []
 ## The grip frame, global: origin at the hand, x axis along the held weapon.
 var _hold := Transform2D.IDENTITY
+## The turn toward a mouse aim (radians, wielder space), and whether the rig turns the arm for it.
+var _aim_turn := 0.0
+var _rig_turns := false
 
 const SPARK_SECONDS := 0.28
 const SPARK_RAYS := 7
@@ -111,6 +114,24 @@ func grip_global() -> Vector2:
 	return _hold.origin
 
 
+## The way the held weapon points, global (a unit vector along the grip's x axis).
+func pointing_global() -> Vector2:
+	return _hold.x.normalized()
+
+
+## Turn toward a mouse aim (radians, wielder space: + turns down): the rig turns the arm holding the
+## weapon (rig_view.gd set_aim_turn), so the hand carries the weapon round; a rig without an arm for
+## its grip, or no rig, turns the weapon itself about the hand.
+func set_aim_turn(radians: float) -> void:
+	if is_equal_approx(radians, _aim_turn):
+		return
+	_aim_turn = radians
+	_rig_turns = false
+	if _rig != null and is_instance_valid(_rig) and _rig.has_method("set_aim_turn"):
+		_rig_turns = _rig.set_aim_turn("hand", radians)
+	_follow()
+
+
 ## Render service: the clock (trail and spark ages) at `seconds`.
 func at_time(seconds: float) -> void:
 	_clock = seconds
@@ -155,17 +176,24 @@ func _process(delta: float) -> void:
 func _follow() -> void:
 	if _weapon.is_empty():
 		return
+	var turn := 0.0 if _rig_turns else _aim_turn
 	if _rig != null and is_instance_valid(_rig) and _rig.has_method("grip_transform"):
 		var grip = _rig.grip_transform("hand")
-		_hold = _rig.get_global_transform() * (grip if grip != null else _rig.front_transform())
+		var held: Transform2D = grip if grip != null else _rig.front_transform()
+		if turn != 0.0:
+			# About the hand, in the rig's (facing right) space.
+			held = Transform2D(held.x.rotated(turn), held.y.rotated(turn), held.origin)
+		_hold = _rig.get_global_transform() * held
 	else:
 		# A coloured box: in front of it at chest height, facing the way it faces.
 		var parent := get_parent() as Node2D
 		var size := Vector2(24, 40)
 		if parent != null and "_size" in parent and typeof(parent.get("_size")) == TYPE_VECTOR2:
 			size = parent.get("_size")
+		if parent != null and parent.has_method("facing_sign"):
+			_facing = -1.0 if parent.facing_sign() < 0.0 else 1.0
 		var base := parent.get_global_transform() if parent != null else Transform2D.IDENTITY
-		_hold = base * Transform2D(0.0, Vector2(_facing, 1.0), 0.0, Vector2(_facing * size.x * 0.35, -size.y * 0.55))
+		_hold = base * Transform2D(0.0, Vector2(_facing, 1.0), 0.0, Vector2(_facing * size.x * 0.35, -size.y * 0.55)) * Transform2D(turn, Vector2.ZERO)
 	if _phase == "active":
 		_trail.append([_hold * _tip_local(), _clock])
 	queue_redraw()

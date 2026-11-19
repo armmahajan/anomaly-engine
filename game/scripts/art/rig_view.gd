@@ -52,6 +52,11 @@ var _found := {}
 var _grips := {}
 ## The rest pose's bounds (parts), for holding a weapon in front of a rig without a grip.
 var _rest_bounds := Rect2(-12, -40, 24, 40)
+## Grip id -> the bone at the top of the arm holding it ("" = none: a grip on the body or the root).
+var _shoulders := {}
+## A turn toward a mouse aim added to a shoulder's rotation on every pose (radians; "" = none).
+var _turn_bone := ""
+var _turn := 0.0
 
 ## Emitted after every pose is evaluated (the weapon view follows the grip with no frame of lag).
 signal posed
@@ -67,6 +72,7 @@ func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
 	_build_bones(rig.get("bones", []))
 	_build_parts(rig.get("parts", []), ink_color, ink_width)
 	_build_grips(rig.get("grips", []))
+	_find_shoulders(rig.get("parts", []))
 	_rest_bounds = rest_bounds_of(rig)
 	# Images (a cutout's source, part textures) are drawn several times smaller than their pixels:
 	# sample their mipmaps (the shared textures have them) so edges don't shimmer as pieces turn.
@@ -434,6 +440,8 @@ func _evaluate() -> void:
 			var bone = motion.get("bone")
 			if channels.has(bone):
 				_apply_motion(channels[bone], motion, t, duration)
+	if _turn_bone != "" and channels.has(_turn_bone):
+		channels[_turn_bone][0] += rad_to_deg(_turn)
 	_hidden.clear()
 	if not _clip.is_empty():
 		for vis in _clip.get("visibility", []):
@@ -472,6 +480,69 @@ func _build_grips(raw: Variant) -> void:
 
 func has_grip(id := "hand") -> bool:
 	return _grips.has(id)
+
+
+## Turn the arm holding grip `id` by `radians` (rig space, + turns down) on top of every pose: the
+## shoulder (the top bone of the arm) carries the hand and so the held weapon round. False when the
+## grip has no arm (the weapon view turns the weapon instead); 0 clears it.
+func set_aim_turn(id: String, radians: float) -> bool:
+	var shoulder: String = _shoulders.get(id, "")
+	if shoulder == "":
+		_turn_bone = ""
+		_turn = 0.0
+		return false
+	_turn_bone = shoulder if radians != 0.0 else ""
+	_turn = radians
+	return true
+
+
+## The bone at the top of the arm holding each grip (art/src/weapons.ts armBones): from the grip's bone
+## up while the bones are arm bones (named, or carrying a part named, arm / hand / forearm / ...), never
+## the root; a grip on a bone not named as an arm turns the path's bone below the body.
+func _find_shoulders(parts: Variant) -> void:
+	_shoulders.clear()
+	var part_names := {}
+	if typeof(parts) == TYPE_ARRAY:
+		for p in parts:
+			if typeof(p) == TYPE_DICTIONARY and p.get("bone") != null:
+				part_names.get_or_add(str(p.bone), []).append(str(p.get("id", "")))
+	for id in _grips:
+		var path: Array = []
+		var at = _grips[id].bone
+		while at != null and _bones.has(at) and not path.has(at):
+			path.append(at)
+			at = _bones[at].parent
+		var limb := path.slice(0, path.size() - 1)
+		if _is_arm_bone(str(path[0]), part_names):
+			var n := 1
+			while n < limb.size() and _is_arm_bone(str(limb[n]), part_names):
+				n += 1
+			limb = limb.slice(0, n)
+		else:
+			limb = limb.slice(0, maxi(1, limb.size() - 1))
+		_shoulders[id] = str(limb.back()) if not limb.is_empty() else ""
+
+
+static var _arm_word: RegEx = RegEx.create_from_string("^((fore|upper|lower|up|low)?arms?|forearm[lr]?|arm[lr]|hands?|hand[lr]|wrists?|fists?|elbows?|palms?|claws?|paws?|grip)$")
+static var _not_arm_word: RegEx = RegEx.create_from_string("^(legs?|foot|feet|thighs?|shins?|knees?|tails?|wings?|ears?|hair|cloak|cape)$")
+
+
+static func _has_word(id: String, word: RegEx) -> bool:
+	for w in RegEx.create_from_string("[a-z]+").search_all(id.to_lower()):
+		if word.search(w.get_string()) != null:
+			return true
+	return false
+
+
+static func _is_arm_bone(id: String, part_names: Dictionary) -> bool:
+	if _has_word(id, _not_arm_word):
+		return false
+	if _has_word(id, _arm_word):
+		return true
+	for part in part_names.get(id, []):
+		if _has_word(part, _arm_word) and not _has_word(part, _not_arm_word):
+			return true
+	return false
 
 
 ## A grip on the current pose, in this view's space: the origin is where the hand closes and the

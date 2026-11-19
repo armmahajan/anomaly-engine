@@ -67,6 +67,13 @@ var _weapon_view: Node2D = null
 var _shown_weapon := ""
 ## The rig is posed by an attack's own clip (manual time) until the attack ends.
 var _clip_posed := false
+## How attacks aim (project controls.aim): "mouse" (toward the cursor, the aim keys winning while
+## held) or "keys" (only the aim keys: up, forward, down).
+var aim_mode := "mouse"
+## Where the cursor is (main.gd: mouse_world() -> room point, or null while the mouse isn't in use).
+var pointer = null
+## The way the built-in swing faces when it was aimed with the mouse (toward the cursor); 0 = as the player faces.
+var _slash_turn := 0.0
 
 const CharacterArt := preload("res://scripts/art/character_art.gd")
 const PlayCamera := preload("res://scripts/play_camera.gd")
@@ -199,6 +206,7 @@ func _physics_process(delta: float) -> void:
 		_slash_time -= delta
 		if _slash_time <= 0.0:
 			_slash = ""
+			_slash_turn = 0.0
 			queue_redraw()
 
 	var direction := Input.get_axis("move_left", "move_right")
@@ -246,7 +254,7 @@ func _physics_process(delta: float) -> void:
 				queue_redraw()
 		var lunge: float = arsenal.runner.lunge_now() if arsenal.busy() else 0.0
 		if lunge > 0.0:
-			_vx = _facing * lunge
+			_vx = facing_sign() * lunge
 		if _recoil > 0.0:
 			_vx = _recoil_direction * _recoil_speed
 		_jump(on_floor)
@@ -318,12 +326,16 @@ func set_preview_clip(clip: String) -> void:
 
 
 func _update_rig() -> void:
+	var attacking: bool = arsenal != null and arsenal.busy() and _preview_clip == ""
+	# The arm (or, without one, the held weapon) turns toward a mouse aim; set before posing.
+	if _weapon_view != null:
+		_weapon_view.set_aim_turn(_aim_turn() if attacking else 0.0)
 	if _rig == null:
 		return
-	_rig.scale.x = _facing
+	_rig.scale.x = facing_sign()
 	var blinking := _invulnerable > 0.0 and fmod(_invulnerable, 0.14) < 0.07
 	_rig.modulate = Color(1, 0.45, 0.45, 0.6) if blinking else Color.WHITE
-	if arsenal != null and arsenal.busy() and _preview_clip == "":
+	if attacking:
 		_clip_posed = arsenal.runner.pose_rig(_rig, CharacterArt.first_clip)
 		return
 	if _clip_posed:
@@ -490,8 +502,17 @@ func _shown_state():
 	return null
 
 
+## The built-in swing: up, down (in the air) or forward, by the aim keys; aimed with the mouse, by the
+## cursor's bucket (weapon_runner.gd aim_bucket), turned toward the cursor for the swing.
 func _start_slash() -> void:
-	if Input.is_action_pressed("aim_up"):
+	_slash_turn = 0.0
+	var aim := attack_aim()
+	if bool(aim.mouse):
+		var bucket := str(aim.name)
+		_slash = "up" if bucket == "up" else ("down" if bucket == "down" and not _on_floor else "forward")
+		var to: Vector2 = aim.vector
+		_slash_turn = signf(to.x) if absf(to.x) > 1e-6 else _facing
+	elif Input.is_action_pressed("aim_up"):
 		_slash = "up"
 	elif Input.is_action_pressed("aim_down") and not _on_floor:
 		_slash = "down"
@@ -511,7 +532,7 @@ func _strike() -> void:
 		if enemy.dead or enemy in _slash_hits or not area.intersects(enemy.rect()):
 			continue
 		_slash_hits.append(enemy)
-		var push := Vector2(_facing, 0.0)
+		var push := Vector2(facing_sign(), 0.0)
 		if _slash == "up":
 			push = Vector2.UP
 		elif _slash == "down":
@@ -522,7 +543,7 @@ func _strike() -> void:
 		if target in _slash_hits or not is_instance_valid(target) or not area.intersects(target.rect()):
 			continue
 		_slash_hits.append(target)
-		var push := Vector2(_facing, 0.0) if _slash == "forward" else (Vector2.UP if _slash == "up" else Vector2.DOWN)
+		var push := Vector2(facing_sign(), 0.0) if _slash == "forward" else (Vector2.UP if _slash == "up" else Vector2.DOWN)
 		if target.struck(_attack_damage, push):
 			landed = true
 	if not landed:
@@ -532,7 +553,7 @@ func _strike() -> void:
 			_vy = -_pogo_velocity
 		"forward":
 			_recoil = RECOIL_TIME
-			_recoil_direction = -_facing
+			_recoil_direction = -facing_sign()
 			_recoil_speed = RECOIL_SPEED
 	landed_hit.emit()
 
@@ -544,7 +565,7 @@ func slash_rect() -> Rect2:
 			return Rect2(position.x - wide / 2.0, position.y - _size.y - _attack_reach, wide, _attack_reach)
 		"down":
 			return Rect2(position.x - wide / 2.0, position.y, wide, _attack_reach)
-	var x := position.x + _size.x / 2.0 if _facing > 0.0 else position.x - _size.x / 2.0 - _attack_reach
+	var x := position.x + _size.x / 2.0 if facing_sign() > 0.0 else position.x - _size.x / 2.0 - _attack_reach
 	return Rect2(x, position.y - _size.y, _attack_reach, _size.y)
 
 
@@ -588,8 +609,42 @@ func size() -> Vector2:
 	return _size
 
 
+## The way the player faces: movement decides (`_facing`), except that an attack aimed with the
+## mouse turns it toward the aim for the attack's duration (then it faces the way it did).
 func facing_sign() -> float:
+	if arsenal != null and arsenal.busy() and arsenal.turn != 0.0:
+		return arsenal.turn
+	if _slash != "" and _slash_turn != 0.0:
+		return _slash_turn
 	return _facing
+
+
+## The aim attacks go toward: {name: "up" | "down" | "forward", vector: unit (room space, y down),
+## mouse: aimed with the mouse}. Held aim keys win; else, with controls.aim "mouse" and the mouse in
+## use over the game, toward the cursor (name = its bucket); else forward.
+func attack_aim() -> Dictionary:
+	if Input.is_action_pressed("aim_up"):
+		return {"name": "up", "vector": Vector2.UP, "mouse": false}
+	if Input.is_action_pressed("aim_down"):
+		return {"name": "down", "vector": Vector2.DOWN, "mouse": false}
+	if aim_mode == "mouse" and pointer != null and is_instance_valid(pointer):
+		var at = pointer.mouse_world()
+		if at != null:
+			var to: Vector2 = (at as Vector2) - center()
+			if to.length() > 0.5:
+				to = to.normalized()
+				return {"name": WeaponRunner.aim_bucket(to), "vector": to, "mouse": true}
+	return {"name": "forward", "vector": Vector2(facing_sign(), 0.0), "mouse": false}
+
+
+## The arm's turn toward a mouse aim for the attack being made (radians, wielder space): the aim's
+## difference from the way its clip is drawn aiming, blended over its phases. None with key aiming.
+func _aim_turn() -> float:
+	if aim_mode != "mouse" or not arsenal.busy():
+		return 0.0
+	var runner = arsenal.runner
+	var turn := wrapf(atan2(runner.aim.y, runner.aim.x) - WeaponRunner.authored_angle(runner.attack), -PI, PI)
+	return turn * runner.aim_weight()
 
 
 ## Everything a weapon attack of the player's can hit: enemies, then props and pogo shots.
@@ -629,7 +684,7 @@ func _weapon_recoil(attack: Dictionary, bounced: bool) -> void:
 	var aim: Vector2 = arsenal.runner.aim
 	if absf(aim.x) > 0.3:
 		_recoil = RECOIL_TIME
-		_recoil_direction = -signf(aim.x) * _facing
+		_recoil_direction = -signf(aim.x) * facing_sign()
 		_recoil_speed = speed * absf(aim.x)
 	if aim.y < -0.3:
 		_vy = maxf(_vy, speed * -aim.y)
@@ -676,7 +731,7 @@ func _draw() -> void:
 	if _pounding:
 		draw_line(Vector2(0, 4), Vector2(0, 18), Color.WHITE, 3.0)
 	if _rig == null:
-		draw_rect(Rect2(_facing * _size.x * 0.18 - 3.0, -_size.y * 0.8, 6.0, 6.0), Color.BLACK)
+		draw_rect(Rect2(facing_sign() * _size.x * 0.18 - 3.0, -_size.y * 0.8, 6.0, 6.0), Color.BLACK)
 	if _slash != "":
 		var area := slash_rect()
 		area.position -= position

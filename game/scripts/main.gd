@@ -50,6 +50,7 @@ var _on_message_ref: JavaScriptObject = null
 
 func _ready() -> void:
 	_register_actions()
+	get_window().mouse_exited.connect(_on_mouse_left)
 	_edit_camera = Camera2D.new()
 	add_child(_edit_camera)
 	_edit_camera.make_current()
@@ -225,6 +226,7 @@ func run_state() -> Dictionary:
 		"props": _props.state() if _props != null and is_instance_valid(_props) else [],
 		"camera": _camera_state(),
 		"controls": _controls_state(),
+		"aim": _aim_state(),
 	}
 
 
@@ -353,6 +355,8 @@ func _set_mode(mode: String) -> void:
 	_apply_preview_clips()
 	if _world != null:
 		_world.process_mode = Node.PROCESS_MODE_INHERIT if mode == "play" else Node.PROCESS_MODE_DISABLED
+	# Aiming with the mouse, the cursor is a crosshair while playing.
+	Input.set_default_cursor_shape(Input.CURSOR_CROSS if mode == "play" and aim_mode() == "mouse" else Input.CURSOR_ARROW)
 	if mode == "play" and _player != null:
 		_player.camera.make_current()
 		_player.camera.snap()
@@ -428,8 +432,13 @@ const NAMED_KEYS := {
 	"Delete": KEY_DELETE, "Home": KEY_HOME, "End": KEY_END, "PageUp": KEY_PAGEUP,
 	"PageDown": KEY_PAGEDOWN,
 }
+## Mouse buttons bind like keys (controls.ts MOUSE_BUTTONS).
+const MOUSE_BUTTONS := {"MouseLeft": MOUSE_BUTTON_LEFT, "MouseRight": MOUSE_BUTTON_RIGHT, "MouseMiddle": MOUSE_BUTTON_MIDDLE}
 ## The player's own keys (protocol "controls"): action -> key names, replacing the game's for that action.
 var _player_keys := {}
+## The cursor over the game (viewport px), once the mouse moved or clicked there; null while it isn't
+## in use (never moved yet, or it left the window). The player aims at it (controls.aim "mouse").
+var _mouse_at = null
 
 
 ## Every action exists from the start (with no keys until a project arrives), so reading one never fails.
@@ -462,7 +471,7 @@ func _bindings() -> Dictionary:
 	return out
 
 
-## Rebuild the keyboard part of the input map; other events (e.g. gamepad buttons) stay.
+## Rebuild the keyboard and mouse-button part of the input map; other events (e.g. gamepad buttons) stay.
 func _apply_controls() -> void:
 	var bindings := _bindings()
 	for action in bindings:
@@ -470,22 +479,65 @@ func _apply_controls() -> void:
 		if typeof(keys) != TYPE_ARRAY:
 			continue
 		var codes := []
+		var buttons := []
 		for key_name in keys:
 			var code := key_code(str(key_name))
+			var button := int(MOUSE_BUTTONS.get(str(key_name), MOUSE_BUTTON_NONE))
 			if code != KEY_NONE and not codes.has(code):
 				codes.append(code)
-		if codes.is_empty():
+			elif button != MOUSE_BUTTON_NONE and not buttons.has(button):
+				buttons.append(button)
+		if codes.is_empty() and buttons.is_empty():
 			continue  # nothing usable: keep what it has
 		if not InputMap.has_action(action):
 			InputMap.add_action(action)
 		for event in InputMap.action_get_events(action):
-			if event is InputEventKey:
+			if event is InputEventKey or event is InputEventMouseButton:
 				InputMap.action_erase_event(action, event)
 		for code in codes:
 			var event := InputEventKey.new()
 			event.physical_keycode = code
 			InputMap.action_add_event(action, event)
+		for button in buttons:
+			var event := InputEventMouseButton.new()
+			event.button_index = button
+			InputMap.action_add_event(action, event)
 		Input.action_release(action)  # a key held while it changed doesn't stay pressed
+
+
+## Track the cursor over the game (it aims attacks). Not consumed: menus and the rest still get it.
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion or (event is InputEventMouseButton and event.pressed):
+		_mouse_at = event.position
+
+
+## The cursor left the game: the keys aim until it comes back.
+func _on_mouse_left() -> void:
+	_mouse_at = null
+
+
+## The cursor in room space (through the current camera), or null while the mouse isn't in use.
+func mouse_world() -> Variant:
+	if _mouse_at == null:
+		return null
+	return get_viewport().get_canvas_transform().affine_inverse() * (_mouse_at as Vector2)
+
+
+## How the game aims attacks (project controls.aim): "mouse" (the default) or "keys".
+func aim_mode() -> String:
+	var controls = _project.get("controls")
+	if typeof(controls) == TYPE_DICTIONARY and str(controls.get("aim", "mouse")) == "keys":
+		return "keys"
+	return "mouse"
+
+
+## The player's aim (protocol state "aim"): a unit vector in room space and whether the mouse aims it.
+func _aim_state():
+	if _mode != "play" or _player == null or not is_instance_valid(_player):
+		return null
+	var aim: Dictionary = _player.attack_aim()
+	var v: Vector2 = aim.vector
+	return {"x": v.x, "y": v.y, "mouse": bool(aim.mouse)}
 
 
 ## Keys per action as the input map has them (protocol state "controls").
@@ -677,6 +729,8 @@ func _build_room(room: Dictionary, at: Vector2, carried: Node, abilities: Array)
 	for enemy in level.enemies:
 		enemy.player = player
 	player.arsenal.run = _run if _run.active else null
+	player.aim_mode = aim_mode()
+	player.pointer = self
 	_player = player
 	_hud.player = player
 	if _mode == "play":
