@@ -376,6 +376,14 @@ export interface WorldKitInput {
   feedback?: string;
 }
 
+/** A new biome's name (given, else from its theme) and the id it is made from (made unique against the assets). */
+export function newBiomeName(theme: string, given?: string): { name: string; slug: string } {
+  const fromTheme = theme.split(/[,.]/)[0]!.trim().slice(0, 60);
+  const name = given?.trim() || (fromTheme ? fromTheme[0]!.toUpperCase() + fromTheme.slice(1) : "Biome");
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^[^a-z]+|_+$/g, "").slice(0, 40) || "biome";
+  return { name, slug };
+}
+
 export async function worldKitStage(ctx: ArtContext, input: WorldKitInput): Promise<StageResult & { biomeId: string }> {
   const project = ctx.project();
   const operations: OperationCall[] = [];
@@ -386,10 +394,9 @@ export async function worldKitStage(ctx: ArtContext, input: WorldKitInput): Prom
   let biomeId: string;
   let name: string;
   if (!biome) {
-    const fromTheme = theme.split(/[,.]/)[0]!.trim().slice(0, 60);
-    name = input.name?.trim() || (fromTheme ? fromTheme[0]!.toUpperCase() + fromTheme.slice(1) : "Biome");
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^[^a-z]+|_+$/g, "").slice(0, 40) || "biome";
-    biomeId = uniqueId(slug, project.art.assets.map((a) => a.id));
+    const fresh = newBiomeName(theme, input.name);
+    name = fresh.name;
+    biomeId = uniqueId(fresh.slug, project.art.assets.map((a) => a.id));
     operations.push({ name: "createAsset", input: { asset: { id: biomeId, name, kind: "biome", brief: theme } } });
   } else {
     biomeId = biome.id;

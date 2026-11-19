@@ -86,9 +86,10 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
     return () => cancelAnimationFrame(frame);
   }, [ui.target]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const running = art.running;
-  const mine = running !== null && (running.biomeId === look?.id || (!running.biomeId && running.stage === "worldKit"));
-  // Another job (a character's art) doesn't block this one: it queues behind it.
+  // This look's running job: one on its biome, or a new biome being painted (it has no id yet).
+  const job = art.runningJobs.find((j) => (j.biomeId !== undefined && j.biomeId === look?.id) || (!j.biomeId && j.stage === "worldKit")) ?? null;
+  const mine = job !== null;
+  // Another job (a character's art) doesn't block this one: it runs alongside (or queues behind what it conflicts with).
   const disabled = locked || mine || !art.available;
   const lastJob =
     [...art.jobs].reverse().find((j) => j.biomeId !== undefined && j.biomeId === look?.id) ?? [...art.jobs].reverse().find((j) => j.stage === "worldKit" && !j.biomeId);
@@ -474,7 +475,7 @@ export function WorldPanel({ project, art, session, ui, setUi, selected, setSele
         </p>
       </Section>
       {!art.available && !creating && <p className="hint">Art generation is off, so painting and composing are unavailable (see Art generation).</p>}
-      <JobLog art={art} mine={mine} lastJob={lastJob} onCancel={() => void session.cancelArtJob()} onZoom={setZoom} subject={look?.id ?? ""} />
+      <JobLog art={art} job={job} lastJob={lastJob} onCancel={(id) => void session.cancelArtJob(id)} onZoom={setZoom} subject={look?.id ?? ""} />
       {zoom && <Zoom file={zoom} onClose={() => setZoom(null)} />}
     </section>
   );

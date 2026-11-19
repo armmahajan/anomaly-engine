@@ -20,8 +20,11 @@ export function LiveStatus({ project, art, live, session }: { project: ProjectSp
   const parts: string[] = [];
   if (live.cast.working.length) parts.push(live.cast.message || `making ${live.cast.working.map(name).join(", ")}`);
   if (live.rooms.status !== "idle") parts.push(live.rooms.message || "building rooms…");
-  const job = art.running && !art.running.underLock ? art.running : null;
-  if (job) parts.push(`drawing ${job.characterId ? name(job.characterId) : (job.biomeId ?? "a world")} (${job.stage})`);
+  const weapon = (id: string) => project.weapons.list.find((w) => w.id === id)?.name ?? id;
+  // Every background art job running (several run at once when they touch different things).
+  for (const job of art.runningJobs.filter((j) => !j.underLock)) {
+    parts.push(`drawing ${job.characterId ? name(job.characterId) : job.weaponId ? weapon(job.weaponId) : (job.biomeId ?? (job.stage === "worldKit" ? "a world" : job.stage))} (${job.stage}${job.waiting ? ", waiting" : ""})`);
+  }
   if (art.queued > 0) parts.push(`${art.queued} art job${art.queued > 1 ? "s" : ""} queued`);
   const busy = parts.length > 0;
   const on = live.settings.cast || live.settings.rooms;
@@ -83,7 +86,8 @@ export function LiveStatus({ project, art, live, session }: { project: ProjectSp
 /** A character's background work, for its row in the character list. */
 export function characterWork(id: string, art: ArtState, live: LiveState): string | null {
   if (live.cast.working.includes(id)) return "writing behavior";
-  if (art.running?.characterId === id) return `drawing · ${art.running.stage}${art.running.waiting ? " (waiting)" : ""}`;
+  const job = art.runningJobs.find((j) => j.characterId === id);
+  if (job) return `drawing · ${job.stage}${job.waiting ? " (waiting)" : ""}`;
   if (art.pending.some((p) => p.characterId === id)) return "art queued";
   return null;
 }

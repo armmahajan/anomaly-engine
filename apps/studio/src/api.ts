@@ -48,7 +48,8 @@ export const sendChat = (agent: AgentId, message: string, replace?: number) =>
   post<{ ok: true }>(`/api/chat?agent=${agent}`, replace === undefined ? { message } : { message, replace });
 export const cancelChat = (agent: AgentId) => post<{ ok: true }>(`/api/chat/cancel?agent=${agent}`, {});
 export const startArtJob = (request: ArtJobRequest) => post<{ ok: true; jobId: string }>("/api/art/jobs", request);
-export const cancelArtJob = () => post<{ ok: true }>("/api/art/cancel", {});
+/** Cancel one running art job, or (no id) every running job and the queue. */
+export const cancelArtJob = (jobId?: string) => post<{ ok: true }>("/api/art/cancel", jobId ? { jobId } : {});
 export const setLive = (settings: Partial<LiveSettings>) => post<{ ok: true; live: LiveState }>("/api/live", settings);
 export const startArchitect = (request: ArchitectRunRequest) => post<{ ok: true }>("/api/architect/run", request);
 export const cancelArchitect = () => post<{ ok: true }>("/api/architect/cancel", {});

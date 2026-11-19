@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { AgentId, ExportRequest, fail, type ErrorCode, type ServerEvent } from "@anomaly/core";
+import { AgentId, ArtCancelRequest, ExportRequest, fail, toIssues, type ErrorCode, type ServerEvent } from "@anomaly/core";
 import type { ArtService } from "./art/service.ts";
 import type { ArchitectService } from "./architect/service.ts";
 import type { LiveService } from "./live/service.ts";
@@ -150,8 +150,13 @@ async function route(
         return sendJson(res, 200, art.service.getState());
       case "POST /api/art/jobs":
         return respond(res, await withBody(req, (body) => art.service.start(body)));
-      case "POST /api/art/cancel":
-        return respond(res, art.service.cancel());
+      case "POST /api/art/cancel": {
+        // An empty body (older clients) cancels everything, like {}.
+        const body = await readJson(req);
+        const parsed = ArtCancelRequest.safeParse(body.ok ? body.value : {});
+        if (!parsed.success) return respond(res, fail("invalid_request", "malformed cancel request", toIssues(parsed.error)));
+        return respond(res, art.service.cancel(parsed.data.jobId));
+      }
     }
     if (req.method === "GET" && url.pathname.startsWith("/api/files/")) {
       return sendFile(res, art.files, url.pathname.slice("/api/files/".length));

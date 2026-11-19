@@ -52,7 +52,8 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
   const [editBones, setEditBones] = useState(false);
   const [pose, setPose] = useState<Record<string, number> | null>(null);
   const editing = editBones && step === "rig" && Boolean(asset?.rig);
-  const busy = art.running !== null && art.running.characterId === character.id;
+  const job = art.runningJobs.find((j) => j.characterId === character.id) ?? null;
+  const busy = job !== null;
 
   const clipIds = asset ? Object.keys(asset.clips) : [];
   const currentClip = step === "animation" ? (clip && asset?.clips[clip] ? clip : (clipIds[0] ?? null)) : step === "concepts" && asset?.clips.idle ? "idle" : null;
@@ -122,7 +123,7 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
   const sheetIndex = sheet ?? sheets.length - 1;
   const shown = sheets[sheetIndex];
   const start = (request: Parameters<Session["startArtJob"]>[0]) => void session.startArtJob(request);
-  // Another job (another character's art, a world) doesn't block this one: it queues behind it.
+  // Another job (another character's art, a world) doesn't block this one: it runs alongside (or queues behind what it conflicts with).
   const disabled = busy || !art.available;
 
   const steps: { id: Step; label: string; status: string; ready: boolean }[] = [
@@ -144,7 +145,7 @@ export function CharacterBench({ character, project, art, session, locked }: Pro
             <button
               key={s.id}
               type="button"
-              className={`${step === s.id ? "selected" : ""}${busy && JOB_STEPS[art.running!.stage] === s.id ? " working" : ""}`}
+              className={`${step === s.id ? "selected" : ""}${job && JOB_STEPS[job.stage] === s.id ? " working" : ""}`}
               disabled={!s.ready}
               aria-pressed={step === s.id}
               onClick={() => setStep(s.id)}
