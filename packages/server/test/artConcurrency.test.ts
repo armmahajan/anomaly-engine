@@ -136,6 +136,19 @@ describe("art jobs at once", () => {
     expect(job.summary).not.toContain("new concept sheet");
   });
 
+  it("a job queued only-if-undrawn still runs for a character that has concept sheets but no rig yet", async () => {
+    const { art } = await open();
+    await art.start({ stage: "concepts", characterId: "charger", brief: "a horned beetle" });
+    await art.drained();
+    art.enqueue([{ stage: "auto", characterId: "charger" }], { onlyIfUndrawn: true });
+    await art.drained();
+    expect(art.getState().jobs.map((j) => j.stage)).toEqual(["concepts", "auto"]);
+    // Rigged now: another such job is skipped.
+    art.enqueue([{ stage: "auto", characterId: "charger" }], { onlyIfUndrawn: true });
+    await art.drained();
+    expect(art.getState().jobs.map((j) => j.stage)).toEqual(["concepts", "auto"]);
+  });
+
   it("STUDIO_ART_CONCURRENCY=1 keeps one job at a time", async () => {
     const { art, image } = await open({ concurrency: 1 });
     image.hold();

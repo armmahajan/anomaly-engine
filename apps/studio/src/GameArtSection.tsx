@@ -84,6 +84,7 @@ export function GameArtSection({ project, session, art, locked }: { project: Pro
 const KIND_NAMES: Record<string, [string, string]> = {
   direction: ["art direction", "art direction"],
   character: ["character", "characters"],
+  object: ["object", "objects"],
   biome: ["biome kit", "biome kits"],
   room: ["room to dress", "rooms to dress"],
   props: ["prop set", "prop sets"],

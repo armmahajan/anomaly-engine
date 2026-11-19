@@ -366,7 +366,7 @@ export class ArtService {
     if (!parsed.data.characterId) return false;
     const character = project.characters.find((c) => c.id === parsed.data.characterId);
     const asset = project.art.assets.find((a) => a.id === character?.appearance);
-    return asset?.kind === "character" && asset.rig !== undefined;
+    return asset?.kind === "character" && asset.rig !== null;
   }
 
   /** Start every queued job that can run now, in queue order; a job never passes an earlier one it conflicts with. */
