@@ -40,6 +40,7 @@ import {
   type ArtContext,
   type ImageModel,
   type ImageRequest,
+  type CutoutPlan,
   type Pixels,
   type VisionModel,
   type VisionRequest,
@@ -94,6 +95,7 @@ const BUDGET = Number(flag("--budget") ?? 0.5);
 const wantedSubjects = flag("--subjects")?.split(",");
 const wantedArms = flag("--arms")?.split(",");
 const userProject = flag("--project") ?? "/home/armaan/anomaly/projects/default";
+const from = flag("--from");
 mkdirSync(join(out, "cache"), { recursive: true });
 mkdirSync(join(out, "files"), { recursive: true });
 
@@ -270,10 +272,19 @@ async function runArm(s: Subject, arm: Arm, base: { project: ProjectSpec }) {
   const h = context(base.project, join(dir, "log.txt"), () => `${s.id} ${arm.id}`);
   const subject = ref(s);
   const start = assetOf(h.project(), s);
+  let reuseClips: Record<string, Clip> | null = null;
   const design = await store.get(start.chosen!.original ?? start.chosen!.file);
   writeFileSync(join(dir, "concept.png"), design);
   if (arm.id === "cutout") h.commit((await buildRig(h.ctx, { ...subject, rigMode: "cutout" })).operations);
-  else if (arm.id === "layered") h.commit((await buildRig(h.ctx, { ...subject, rigMode: "layered" })).operations);
+  else if (arm.id === "layered") {
+    // --from <dir>: the plan (and clips) an earlier run settled on, built again without the critique.
+    const earlier = from ? join(from, s.id, arm.id) : null;
+    const plan = earlier && existsSync(join(earlier, "plan.json")) ? (JSON.parse(readFileSync(join(earlier, "plan.json"), "utf8")) as CutoutPlan) : undefined;
+    const built = await buildRig(h.ctx, { ...subject, rigMode: "layered", ...(plan ? { plan } : {}) });
+    if (built.plan) writeFileSync(join(dir, "plan.json"), JSON.stringify(built.plan, null, 1));
+    h.commit(built.operations);
+    if (earlier && plan) reuseClips = (JSON.parse(readFileSync(join(earlier, "rig.json"), "utf8")) as { clips: Record<string, Clip> }).clips;
+  }
   else {
     h.commit((await buildRig(h.ctx, { ...subject, rigMode: "vector", detail: false, redraw: false })).operations);
     const asset = assetOf(h.project(), s);
@@ -283,10 +294,14 @@ async function runArm(s: Subject, arm: Arm, base: { project: ProjectSpec }) {
   }
   const built = assetOf(h.project(), s);
   const rigSeconds = Math.round((Date.now() - t0) / 1000);
-  // The same clip requests on every arm.
-  for (const [name, direction] of Object.entries(s.clips)) {
-    h.commit((await animate(h.ctx, { ...subject, clips: [name], ...(direction ? { direction } : {}) })).operations);
-  }
+  // The same clip requests on every arm (or the earlier run's clips, on the same bones).
+  if (reuseClips) {
+    const id = assetOf(h.project(), s).id;
+    h.commit(Object.entries(reuseClips).map(([name, clip]) => ({ name: "setClip", input: { assetId: id, clipId: name, clip } })));
+  } else
+    for (const [name, direction] of Object.entries(s.clips)) {
+      h.commit((await animate(h.ctx, { ...subject, clips: [name], ...(direction ? { direction } : {}) })).operations);
+    }
   const asset = assetOf(h.project(), s);
   const rig = asset.rig!;
   const clips = Object.fromEntries(Object.keys(s.clips).filter((n) => asset.clips[n]).map((n) => [n, asset.clips[n]!])) as Record<string, Clip>;

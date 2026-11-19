@@ -520,13 +520,13 @@ export interface Atlas {
   scale: number;
 }
 
-const GUTTER = 3;
+const DEFAULT_GUTTER = 3;
 
 /**
  * Pack baked textures into one atlas no bigger than `max` px a side (shelf packing, tallest first),
  * shrinking them all alike until they fit; never enlarges. Gutters keep neighbours from bleeding.
  */
-export function packAtlas(bakes: PartBake[], max = 512): Atlas {
+export function packAtlas(bakes: PartBake[], max = 512, GUTTER = DEFAULT_GUTTER): Atlas {
   let scale = 1;
   for (let attempt = 0; attempt < 40; attempt++) {
     const sized = bakes.map((b, i) => ({ i, w: Math.max(1, Math.round(b.image.width * scale)), h: Math.max(1, Math.round(b.image.height * scale)) }));
