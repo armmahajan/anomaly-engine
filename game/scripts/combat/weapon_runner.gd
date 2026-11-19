@@ -39,6 +39,8 @@ var landed := false
 var bounced := false
 ## The wielder's weapon view (weapon_view.gd), told of phases and hits; may be null.
 var view: Node2D = null
+## Projectiles charging at their origin through the windup (look.appear "windup"), launched when it fires.
+var charging: Array = []
 
 
 static func frames(seconds: float) -> int:
@@ -91,6 +93,8 @@ func step(wielder) -> bool:
 		phase = now
 		if view != null:
 			view.set_phase(attack, phase, aim, wielder.facing_sign())
+	if now == "windup" and frame == 0 and str(attack.shape.type) == "projectile" and str(look_of(attack.shape.get("projectile", {})).appear) == "windup":
+		_charge(wielder)
 	if now == "active":
 		_active_frame(wielder, frame - windup)
 	frame += 1
@@ -152,22 +156,70 @@ static func pogo_down(attack_: Dictionary, aim_: Vector2) -> bool:
 func _fire(wielder, centre: Vector2, facing: float) -> void:
 	var p: Dictionary = attack.shape.get("projectile", {})
 	var speed := float(p.get("speed", 700.0))
-	for heading in fan_headings(p, aim):
-		var shot: Node2D = WeaponProjectile.new()
-		shot.position = centre
-		shot.velocity = Vector2(cos(heading) * facing, sin(heading)) * speed
-		shot.gravity = float(p.get("gravity", 0.0))
-		shot.life = float(p.get("lifetime", 1.2))
-		shot.radius = float(p.get("size", 12.0))
-		shot.pierce = int(p.get("pierce", 0))
-		shot.color = Color(str(p.get("color", "#ffffff")))
-		shot.texture = wielder.weapon_texture(p.get("sprite"))
-		shot.damage = int(attack.get("damage", 1))
-		shot.knockback = float(attack.get("knockback", 350.0))
-		shot.wielder = wielder
-		shot.runner = self
+	var look := look_of(p)
+	var at := centre + Vector2(look.origin.x * facing, look.origin.y)
+	var headings := fan_headings(p, aim)
+	for k in headings.size():
+		var heading: float = headings[k]
+		var v := Vector2(cos(heading) * facing, sin(heading)) * speed
+		var shot = charging[k] if k < charging.size() and is_instance_valid(charging[k]) else null
+		if shot != null:
+			shot.position = at
+			shot.launch(v)
+			continue
+		shot = _make_shot(wielder, p)
+		shot.position = at
+		shot.velocity = v
 		wielder.get_parent().add_child(shot)
+	charging = []
 	wielder.weapon_fired(attack)
+
+
+## The windup begins: one projectile per heading appears at its origin on the wielder, charging.
+func _charge(wielder) -> void:
+	var p: Dictionary = attack.shape.get("projectile", {})
+	for heading in fan_headings(p, aim):
+		var shot: Node2D = _make_shot(wielder, p)
+		shot.charging = true
+		wielder.get_parent().add_child(shot)
+		charging.append(shot)
+
+
+func _make_shot(wielder, p: Dictionary) -> Node2D:
+	var look := look_of(p)
+	var shot: Node2D = WeaponProjectile.new()
+	shot.gravity = float(p.get("gravity", 0.0))
+	shot.life = float(p.get("lifetime", 1.2))
+	shot.radius = float(p.get("size", 12.0))
+	shot.pierce = int(p.get("pierce", 0))
+	shot.color = Color(str(p.get("color", "#ffffff")))
+	shot.texture = wielder.weapon_texture(p.get("sprite"))
+	shot.damage = int(attack.get("damage", 1))
+	shot.knockback = float(attack.get("knockback", 350.0))
+	shot.wielder = wielder
+	shot.runner = self
+	shot.art = look.art
+	shot.look_origin = look.origin
+	return shot
+
+
+## The attack ended early (cancelled, its wielder left the state or died): shots still charging go.
+func drop() -> void:
+	for shot in charging:
+		if is_instance_valid(shot):
+			shot.queue_free()
+	charging = []
+
+
+## A projectile's look (core art/animation.ts ProjectileLook) with its defaults: {origin: Vector2,
+## appear: "fire" | "windup", art: {object, charge, fly, burst} or null}.
+static func look_of(p: Dictionary) -> Dictionary:
+	var look = p.get("look")
+	look = look if typeof(look) == TYPE_DICTIONARY else {}
+	var o = look.get("origin", [0, 0])
+	var origin := Vector2(float(o[0]), float(o[1])) if typeof(o) == TYPE_ARRAY and o.size() >= 2 else Vector2.ZERO
+	var art = look.get("art")
+	return {"origin": origin, "appear": str(look.get("appear", "fire")), "art": art if typeof(art) == TYPE_DICTIONARY else null}
 
 
 ## A projectile of this attack landed a hit (weapon_projectile.gd).

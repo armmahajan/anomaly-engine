@@ -2,11 +2,13 @@ extends Node2D
 ## Characters-mode stage: one character's rig, large and centred on a neutral
 ## backdrop, with clip/time/speed control, a bone overlay and an onion skin
 ## (the design image drawn behind the rig, aligned to it). Message: `stage`
-## with mode "character" (packages/core/src/protocol.ts).
+## with mode "character" (packages/core/src/protocol.ts). Mode "object" shows one
+## object asset (subject object) the same way, by `assetId`, without weapons.
 
 const CharacterArt := preload("res://scripts/art/character_art.gd")
 const WeaponView := preload("res://scripts/art/weapon_view.gd")
 const RenderService := preload("res://scripts/art/render_service.gd")
+const ObjectView := preload("res://scripts/art/object_view.gd")
 
 var _camera: Camera2D
 var _backdrop: ColorRect
@@ -68,18 +70,37 @@ void fragment() {
 	get_viewport().size_changed.connect(_fit)
 
 
-## Apply a `stage` message. Rebuilds the rig only when the character or project changed.
+## Apply a `stage` message. Rebuilds the rig only when the character (or object) or project changed.
 func apply(project: Dictionary, stage: Dictionary) -> String:
-	var character_id := str(stage.get("characterId", ""))
-	var character = null
-	for c in project.get("characters", []):
-		if c.get("id") == character_id:
-			character = c
-	if character == null:
-		return "no character '%s'" % character_id
 	var art: Dictionary = project.get("art", {})
-	var asset := CharacterArt.asset_for(character, art)
-	var key := "%s@%s" % [character_id, project.get("revision", 0)]
+	var asset := {}
+	var label := ""
+	var key := ""
+	if str(stage.get("mode", "character")) == "object":
+		var asset_id := str(stage.get("assetId", ""))
+		var found := false
+		for a in art.get("assets", []):
+			if typeof(a) == TYPE_DICTIONARY and a.get("id") == asset_id and a.get("kind") == "character":
+				found = true
+				label = str(a.get("name", asset_id))
+		if not found:
+			return "no object '%s'" % asset_id
+		asset = ObjectView.find_asset(art, asset_id)
+		key = "object:%s@%s" % [asset_id, project.get("revision", 0)]
+		stage = stage.duplicate()
+		stage.erase("weapon")
+		stage.erase("flip")
+	else:
+		var character_id := str(stage.get("characterId", ""))
+		var character = null
+		for c in project.get("characters", []):
+			if c.get("id") == character_id:
+				character = c
+		if character == null:
+			return "no character '%s'" % character_id
+		asset = CharacterArt.asset_for(character, art)
+		label = str(character.get("name", character_id))
+		key = "%s@%s" % [character_id, project.get("revision", 0)]
 	if key != _key:
 		_key = key
 		if _rig != null:
@@ -87,7 +108,7 @@ func apply(project: Dictionary, stage: Dictionary) -> String:
 			_rig = null
 		_weapon_key = ""
 		if asset.is_empty():
-			_say("%s has no rig yet." % character.get("name", character_id))
+			_say("%s has no rig yet." % label)
 			return ""
 		_rig = CharacterArt.make_view(asset, art)
 		_holder.add_child(_rig)

@@ -6,11 +6,11 @@ import { ruleHandlers } from "../../events/rules.ts";
 import { gridSize } from "../tiles.ts";
 import { DOOR_UP_CARRY, type Prop, type PropSwitch, type WorldRoom } from "../world.ts";
 import { doorEntry, moveTrace, reachableFrom, roomGraph, type RoomGraph, type TraversalMove } from "../traversal.ts";
-import { answers, LogicRun, logicGame, weaponFlag, type Checkpoint, type LogicGame, type Point, type RunSnapshot } from "./interpret.ts";
+import { answers, LogicRun, logicGame, weaponFlag, type Checkpoint, type LogicGame, type MarkerSource, type Point, type RunSnapshot } from "./interpret.ts";
 import { aimRayReach, attackBounds, isCardinalAim, triggerAims, type HitBox } from "../../combat/weaponModel.ts";
 import type { Weapon } from "../../combat/weapon.ts";
 
-export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type RunSnapshot, type RunState } from "./interpret.ts";
+export { clipMarkers, LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type MarkerSource, type RunSnapshot, type RunState } from "./interpret.ts";
 
 /**
  * The logic-aware checker (agent I): proves, deterministically and without
@@ -65,6 +65,12 @@ export { LogicRun, logicGame, matches, type LogicEvent, type LogicGame, type Run
  *   axes only the points of the aim's ray its shape covers count (aimRayReach),
  *   never a turned shape's bounding box. The built-in attack is unchanged (the
  *   mouse only picks which of its boxes).
+ * - Animation is instant (interpret.ts): playAnimation and spawnEffect fire
+ *   their clip's markers at once, in order, so a marker handler's effects
+ *   happen with the event that played the clip; damage there can kill
+ *   (a hazard wherever that event can happen). Markers of clips that play
+ *   without a cue (an object prop's idle, any clip of a living spawn's or the
+ *   player's art) may fire at any point, when some handler listens for them.
  */
 
 /** What the run remembers (a logical state, without the position). */
@@ -265,6 +271,8 @@ class WorldModel {
   readonly visited = new Set<string>();
   readonly keepEntry: boolean;
   readonly dangerous = new Set<string>();
+  /** Marker names some handler listens for (`any`: one listens for every marker). */
+  readonly heard: { any: boolean; names: Set<string> } = { any: false, names: new Set() };
   readonly flagsSet = new Set<string>();
   readonly itemsGiven = new Set<string>();
   readonly weaponsGiven = new Set<string>();
@@ -323,6 +331,12 @@ class WorldModel {
     }
     for (const [item, cap] of this.itemCaps) this.itemCaps.set(item, cap + (takes.get(item) ?? 0));
     this.keepEntry = effects.some((e) => e.type === "saveRun" || (e.type === "respawn" && (e.at ?? "entry") === "entry"));
+    const w = project.world;
+    for (const h of [...w.handlers, ...w.rooms.flatMap((r) => [...r.handlers, ...r.props.flatMap((p) => p.handlers), ...r.spawns.flatMap((sp) => sp.handlers)])]) {
+      if (h.on.type !== "marker") continue;
+      if (h.on.name === undefined) this.heard.any = true;
+      else this.heard.names.add(h.on.name);
+    }
     for (const c of project.characters) {
       if (c.kind !== "enemy") continue;
       const e = c as EnemyCharacter;
@@ -951,7 +965,18 @@ function successors(m: WorldModel, s: State): Edge[] {
     run.timer(t);
     out.push(...outcome(m, run, here, here, `wait for timer ${t}`));
   }
+  // Markers of clips that play with no cue (idles, a spawn's or the player's clips) may come at any time.
+  for (const mk of base.ambientMarkers()) {
+    if (!m.heard.any && !m.heard.names.has(mk.name)) continue;
+    const run = base.clone();
+    run.marker(mk);
+    out.push(...outcome(m, run, here, here, `${markerFrom(mk)} reaches its marker "${mk.name}"`));
+  }
   return out;
+}
+
+function markerFrom(mk: MarkerSource): string {
+  return mk.player ? "the player's animation" : mk.prop ? `prop ${mk.prop}'s animation` : `spawn ${mk.spawn}'s animation`;
 }
 
 function moveEdges(m: WorldModel, s: State, base: LogicRun, g: RoomGraph, move: TraversalMove, room: WorldRoom, here: Pos, sameGraph: boolean): Edge[] {

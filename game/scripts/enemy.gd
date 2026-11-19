@@ -102,6 +102,11 @@ var _weapons := {}
 var _weapon_view: Node2D = null
 var _shown_weapon := ""
 var _clip_posed := false
+## A clip a playAnimation plays (core art/animation.ts; "" = none), what follows it ("idle" | "hold"),
+## and whether it ended and is held on its last frame.
+var _anim_clip := ""
+var _anim_then := "idle"
+var _anim_held := false
 
 
 func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dictionary = {}) -> void:
@@ -140,6 +145,8 @@ func setup(character: Dictionary, bounds: Dictionary, spawn: Vector2, art: Dicti
 	_asset = CharacterArt.asset_for(character, art)
 	if not _asset.is_empty():
 		_rig = CharacterArt.make_view(_asset, art)
+		_rig.emit_markers = true
+		_rig.marker.connect(_on_marker)
 		add_child(_rig)
 		_update_rig()
 	var weapons = bounds.get("weapons")
@@ -260,6 +267,7 @@ func take_hit(damage: int, push: Vector2, speed := RECOIL_SPEED) -> void:
 ## `dead` is what the room, the HUD and the sword go by), then the body plays out its death.
 func _die(push: Vector2) -> void:
 	dead = true
+	_anim_clip = ""
 	collision_layer = 0
 	show_attack(null)
 	stop_weapon()
@@ -415,8 +423,10 @@ func step_weapon() -> bool:
 	return false
 
 
-## Leaving the state (or dying) ends the attack.
+## Leaving the state (or dying) ends the attack (a projectile still charging at its origin goes with it).
 func stop_weapon() -> void:
+	if weapon_runner != null:
+		weapon_runner.drop()
 	if weapon_runner != null and _weapon_view != null:
 		_weapon_view.set_phase(weapon_runner.attack, "", weapon_runner.aim, facing)
 	weapon_runner = null
@@ -590,6 +600,35 @@ func set_preview_clip(clip: String) -> void:
 	_update_rig()
 
 
+# --- animation in play (core art/animation.ts) -------------------------------------------------
+
+## playAnimation: play `clip` from its start over whatever the behavior plays, then go back to the
+## usual clips ("idle") or hold its last frame ("hold"). False (ignored) without such a clip.
+func play_animation(clip: String, then := "idle") -> bool:
+	if _rig == null or dead or not _rig.has_clip(clip):
+		return false
+	_anim_clip = clip
+	_anim_then = then
+	_anim_held = false
+	if _clip_posed:
+		_rig.manual_time = false
+		_clip_posed = false
+	_rig.play(clip, true)
+	return true
+
+
+## The clip a playAnimation is playing (until it ends), else null (state: entities[].playing).
+func anim_playing() -> Variant:
+	return _anim_clip if _anim_clip != "" and not _anim_held else null
+
+
+## Any clip it plays crossed a marker: a `marker` event from this spawn.
+func _on_marker(marker_name: String, _clip: String) -> void:
+	var main := _main()
+	if main != null and main._mode == "play" and main._run.active:
+		main._run.events.marker(marker_name, {"source": "spawn:" + spawn_id, "spawn": spawn_id})
+
+
 func _update_rig() -> void:
 	if _rig == null:
 		return
@@ -608,6 +647,15 @@ func _update_rig() -> void:
 	if _preview_clip != "":
 		_rig.play(_preview_clip)
 		return
+	if _anim_clip != "":
+		_rig.play(_anim_clip)
+		if _rig.clip_ended() and not _anim_held:
+			if _anim_then == "hold":
+				_anim_held = true
+			else:
+				_anim_clip = ""
+		if _anim_clip != "":
+			return
 	var mapped = _asset.get("stateClips", {}).get(behavior_state)
 	if weapon_runner != null and not (mapped != null and _rig.has_clip(str(mapped))):
 		_clip_posed = weapon_runner.pose_rig(_rig, CharacterArt.first_clip)

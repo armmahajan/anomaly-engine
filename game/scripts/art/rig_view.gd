@@ -60,6 +60,17 @@ var _turn := 0.0
 
 ## Emitted after every pose is evaluated (the weapon view follows the grip with no frame of lag).
 signal posed
+## The playing clip crossed one of its markers (core art/clip.ts Clip.markers): once per pass of the
+## clip, in time order. Only while `emit_markers` is on (the owner routes them as events: events.gd marker).
+signal marker(marker_name: String, clip: String)
+
+## Fire `marker` as clips play (characters and objects in a room; never stages or renders). Who
+## listens decides whether the run is playing.
+var emit_markers := false
+## Clip time (seconds, unwrapped: loops keep counting) up to which markers were fired.
+var _marked := -1.0
+## The current clip's markers, by time: [[t (0..1), name, index]].
+var _markers: Array = []
 
 
 func setup(rig: Dictionary, direction: Dictionary, clips: Dictionary) -> void:
@@ -89,6 +100,13 @@ func play(clip_id: String, restart := false) -> void:
 	_clip_id = clip_id
 	_clip = _clips.get(clip_id, {}) if _clips.has(clip_id) else {}
 	_time = 0.0
+	_marked = -1.0
+	_markers = []
+	for m in _clip.get("markers", []):
+		if typeof(m) == TYPE_DICTIONARY and m.has("name"):
+			_markers.append([clampf(float(m.get("t", 0.0)), 0.0, 1.0), str(m.name), _markers.size()])
+	# By time, then as listed (core interpret.ts clipMarkers sorts the same way).
+	_markers.sort_custom(func(a, b): return a[0] < b[0] or (a[0] == b[0] and a[2] < b[2]))
 
 
 func has_clip(clip_id: String) -> bool:
@@ -104,11 +122,25 @@ func clip_duration(clip_id: String) -> float:
 	return float(_clips.get(clip_id, {}).get("duration", 0.0)) if _clips.has(clip_id) else 0.0
 
 
+## A clip's own data ({} when there is no such clip).
+func clip_data(clip_id: String) -> Dictionary:
+	return _clips.get(clip_id, {}) if _clips.has(clip_id) else {}
+
+
+## The current clip doesn't loop and has played to its end (false with no clip).
+func clip_ended() -> bool:
+	return not _clip.is_empty() and not bool(_clip.get("loop", true)) and _time >= maxf(float(_clip.get("duration", 1.0)), 0.01)
+
+
 ## Pose at `seconds` into the current clip, with a given boil frame (render service).
+## Going back in time starts a new pass (its markers fire again from the start).
 func pose_at(seconds: float, boil_frame := 0) -> void:
+	if seconds < _marked:
+		_marked = -1.0
 	_time = seconds
 	_boil = boil_frame % BOIL_VARIANTS
 	_evaluate()
+	_fire_markers()
 	queue_redraw()
 
 
@@ -116,6 +148,7 @@ func _process(delta: float) -> void:
 	if manual_time:
 		return
 	_time += delta * speed
+	_fire_markers()
 	if _boil_amount > 0.0:
 		_boil_timer += delta
 		if _boil_timer >= 1.0 / BOIL_FPS:
@@ -123,6 +156,30 @@ func _process(delta: float) -> void:
 			_boil = (_boil + 1) % BOIL_VARIANTS
 	_evaluate()
 	queue_redraw()
+
+
+## Fire the markers crossed since the last check, in time order: (marked, time] of the clip's
+## unwrapped time (a looping clip passes each marker once per loop).
+func _fire_markers() -> void:
+	if not emit_markers or _markers.is_empty():
+		_marked = maxf(_marked, _time)
+		return
+	if _time <= _marked:
+		return
+	var duration := maxf(float(_clip.get("duration", 1.0)), 0.01)
+	var loops := bool(_clip.get("loop", true))
+	var clip := _clip_id
+	var from := _marked
+	_marked = _time
+	var first := floori(maxf(from, 0.0) / duration) if loops else 0
+	var last := floori(_time / duration) if loops else 0
+	for k in range(first, mini(last, first + 3) + 1):  # at most a few passes in one step
+		for m in _markers:
+			var at: float = (k + m[0]) * duration
+			if at > from and at <= _time:
+				marker.emit(m[1], clip)
+				if _clip_id != clip:
+					return  # a handler switched clips: the rest of this one doesn't play
 
 
 # --- build -------------------------------------------------------------------

@@ -6,6 +6,7 @@ extends Node2D
 ## (also in edit mode and on the Rooms stage, with no player).
 
 const Level := preload("res://scripts/level.gd")
+const ObjectView := preload("res://scripts/art/object_view.gd")
 ## Edit stages draw every prop; those that depend on the run are faded.
 const FADED := 0.45
 ## Shown above a prop the player can interact with when it has no prompt of its own (drawn as an arrow).
@@ -84,11 +85,12 @@ func refresh() -> void:
 			_remove_solid(id)
 
 
-## [{id, visible, solid, prompt?}] for the runtime's state (`prompt`: the text shown above it now).
+## [{id, visible, solid, playing, prompt?}] for the runtime's state (`prompt`: the text shown above it
+## now; `playing`: the clip a playAnimation plays on its object until it ends, else null).
 func state() -> Array:
 	var out := []
 	for id in _props:
-		var entry := {"id": id, "visible": is_present(_props[id]), "solid": _solid.has(id)}
+		var entry := {"id": id, "visible": is_present(_props[id]), "solid": _solid.has(id), "playing": _views[id].playing()}
 		if _views[id].prompting:
 			entry.prompt = _prompt_text(_props[id])
 		out.append(entry)
@@ -172,6 +174,36 @@ static func rect_of(prop: Dictionary) -> Rect2:
 	return Rect2(float(prop.x), float(prop.y), float(prop.width), float(prop.height))
 
 
+# --- animation (core art/animation.ts) ------------------------------------------------------
+
+## playAnimation on a prop of this room: its object plays `clip`, then idles or holds. False when the
+## prop is not here (or hidden), or its art has no such clip.
+func play_animation(id: String, clip: String, then: String) -> bool:
+	var view = _views.get(id)
+	if view == null or not is_present(_props[id]) or view.object == null:
+		return false
+	return view.object.play_once(clip, then)
+
+
+## A present prop's centre (room px), or null.
+func center_of(id: String) -> Variant:
+	if not _props.has(id) or not is_present(_props[id]):
+		return null
+	return rect_of(_props[id]).get_center()
+
+
+## The prop's object art (ObjectView), or null (tests).
+func object_of(id: String) -> Node2D:
+	var view = _views.get(id)
+	return view.object if view != null else null
+
+
+## A marker of a prop's clip: a `marker` event while the run plays and the prop takes part.
+func _on_marker(marker_name: String, _clip: String, id: String) -> void:
+	if _live() and main._mode == "play" and is_present(_props[id]):
+		main._run.events.marker(marker_name, {"source": "prop:" + id, "prop": id})
+
+
 static func _answers(prop: Dictionary, event: String) -> bool:
 	return prop.get("handlers", []).any(func(h): return str(h.get("on", {}).get("type")) == event)
 
@@ -223,17 +255,34 @@ class PropView extends Node2D:
 	var prompting := false
 	## Draws the prompt above the characters.
 	var prompt_mark := Node2D.new()
+	## Object art (ObjectView): drawn centred on the rectangle, looping its idle clip; else null.
+	var object: Node2D = null
 	var _texture: Texture2D = null
 
 	func _ready() -> void:
 		position = Vector2(float(prop.x), float(prop.y))
+		var art = prop.get("art")
+		if typeof(art) == TYPE_DICTIONARY and art.has("object"):
+			var all_art: Dictionary = props.main._project.get("art", {})
+			var asset := ObjectView.find_asset(all_art, str(art.object))
+			if not asset.is_empty():
+				object = ObjectView.new()
+				var idle = art.get("idle", "idle")
+				object.setup(asset, all_art, str(idle) if idle != null else "")
+				object.position = Vector2(float(prop.width), float(prop.height)) / 2.0
+				object.fit(Vector2(float(prop.width), float(prop.height)), float(art.get("scale", 1.0)))
+				object.marker.connect(props._on_marker.bind(str(prop.id)))
+				add_child(object)
 		prompt_mark.z_index = 5
 		prompt_mark.draw.connect(_draw_prompt)
 		add_child(prompt_mark)
 		_texture = props._texture_for(prop)
-		# Art whose image hasn't arrived yet: look again until it has (also while the room is frozen).
+		# Kit art whose image hasn't arrived yet: look again until it has (also while the room is frozen).
 		process_mode = Node.PROCESS_MODE_ALWAYS
-		set_process(_texture == null and typeof(prop.get("art")) == TYPE_DICTIONARY)
+		set_process(_texture == null and typeof(art) == TYPE_DICTIONARY and art.has("biome"))
+
+	func playing() -> Variant:
+		return object.playing() if object != null else null
 
 	func _process(_delta: float) -> void:
 		_texture = props._texture_for(prop)
@@ -251,7 +300,9 @@ class PropView extends Node2D:
 		var box := Rect2(Vector2.ZERO, Vector2(float(prop.width), float(prop.height)))
 		var conditional: bool = typeof(prop.get("visible", true)) != TYPE_BOOL or prop.get("visible", true) != true or typeof(prop.get("solid", false)) != TYPE_BOOL
 		var tint := Color(1, 1, 1, FADED if conditional and not props._live() else 1.0)
-		if _texture != null:
+		if object != null:
+			object.modulate = tint
+		elif _texture != null:
 			draw_texture_rect(_texture, art_rect(), false, tint)
 		else:
 			draw_rect(box, Color(str(prop.get("color", "#c9a227"))) * tint)
