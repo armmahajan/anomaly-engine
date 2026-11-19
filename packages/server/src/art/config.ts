@@ -30,7 +30,7 @@ import { DEFAULT_ART_CONCURRENCY, type ArtServiceOptions } from "./service.ts";
  *   STUDIO_ART_VISION_MODEL    default claude-opus-5-5 on claude-code,
  *                              anthropic/claude-haiku-5.5 on openrouter
  *   STUDIO_ART_VISION_EFFORT   claude-code only: low|medium|high|xhigh|max (default: the model's)
- *   STUDIO_ART_RIG_MODE        vector (default: the full pipeline, see stages.ts rigModeFor), traced or cutout
+ *   STUDIO_ART_RIG_MODE        vector (default: the full pipeline, see stages.ts rigModeFor), traced, cutout or layered
  *   STUDIO_ART_BUDGET          USD per job, default 0.25
  *   STUDIO_ART_CONCURRENCY     art jobs that run at once, default 3 (1 = one at a time); jobs that touch
  *                              the same character, weapon, biome, room or modal still wait for each other
