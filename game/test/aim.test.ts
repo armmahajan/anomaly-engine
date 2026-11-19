@@ -394,7 +394,7 @@ describe("the drawn weapon follows a mouse aim (headless runtime)", () => {
         const start = frames.findIndex((x) => x.state?.startsWith("attack:"));
         const forward = f.facing === 1 ? 0 : 180;
         expect(gap(degOf(frames[start]!.pointing), forward), `${angle}°: windup start`).toBeLessThan(gap(angle, forward) * 0.25);
-        const after = frames.findLastIndex((x) => x.state?.startsWith("attack:")) + 1;
+        const after = frames.findIndex((x, i) => i > start && !x.state?.startsWith("attack:"));
         expect(gap(degOf(frames[after]!.pointing), frames[after]!.facing === 1 ? 0 : 180), `${angle}°: after`).toBeLessThan(1);
       }
     }, 120_000);
