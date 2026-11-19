@@ -621,6 +621,9 @@ button.arch-stop {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* A narrow sidebar wraps "pause after" and ↻ under the name instead of pushing them out of reach. */
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .arch-stage-name {
