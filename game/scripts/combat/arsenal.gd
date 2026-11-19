@@ -116,15 +116,6 @@ func after_move(player) -> void:
 	runner = null
 
 
-## "up", "down" or "forward", from the aim keys held.
-static func held_aim() -> String:
-	if Input.is_action_pressed("aim_up"):
-		return "up"
-	if Input.is_action_pressed("aim_down"):
-		return "down"
-	return "forward"
-
-
 func _request(player, action: String, held: float, aim: Dictionary, airborne: bool, blocked: bool) -> void:
 	if runner != null or blocked:
 		_buffer = {"action": action, "held": held, "until": _tick + buffer_frames}
