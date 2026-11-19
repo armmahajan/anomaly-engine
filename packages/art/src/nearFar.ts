@@ -47,7 +47,7 @@ function branch(rig: Rig, top: string): Set<string> {
   return out;
 }
 
-/** A part's outline as a polygon (canvas px); a stroke as a chain of discs. */
+/** A part's outline as a polygon (canvas px); a stroke as a row of discs. */
 function polygonsOf(part: Rig["parts"][number]): [number, number][][] {
   const s = part.shape;
   const circle = (x: number, y: number, rx: number, ry: number, n: number): [number, number][] =>
