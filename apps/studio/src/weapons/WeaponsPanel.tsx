@@ -17,6 +17,7 @@ import { askConfirm } from "../ui/confirm.tsx";
 import { ArtJobButton } from "../ArtJobButton.tsx";
 import { canDrawWeapons, weaponArtRequest } from "../artStages.ts";
 import { Cell, Num, Pick, Swatch, Text } from "./fields.tsx";
+import { ProjectileLookFields } from "../objects/ProjectileLookFields.tsx";
 import "./weapons.css";
 
 type Attack = WeaponAttack;
@@ -335,7 +336,7 @@ function AttackEditor({
                 {n("Width", shape.width, 1, 400, (width) => setShape({ width }), 1, "px")}
               </>
             )}
-            {shape.type === "projectile" && <ProjectileFields attack={attack} locked={locked} onChange={(projectile) => setShape({ projectile })} />}
+            {shape.type === "projectile" && <ProjectileFields attack={attack} project={project} locked={locked} onChange={(projectile) => setShape({ projectile })} />}
             {n("Damage", attack.damage, 0, 999, (damage) => set({ damage }))}
             {n("Knockback", attack.knockback, 0, 3000, (knockback) => set({ knockback }), 10, "px/s")}
             {n("Hit stop", attack.hitStop, 0, 1, (hitStop) => set({ hitStop }), 0.01, "s", "The action freezes this long on a hit")}
@@ -397,7 +398,7 @@ function AttackEditor({
   );
 }
 
-function ProjectileFields({ attack, locked, onChange }: { attack: Attack; locked: boolean; onChange: (p: Extract<HitShape, { type: "projectile" }>["projectile"]) => void }) {
+function ProjectileFields({ attack, project, locked, onChange }: { attack: Attack; project: ProjectSpec; locked: boolean; onChange: (p: Extract<HitShape, { type: "projectile" }>["projectile"]) => void }) {
   if (attack.shape.type !== "projectile") return null;
   const p = attack.shape.projectile;
   const field = (label: string, key: "speed" | "gravity" | "count" | "spread" | "lifetime" | "pierce" | "size", min: number, max: number, step = 1, unit?: string) => (
@@ -420,6 +421,7 @@ function ProjectileFields({ attack, locked, onChange }: { attack: Attack; locked
       <Cell label="Colour">
         <Swatch label={`${attack.id} projectile colour`} value={p.color} disabled={locked} onCommit={(color) => onChange({ ...p, color })} />
       </Cell>
+      <ProjectileLookFields look={p.look} project={project} locked={locked} label={attack.id} onChange={(look) => onChange({ ...p, look })} />
     </>
   );
 }

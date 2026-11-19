@@ -56,3 +56,20 @@
 .bone-editor select,
 .anim-detail select,
 .anim-add select { font: inherit; font-size: 12px; color: var(--text); background: #11141a; border: 1px solid var(--border); border-radius: 4px; padding: 3px 4px; }
+
+/* A clip's markers (MarkerTimeline): handles on its time bar, the selected one's name and time below. */
+.marker-timeline { display: flex; flex-direction: column; gap: 6px; }
+.marker-head { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.marker-head .muted { flex: 1; min-width: 0; }
+.marker-bar { position: relative; height: 26px; margin: 0 8px; border-radius: 4px; background: linear-gradient(to right, #1b2029, #232a36); border: 1px solid var(--border); cursor: copy; }
+.marker-handle { position: absolute; top: -3px; bottom: -3px; transform: translateX(-50%); padding: 0 4px; min-width: 10px; display: flex; align-items: flex-start; border: none; border-left: 2px solid #f0b85a; border-radius: 0; background: transparent; color: #f0b85a; font-size: 10px; line-height: 1; cursor: grab; touch-action: none; }
+.marker-handle span { pointer-events: none; padding-left: 2px; white-space: nowrap; }
+.marker-handle.selected { border-left-color: var(--accent); color: var(--accent); }
+.marker-handle.dragging { cursor: grabbing; }
+.marker-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.marker-edit .art-text { max-width: 140px; }
+.marker-t { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.marker-t .wpn-number { max-width: 70px; }
+.bench-clips button { position: relative; }
+.clip-marker-ticks { position: absolute; left: 6px; right: 6px; bottom: 1px; height: 3px; pointer-events: none; }
+.clip-marker-ticks i { position: absolute; width: 2px; height: 3px; background: #f0b85a; }

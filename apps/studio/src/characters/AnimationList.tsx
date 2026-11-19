@@ -1,20 +1,23 @@
 import { useState } from "react";
-import { CLIP_SLOTS, slugify, uniqueId, wantedClipSlots, type ArtState, type Character, type CharacterAsset, type ChangeResult, type Clip, type ProjectSpec } from "@anomaly/core";
+import { CLIP_SLOTS, objectUses, slugify, uniqueId, type ArtState, type CharacterAsset, type ChangeResult, type Clip, type ProjectSpec } from "@anomaly/core";
 import type { Session } from "../session.ts";
 import { fileUrl } from "../api.ts";
 import { askConfirm } from "../ui/confirm.tsx";
 import { animateClipRequest, canAnimateOneClip } from "../artStages.ts";
+import { isSubjectJob, missingClips, subjectRef, type ArtSubject } from "./subject.ts";
+import { MarkerTimeline } from "./MarkerTimeline.tsx";
 import "./characters.css";
 
 /**
- * Characters ▸ Animation: every clip of a character's art (the standard slots the runtime picks by
- * situation, and named ones), previewed on the stage. The selected clip can be redone from a
- * direction, renamed, copied, deleted and attached to an enemy behavior state (stateClips) or a
- * weapon attack (its clip). Every change is a core operation, so Undo takes it back.
+ * Characters ▸ Animation: every clip of a character's or an object's art (the standard slots the
+ * runtime picks by situation, and named ones), previewed on the stage. The selected clip can be
+ * redone from a direction, renamed, copied, deleted, given markers (named moments that fire marker
+ * events in play) and, for a character, attached to an enemy behavior state (stateClips) or a weapon
+ * attack (its clip). Every change is a core operation, so Undo takes it back.
  */
 
 interface Props {
-  character: Character;
+  subject: ArtSubject;
   asset: CharacterAsset;
   project: ProjectSpec;
   art: ArtState;
@@ -37,10 +40,10 @@ function statesOf(project: ProjectSpec, assetId: string) {
 const attacksUsing = (project: ProjectSpec, clipId: string) =>
   project.weapons.list.flatMap((w) => w.attacks.filter((a) => a.clip === clipId).map((attack) => ({ weapon: w, attack })));
 
-export function AnimationList({ character, asset, project, art, session, current, onPlay, locked }: Props) {
+export function AnimationList({ subject, asset, project, art, session, current, onPlay, locked }: Props) {
   const clipIds = Object.keys(asset.clips);
-  const missing = asset.rig ? wantedClipSlots(project, asset.id).filter((s) => !asset.clips[s]) : [];
-  const busy = art.runningJobs.some((j) => j.characterId === character.id) || art.pending.some((p) => p.characterId === character.id);
+  const missing = missingClips(project, subject);
+  const busy = art.runningJobs.some((j) => isSubjectJob(j, subject)) || art.pending.some((p) => isSubjectJob(p, subject));
   const selected = current && asset.clips[current] ? current : null;
 
   const run = async (calls: { name: string; input: unknown }[]): Promise<boolean> => {
@@ -51,11 +54,11 @@ export function AnimationList({ character, asset, project, art, session, current
 
   return (
     <div className="anim-list" data-testid="animation-list">
-      {selected && <ClipDetails key={selected} clipId={selected} asset={asset} character={character} project={project} art={art} session={session} busy={busy} locked={locked} run={run} onRenamed={onPlay} />}
-      <AddAnimation asset={asset} character={character} art={art} session={session} busy={busy} locked={locked} run={run} onAdded={onPlay} />
+      {selected && <ClipDetails key={selected} clipId={selected} asset={asset} subject={subject} project={project} art={art} session={session} busy={busy} locked={locked} run={run} onRenamed={onPlay} />}
+      <AddAnimation asset={asset} subject={subject} art={art} session={session} busy={busy} locked={locked} run={run} onAdded={onPlay} />
       {missing.length > 0 && (
         <p className="hint anim-missing" data-testid="missing-clips">
-          Not made yet: {missing.join(", ")} (they fall back to idle). Animate fills them in.
+          Not made yet: {missing.join(", ")} ({subject.kind === "object" ? "the game plays them; until then the object holds still" : "they fall back to idle"}). Animate fills them in.
         </p>
       )}
       <ul className="bench-clips">
@@ -65,8 +68,16 @@ export function AnimationList({ character, asset, project, art, session, current
               {id === current ? "■" : "▶"} {id}
               <small>
                 {asset.clips[id]!.duration}s{asset.clips[id]!.loop ? " loop" : ""}
-                {isSlot(id) ? "" : " · named"}
+                {subject.kind === "character" && !isSlot(id) ? " · named" : ""}
+                {asset.clips[id]!.markers.length > 0 && ` · ${asset.clips[id]!.markers.map((m) => m.name).join(", ")}`}
               </small>
+              {asset.clips[id]!.markers.length > 0 && (
+                <span className="clip-marker-ticks" aria-hidden>
+                  {asset.clips[id]!.markers.map((m, i) => (
+                    <i key={i} style={{ left: `${m.t * 100}%` }} />
+                  ))}
+                </span>
+              )}
             </button>
             {asset.clipPreviews[id] && <img src={fileUrl(asset.clipPreviews[id]!)} alt={`${id} filmstrip`} />}
           </li>
@@ -78,10 +89,10 @@ export function AnimationList({ character, asset, project, art, session, current
 
 type Run = (calls: { name: string; input: unknown }[]) => Promise<boolean>;
 
-function ClipDetails({ clipId, asset, character, project, art, session, busy, locked, run, onRenamed }: {
+function ClipDetails({ clipId, asset, subject, project, art, session, busy, locked, run, onRenamed }: {
   clipId: string;
   asset: CharacterAsset;
-  character: Character;
+  subject: ArtSubject;
   project: ProjectSpec;
   art: ArtState;
   session: Session;
@@ -93,21 +104,24 @@ function ClipDetails({ clipId, asset, character, project, art, session, busy, lo
   const clip = asset.clips[clipId]!;
   const [direction, setDirection] = useState(clip.direction ?? "");
   const [name, setName] = useState(clipId);
-  const states = statesOf(project, asset.id);
+  const isObject = subject.kind === "object";
+  const states = isObject ? [] : statesOf(project, asset.id);
   const attached = states.filter((s) => asset.stateClips[s.state] === clipId);
-  const attacks = attacksUsing(project, clipId);
-  const slot = isSlot(clipId);
+  const attacks = isObject ? [] : attacksUsing(project, clipId);
+  // An object's clip plays where the game names it: a prop's idle, an effect, a projectile look.
+  const objectPlays = isObject ? objectUses(project).filter((u) => u.object === asset.id && u.clips.includes(clipId)) : [];
+  const slot = !isObject && isSlot(clipId);
 
   const redo = () => {
-    if (canAnimateOneClip) void session.startArtJob(animateClipRequest(character.id, clipId, direction));
-    else void session.startArtJob({ stage: "animate", characterId: character.id, feedback: direction.trim() ? `${clipId}: ${direction.trim()}` : undefined });
+    if (canAnimateOneClip) void session.startArtJob(animateClipRequest(subjectRef(subject), clipId, direction));
+    else void session.startArtJob({ stage: "animate", ...subjectRef(subject), feedback: direction.trim() ? `${clipId}: ${direction.trim()}` : undefined });
   };
 
   const rename = async () => {
     const next = slugify(name, "");
     if (!next || next === clipId) return setName(clipId);
     if (asset.clips[next]) {
-      session.reportProblem(`${character.name} already has a clip "${next}"`);
+      session.reportProblem(`${subject.name} already has a clip "${next}"`);
       return setName(clipId);
     }
     // One step: the clip under its new name (filmstrip too), the states and attacks that played it, then the old name goes.
@@ -142,7 +156,7 @@ function ClipDetails({ clipId, asset, character, project, art, session, busy, lo
     }
   };
 
-  const targets = [
+  const targets = isObject ? [] : [
     ...states.filter((s) => asset.stateClips[s.state] !== clipId).map((s) => ({ id: `state:${s.state}`, label: `${s.character.name} ▸ ${s.state} state${asset.stateClips[s.state] ? ` (now ${asset.stateClips[s.state]})` : ""}` })),
     ...project.weapons.list.flatMap((w) => w.attacks.filter((a) => a.clip !== clipId).map((a) => ({ id: `attack:${w.id}:${a.id}`, label: `${w.name} ▸ ${a.name}${a.clip ? ` (now ${a.clip})` : ""}` }))),
   ];
@@ -164,7 +178,7 @@ function ClipDetails({ clipId, asset, character, project, art, session, busy, lo
           }}
         />
         <span className="muted">
-          {clip.duration}s{clip.loop ? " loop" : " once"} · {slot ? CLIP_SLOTS[clipId as keyof typeof CLIP_SLOTS] : "named: plays where it is attached"}
+          {clip.duration}s{clip.loop ? " loop" : " once"} · {isObject ? "plays where the game names it" : slot ? CLIP_SLOTS[clipId as keyof typeof CLIP_SLOTS] : "named: plays where it is attached"}
         </span>
       </div>
       <textarea
@@ -194,7 +208,13 @@ function ClipDetails({ clipId, asset, character, project, art, session, busy, lo
       </div>
       <div className="anim-attach">
         <span className="anim-caption">Plays in</span>
-        {attached.length === 0 && attacks.length === 0 && <span className="muted">{slot ? "its slot's situations" : "nothing yet: attach it"}</span>}
+        {isObject && objectPlays.length === 0 && <span className="muted">nothing names it yet (a prop's idle, playAnimation, spawnEffect, a projectile look)</span>}
+        {objectPlays.map((u) => (
+          <span key={u.path} className="anim-chip" data-testid="clip-use">
+            {u.what}
+          </span>
+        ))}
+        {!isObject && attached.length === 0 && attacks.length === 0 && <span className="muted">{slot ? "its slot's situations" : "nothing yet: attach it"}</span>}
         {attached.map((s) => (
           <span key={s.state} className="anim-chip" data-testid={`attached-state-${s.state}`}>
             {s.character.name} ▸ {s.state}
@@ -222,13 +242,14 @@ function ClipDetails({ clipId, asset, character, project, art, session, busy, lo
           </select>
         )}
       </div>
+      <MarkerTimeline key={`${asset.id}:${clipId}`} assetId={asset.id} clipId={clipId} clip={clip} locked={locked} run={run} />
     </section>
   );
 }
 
-function AddAnimation({ asset, character, art, session, busy, locked, run, onAdded }: {
+function AddAnimation({ asset, subject, art, session, busy, locked, run, onAdded }: {
   asset: CharacterAsset;
-  character: Character;
+  subject: ArtSubject;
   art: ArtState;
   session: Session;
   busy: boolean;
@@ -246,7 +267,7 @@ function AddAnimation({ asset, character, art, session, busy, locked, run, onAdd
   const add = async () => {
     if (!id || taken) return;
     if (canAnimateOneClip) {
-      if (await session.startArtJob(animateClipRequest(character.id, id, direction))) {
+      if (await session.startArtJob(animateClipRequest(subjectRef(subject), id, direction))) {
         setName("");
         setDirection("");
       }
@@ -266,7 +287,7 @@ function AddAnimation({ asset, character, art, session, busy, locked, run, onAdd
     <details className="anim-add" data-testid="add-animation">
       <summary>+ Add an animation</summary>
       <input className="art-text" aria-label="new animation name" placeholder="Name (e.g. overhead_chop)" value={name} onChange={(e) => setName(e.target.value)} />
-      {taken && <p className="field-error">{character.name} already has “{id}”.</p>}
+      {taken && <p className="field-error">{subject.name} already has “{id}”.</p>}
       <textarea className="art-text" aria-label="new animation direction" rows={2} placeholder="What it should look like" value={direction} onChange={(e) => setDirection(e.target.value)} />
       {!canAnimateOneClip && (
         <label className="anim-from">

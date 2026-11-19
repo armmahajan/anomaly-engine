@@ -17,6 +17,8 @@ import { LiveStatus } from "./LiveStatus.tsx";
 import { ConfirmHost, askConfirm } from "./ui/confirm.tsx";
 import { SidePanel } from "./ui/SidePanel.tsx";
 import { CharacterList } from "./CharacterList.tsx";
+import { ObjectList } from "./objects/ObjectList.tsx";
+import { characterSubject, findObjectSubject } from "./characters/subject.ts";
 import { ProjectMenu } from "./shell/ProjectMenu.tsx";
 import { ExportGameDialog } from "./shell/ExportGame.tsx";
 import { StudioTabs, type TabGroup } from "./shell/StudioTabs.tsx";
@@ -55,6 +57,8 @@ export function App({ session }: { session: Session }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>("crawler");
+  // Characters tab: an object (Objects group) shown in the workbench instead of the selected character.
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   // The studio reopens on the tab it was left on (per browser).
   const [tab, setTab] = useState<Tab>(() => {
     const saved = load<string>("anomaly.tab", "playtest");
@@ -106,6 +110,11 @@ export function App({ session }: { session: Session }) {
   // The chosen character, else the player (or the first): something is always selected while there is anything.
   const selected = project.characters.find((c) => c.id === selectedId) ?? project.characters.find((c) => c.kind === "player") ?? project.characters[0] ?? null;
   const characterIds = project.characters.map((c) => c.id);
+  const objectShown = tab === "characters" ? findObjectSubject(project, selectedObjectId) : null;
+  const selectCharacter = (id: string) => {
+    setSelectedId(id);
+    setSelectedObjectId(null);
+  };
   const { playtest } = project.world;
   const testRoom = project.world.rooms.find((r) => r.id === playtest?.room) ?? null;
   /** Where new things appear: the playtest room's centre, on the player's floor. */
@@ -357,8 +366,10 @@ export function App({ session }: { session: Session }) {
         </section>
       )}
       {tab === "characters" &&
-        (selected ? (
-          <CharacterBench key={`${selected.id}:${state.runtimeStatus}`} character={selected} project={project} art={state.art} session={session} locked={locked} />
+        (objectShown ? (
+          <CharacterBench key={`object:${objectShown.id}:${state.runtimeStatus}`} subject={objectShown} project={project} art={state.art} session={session} locked={locked} />
+        ) : selected ? (
+          <CharacterBench key={`${selected.id}:${state.runtimeStatus}`} subject={characterSubject(project, selected)} project={project} art={state.art} session={session} locked={locked} />
         ) : (
           <NoCharacterBench />
         ))}
@@ -459,8 +470,8 @@ export function App({ session }: { session: Session }) {
           project={project}
           art={state.art}
           live={state.live}
-          selectedId={selected?.id ?? null}
-          onSelect={setSelectedId}
+          selectedId={objectShown ? null : (selected?.id ?? null)}
+          onSelect={selectCharacter}
           query={characterQuery}
           setQuery={setCharacterQuery}
           actions={
@@ -481,8 +492,18 @@ export function App({ session }: { session: Session }) {
             </div>
           }
         />
-        {selected && tab === "characters" && (
-          <ArtPanel key={selected.id} character={selected} project={project} art={state.art} session={session} locked={playing || Object.values(state.chats).some((c) => c.running !== null)} />
+        {tab === "characters" && (
+          <ObjectList project={project} art={state.art} session={session} selectedId={objectShown?.id ?? null} onSelect={setSelectedObjectId} locked={locked} />
+        )}
+        {tab === "characters" && (objectShown || selected) && (
+          <ArtPanel
+            key={objectShown ? `object:${objectShown.id}` : selected!.id}
+            subject={objectShown ?? characterSubject(project, selected!)}
+            project={project}
+            art={state.art}
+            session={session}
+            locked={locked}
+          />
         )}
       </SidePanel>
       )}

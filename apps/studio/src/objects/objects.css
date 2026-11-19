@@ -1,0 +1,8 @@
+/* Objects (Characters tab): the sidebar group, the new-object form, where an object is used. */
+.object-new { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.object-new textarea { resize: vertical; font: inherit; }
+.object-swatch { background: repeating-linear-gradient(45deg, #3a4150, #3a4150 4px, #2b313c 4px, #2b313c 8px); }
+.object-uses { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; font-size: 12px; }
+.object-uses ul { margin: 0; padding-left: 16px; }
+.object-uses .art-actions { margin: 0; }
+.look-grid { margin: 4px 0; }

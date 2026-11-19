@@ -14,6 +14,7 @@ import {
   type Transition,
 } from "@anomaly/core";
 import type { Session } from "./session.ts";
+import { ProjectileLookFields } from "./objects/ProjectileLookFields.tsx";
 
 const PARAM_META: Record<string, { label: string; unit: string }> = {
   runSpeed: { label: "Run speed", unit: "px/s" },
@@ -352,7 +353,9 @@ function BehaviorEditor({ character, session, locked }: { character: EnemyCharac
               )}
             </span>
           </div>
-          {primitiveParams("action", state.action.type).map((param) => (
+          {primitiveParams("action", state.action.type)
+            .filter((param) => param.name !== "look")
+            .map((param) => (
             <ParamField
               key={`${param.name}:${String((state.action as Record<string, unknown>)[param.name])}`}
               id={`${character.id}-${stateId}-${param.name}`}
@@ -363,6 +366,17 @@ function BehaviorEditor({ character, session, locked }: { character: EnemyCharac
               onCommit={(v) => edit({ stateId, action: { [param.name]: v } })}
             />
           ))}
+          {state.action.type === "shoot" && (
+            <div className="wpn-grid look-grid" data-testid={`look-${stateId}`}>
+              <ProjectileLookFields
+                look={state.action.look}
+                project={session.getProject()}
+                locked={locked}
+                label={stateId}
+                onChange={(look) => void edit({ stateId, action: { look } })}
+              />
+            </div>
+          )}
           {state.transitions.map((t, index) => (
             <TransitionRow
               key={index}

@@ -49,6 +49,7 @@ export function SpawnDetails({ project, session, room, spawn, locked }: { projec
       <HandlerEditor
         handlers={spawn.handlers}
         scope="spawn"
+        self={spawn.id}
         project={project}
         room={room}
         locked={locked}

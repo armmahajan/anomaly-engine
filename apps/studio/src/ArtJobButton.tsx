@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { ArtJobRequest } from "@anomaly/core";
 
-const SUBJECTS = ["characterId", "biomeId", "weaponId", "worldRoomId", "modalId"] as const;
+const SUBJECTS = ["characterId", "objectId", "biomeId", "weaponId", "worldRoomId", "modalId"] as const;
 
 /** A running or queued job is this request's job: the same stage, for the same character, biome, weapon, room or screen. */
 export function sameJob(job: Partial<Record<(typeof SUBJECTS)[number], string>> & { stage: string }, request: ArtJobRequest): boolean {

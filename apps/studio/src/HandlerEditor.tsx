@@ -10,13 +10,16 @@ import {
   type ProjectSpec,
   type WorldRoom,
 } from "@anomaly/core";
+import { clipChoices, markerChoices, objectIds, type HandlerPlace } from "./objects/objectRefs.ts";
 
 /**
  * Edits a list of handlers ({on, when, do}) for the world, a room, a prop or
  * an enemy spawn. The forms come from the core schemas (events/events.ts),
  * so new events, conditions and effects show up here without changes; fields
- * that name things (item, modal, room, spawn, character, ability) are menus
- * of what exists. Every change hands the whole new list to `onChange`.
+ * that name things (item, modal, room, spawn, prop, character, ability, object,
+ * clip, marker name) are menus of what exists, and nested choices (a
+ * playAnimation's target, a spawnEffect's place, a marker's `from`) get their
+ * own small form. Every change hands the whole new list to `onChange`.
  */
 
 export type HandlerScope = "world" | "room" | "prop" | "spawn";
@@ -28,6 +31,8 @@ interface Props {
   project: ProjectSpec;
   /** The room the handlers belong to (not for world handlers). */
   room?: WorldRoom | null;
+  /** The prop's or spawn's id (prop and spawn scopes): what `self` is in playAnimation and spawnEffect. */
+  self?: string;
   locked: boolean;
   /** Label prefix for accessible names, e.g. "gate". */
   label?: string;
@@ -36,10 +41,11 @@ interface Props {
 type Shape = Record<string, z.ZodType>;
 type Option = { type: string; shape: Shape; description: string };
 
-const optionsOf = (union: z.ZodType): Option[] => {
+/** The options of a discriminated union, keyed by its discriminator (`type`, or `kind` for targets and places). */
+const optionsOf = (union: z.ZodType, disc = "type"): Option[] => {
   const resolved = union instanceof z.ZodLazy ? (union.def.getter() as z.ZodType) : union;
   return (resolved as z.ZodDiscriminatedUnion<z.ZodObject[]>).options.map((o) => ({
-    type: (o.shape.type as z.ZodLiteral<string>).value,
+    type: (o.shape[disc] as z.ZodLiteral<string>).value,
     shape: o.shape as Shape,
     description: o.description ?? "",
   }));
@@ -52,43 +58,65 @@ const EFFECTS = optionsOf(Effect);
 /** Events a handler in this scope can hear. */
 function eventsFor(scope: HandlerScope): Option[] {
   if (scope === "prop") return EVENTS;
-  if (scope === "spawn") return EVENTS.filter((e) => e.type === "enemyKilled");
+  if (scope === "spawn") return EVENTS.filter((e) => e.type === "enemyKilled" || e.type === "marker");
   return EVENTS.filter((e) => !PROP_EVENTS.includes(e.type as GameEventType));
 }
 
-/** Fields the scope pins (a room's handlers are about that room, a spawn's about that spawn). */
-const pinned = (scope: HandlerScope) => (scope === "world" ? [] : scope === "spawn" ? ["room", "spawn", "character"] : ["room"]);
+/** Fields the scope pins (a room's handlers are about that room, a spawn's about that spawn; a prop's or spawn's markers are its own clips'). */
+const pinned = (scope: HandlerScope) => (scope === "world" ? [] : scope === "spawn" ? ["room", "spawn", "character", "from"] : scope === "prop" ? ["room", "from"] : ["room"]);
 
 function unwrap(schema: z.ZodType): { inner: z.ZodType; optional: boolean } {
   let inner = schema;
   let optional = false;
-  while (inner instanceof z.ZodOptional || inner instanceof z.ZodDefault || inner instanceof z.ZodNullable) {
+  while (inner instanceof z.ZodOptional || inner instanceof z.ZodDefault || inner instanceof z.ZodNullable || inner instanceof z.ZodPrefault) {
     optional = true;
     inner = inner.def.innerType as z.ZodType;
   }
   return { inner, optional };
 }
 
+const discriminatorOf = (schema: z.ZodType): string | null => (schema instanceof z.ZodDiscriminatedUnion ? (schema.def.discriminator as string) : null);
+
+/** What the fields of one handler can refer to. */
+interface Ctx {
+  project: ProjectSpec;
+  room: WorldRoom | null | undefined;
+  place: HandlerPlace;
+  locked: boolean;
+}
+
+/** A nested union's options that make sense here: `self` only on a prop or spawn, a room's props and spawns only in a room. */
+function nestedOptions(schema: z.ZodType, disc: string, ctx: Ctx, keep?: string): Option[] {
+  return optionsOf(schema, disc).filter((o) => o.type === keep || ((o.type !== "self" || ctx.place.self !== null) && ((o.type !== "prop" && o.type !== "spawn") || Boolean(ctx.room))));
+}
+
 /** A fresh value of one option: its type plus placeholders for required fields (the operation validates). */
-function blank(option: Option, project: ProjectSpec): Record<string, unknown> {
-  const out: Record<string, unknown> = { type: option.type };
+function blank(option: Option, ctx: Ctx, disc = "type"): Record<string, unknown> {
+  const out: Record<string, unknown> = { [disc]: option.type };
   for (const [key, field] of Object.entries(option.shape)) {
-    if (key === "type") continue;
+    if (key === disc) continue;
     const { inner, optional } = unwrap(field);
+    const nested = discriminatorOf(inner);
+    // A target or place defaults to `self`; where there is no self, start at the first that fits.
+    if (nested && field instanceof z.ZodDefault && !ctx.place.self) {
+      const first = nestedOptions(inner, nested, ctx)[0];
+      if (first) out[key] = blank(first, ctx, nested);
+      continue;
+    }
     if (optional) continue;
-    const choices = refChoices(key, project, null);
+    const choices = refChoices(key, out, ctx);
     if (choices) out[key] = choices[0] ?? "";
     else if (inner instanceof z.ZodNumber) out[key] = 1;
     else if (inner instanceof z.ZodBoolean) out[key] = true;
     else if (inner instanceof z.ZodEnum) out[key] = inner.options[0];
     else if (key === "of") out[key] = option.type === "not" ? { type: "flag", flag: "flag_name", is: true } : [{ type: "flag", flag: "flag_name", is: true }];
-    else out[key] = key === "flag" ? "flag_name" : key === "timer" ? "timer_name" : "";
+    else out[key] = key === "flag" ? "flag_name" : key === "timer" ? "timer_name" : key === "clip" ? "idle" : "";
   }
   return out;
 }
 
-/** Menus for fields that name things in the project. */
-function refChoices(key: string, project: ProjectSpec, room: WorldRoom | null | undefined): string[] | null {
+/** Menus for fields that name things in the project (`value` is the object the field belongs to). */
+function refChoices(key: string, value: Record<string, unknown>, { project, room, place }: Ctx): string[] | null {
   switch (key) {
     case "item":
       return project.world.items.map((i) => i.id);
@@ -98,18 +126,27 @@ function refChoices(key: string, project: ProjectSpec, room: WorldRoom | null | 
       return project.world.rooms.map((r) => r.id);
     case "spawn":
       return (room?.spawns ?? []).map((s) => s.id);
+    case "prop":
+      return (room?.props ?? []).map((p) => p.id);
     case "character":
       return project.characters.filter((c) => c.kind === "enemy").map((c) => c.id);
     case "ability":
       return Object.keys(MOVEMENT_ABILITIES);
+    case "object":
+      return objectIds(project);
+    case "clip":
+      return clipChoices(project, value, place);
+    case "name":
+      return value.type === "marker" ? markerChoices(project, value, place) : null;
     default:
       return null;
   }
 }
 
-export function HandlerEditor({ handlers, onChange, scope, project, room, locked, label = scope }: Props) {
+export function HandlerEditor({ handlers, onChange, scope, project, room, self, locked, label = scope }: Props) {
   const set = (i: number, h: Handler) => onChange(handlers.map((x, j) => (j === i ? h : x)));
   const events = eventsFor(scope);
+  const ctx: Ctx = { project, room, locked, place: { room: room ?? null, self: self && (scope === "prop" || scope === "spawn") ? { kind: scope, id: self } : null } };
   return (
     <div className="handlers" data-testid={`handlers-${label}`}>
       {handlers.length === 0 && <p className="hint">No handlers.</p>}
@@ -117,61 +154,32 @@ export function HandlerEditor({ handlers, onChange, scope, project, room, locked
         <div className="handler" key={i} data-testid={`handler-${label}-${i}`}>
           <div className="handler-row">
             <strong>on</strong>
-            <Fields
-              value={h.on}
-              options={events}
-              hide={pinned(scope)}
-              project={project}
-              room={room}
-              locked={locked}
-              label={`${label} ${i} event`}
-              onChange={(on) => set(i, { ...h, on: on as Handler["on"] })}
-            />
+            <Fields value={h.on} options={events} hide={pinned(scope)} ctx={ctx} label={`${label} ${i} event`} onChange={(on) => set(i, { ...h, on: on as Handler["on"] })} />
             <button type="button" className="icon-button" aria-label={`remove ${label} handler ${i}`} disabled={locked} onClick={() => onChange(handlers.filter((_, j) => j !== i))}>
               ✕
             </button>
           </div>
-          <List
-            title="when"
-            items={h.when}
-            options={CONDITIONS}
-            project={project}
-            room={room}
-            locked={locked}
-            label={`${label} ${i} condition`}
-            onChange={(when) => set(i, { ...h, when: when as Handler["when"] })}
-          />
-          <List
-            title="do"
-            items={h.do}
-            options={EFFECTS}
-            project={project}
-            room={room}
-            locked={locked}
-            label={`${label} ${i} effect`}
-            onChange={(effects) => set(i, { ...h, do: effects as Handler["do"] })}
-          />
+          <List title="when" items={h.when} options={CONDITIONS} ctx={ctx} label={`${label} ${i} condition`} onChange={(when) => set(i, { ...h, when: when as Handler["when"] })} />
+          <List title="do" items={h.do} options={EFFECTS} ctx={ctx} label={`${label} ${i} effect`} onChange={(effects) => set(i, { ...h, do: effects as Handler["do"] })} />
         </div>
       ))}
-      <button
-        type="button"
-        disabled={locked}
-        onClick={() => onChange([...handlers, { on: blank(events[0]!, project), when: [], do: [blank(EFFECTS[0]!, project)] } as unknown as Handler])}
-      >
+      <button type="button" disabled={locked} onClick={() => onChange([...handlers, { on: blank(events[0]!, ctx), when: [], do: [blank(EFFECTS[0]!, ctx)] } as unknown as Handler])}>
         + Handler
       </button>
     </div>
   );
 }
 
+const placeless = (project: ProjectSpec, room: WorldRoom | null | undefined, locked: boolean): Ctx => ({ project, room, locked, place: { room: room ?? null, self: null } });
+
 /** A list of effects on its own (e.g. a modal button's). */
 export function EffectList({ effects, onChange, project, room, locked, label }: { effects: Effect[]; onChange: (effects: Effect[]) => void; project: ProjectSpec; room?: WorldRoom | null; locked: boolean; label: string }) {
-  return <List title="do" items={effects} options={EFFECTS} project={project} room={room} locked={locked} label={label} onChange={(items) => onChange(items as Effect[])} />;
+  return <List title="do" items={effects} options={EFFECTS} ctx={placeless(project, room, locked)} label={label} onChange={(items) => onChange(items as Effect[])} />;
 }
 
 /** One condition on its own (e.g. a prop's solid or visible). */
 export function ConditionField({ value, onChange, project, room, locked, label }: { value: GameCondition; onChange: (condition: GameCondition) => void; project: ProjectSpec; room?: WorldRoom | null; locked: boolean; label: string }) {
-  return <Fields value={value} options={CONDITIONS} project={project} room={room} locked={locked} label={label} onChange={(c) => onChange(c as GameCondition)} />;
+  return <Fields value={value} options={CONDITIONS} ctx={placeless(project, room, locked)} label={label} onChange={(c) => onChange(c as GameCondition)} />;
 }
 
 /** A fresh condition (a flag check) for editors that start one. */
@@ -181,26 +189,24 @@ interface ListProps {
   title: string;
   items: object[];
   options: Option[];
-  project: ProjectSpec;
-  room?: WorldRoom | null;
-  locked: boolean;
+  ctx: Ctx;
   label: string;
   onChange: (items: object[]) => void;
 }
 
-function List({ title, items, options, project, room, locked, label, onChange }: ListProps) {
+function List({ title, items, options, ctx, label, onChange }: ListProps) {
   return (
     <div className="handler-list">
       <span className="muted">{title}</span>
       {items.map((item, i) => (
         <div className="handler-row" key={i}>
-          <Fields value={item} options={options} project={project} room={room} locked={locked} label={`${label} ${i}`} onChange={(v) => onChange(items.map((x, j) => (j === i ? v : x)))} />
-          <button type="button" className="icon-button" aria-label={`remove ${label} ${i}`} disabled={locked} onClick={() => onChange(items.filter((_, j) => j !== i))}>
+          <Fields value={item} options={options} ctx={ctx} label={`${label} ${i}`} onChange={(v) => v && onChange(items.map((x, j) => (j === i ? v : x)))} />
+          <button type="button" className="icon-button" aria-label={`remove ${label} ${i}`} disabled={ctx.locked} onClick={() => onChange(items.filter((_, j) => j !== i))}>
             ✕
           </button>
         </div>
       ))}
-      <button type="button" className="link-button" disabled={locked} aria-label={`add ${label}`} onClick={() => onChange([...items, blank(options[0]!, project)])}>
+      <button type="button" className="link-button" disabled={ctx.locked} aria-label={`add ${label}`} onClick={() => onChange([...items, blank(options[0]!, ctx)])}>
         + {title === "when" ? "condition" : "effect"}
       </button>
     </div>
@@ -208,20 +214,25 @@ function List({ title, items, options, project, room, locked, label, onChange }:
 }
 
 interface FieldsProps {
-  value: object;
+  /** The value (undefined: an optional nested choice not given, shown as `none`). */
+  value: object | undefined;
   options: Option[];
   hide?: string[];
-  project: ProjectSpec;
-  room?: WorldRoom | null;
-  locked: boolean;
+  ctx: Ctx;
   label: string;
-  onChange: (value: object) => void;
+  onChange: (value: object | undefined) => void;
+  /** The discriminator: `type` for events, conditions and effects; `kind` for targets and places. */
+  disc?: string;
+  /** Optional nested choice: the label of "not given". */
+  none?: string;
 }
 
 /** A type menu and one input per parameter of the chosen type. */
-function Fields({ value, options, hide = [], project, room, locked, label, onChange }: FieldsProps) {
-  const current = value as Record<string, unknown> & { type: string };
-  const option = options.find((o) => o.type === current.type) ?? options[0]!;
+function Fields({ value, options, hide = [], ctx, label, onChange, disc = "type", none }: FieldsProps) {
+  const { project, locked } = ctx;
+  const current = (value ?? {}) as Record<string, unknown>;
+  const kind = current[disc] as string | undefined;
+  const option = kind === undefined && none ? null : (options.find((o) => o.type === kind) ?? options[0]!);
   const setField = (key: string, v: unknown) => {
     const next = { ...current };
     if (v === undefined || v === "") delete next[key];
@@ -230,89 +241,123 @@ function Fields({ value, options, hide = [], project, room, locked, label, onCha
   };
   return (
     <>
-      <select aria-label={label} title={option.description} value={current.type} disabled={locked} onChange={(e) => onChange(blank(options.find((o) => o.type === e.target.value)!, project))}>
+      <select
+        aria-label={label}
+        title={option?.description}
+        value={kind ?? ""}
+        disabled={locked}
+        onChange={(e) => {
+          const picked = options.find((o) => o.type === e.target.value);
+          onChange(picked ? blank(picked, ctx, disc) : undefined);
+        }}
+      >
+        {none && <option value="">{none}</option>}
         {options.map((o) => (
           <option key={o.type} value={o.type} title={o.description}>
             {o.type}
           </option>
         ))}
       </select>
-      {Object.entries(option.shape)
-        .filter(([key]) => key !== "type" && !hide.includes(key))
-        .map(([key, field]) => {
-          const { inner, optional } = unwrap(field);
-          const v = current[key];
-          const name = `${label} ${key}`;
-          if (key === "of") {
-            const nested = Array.isArray(v) ? (v as object[]) : [v as object];
-            return (
-              <span key={key} className="handler-nested">
-                {nested.map((c, i) => (
+      {option &&
+        Object.entries(option.shape)
+          .filter(([key]) => key !== disc && !hide.includes(key))
+          .map(([key, field]) => {
+            const { inner, optional } = unwrap(field);
+            const v = current[key];
+            const name = `${label} ${key}`;
+            if (key === "of") {
+              const nested = Array.isArray(v) ? (v as object[]) : [v as object];
+              return (
+                <span key={key} className="handler-nested">
+                  {nested.map((c, i) => (
+                    <Fields key={i} value={c} options={CONDITIONS} ctx={ctx} label={`${name} ${i}`} onChange={(c2) => setField(key, Array.isArray(v) ? nested.map((x, j) => (j === i ? c2 : x)) : c2)} />
+                  ))}
+                  {Array.isArray(v) && (
+                    <button type="button" className="link-button" disabled={locked} onClick={() => setField(key, [...nested, blank(CONDITIONS[0]!, ctx)])}>
+                      +
+                    </button>
+                  )}
+                </span>
+              );
+            }
+            // A target or place (AnimTarget, EffectPlace): its own small form.
+            const nestedDisc = discriminatorOf(inner);
+            if (nestedDisc) {
+              const shown = (v as Record<string, unknown> | undefined) ?? (field instanceof z.ZodDefault ? (field.def.defaultValue as Record<string, unknown>) : undefined);
+              const nestedOpts = nestedOptions(inner, nestedDisc, ctx, shown?.[nestedDisc] as string | undefined);
+              return (
+                <span key={key} className="handler-nested" title={inner.description ?? field.description}>
+                  <span className="muted">{key}</span>
                   <Fields
-                    key={i}
-                    value={c}
-                    options={CONDITIONS}
-                    project={project}
-                    room={room}
-                    locked={locked}
-                    label={`${name} ${i}`}
-                    onChange={(c2) => setField(key, Array.isArray(v) ? nested.map((x, j) => (j === i ? c2 : x)) : c2)}
+                    value={shown}
+                    options={nestedOpts}
+                    ctx={ctx}
+                    label={name}
+                    disc={nestedDisc}
+                    none={field instanceof z.ZodOptional ? `(any ${key})` : undefined}
+                    onChange={(n) => setField(key, n)}
                   />
-                ))}
-                {Array.isArray(v) && (
-                  <button type="button" className="link-button" disabled={locked} onClick={() => setField(key, [...nested, blank(CONDITIONS[0]!, project)])}>
-                    +
-                  </button>
-                )}
-              </span>
-            );
-          }
-          const choices = refChoices(key, project, room) ?? (inner instanceof z.ZodEnum ? (inner.options as string[]) : null);
-          if (choices) {
-            return (
-              <select key={key} aria-label={name} title={key} value={(v as string) ?? ""} disabled={locked} onChange={(e) => setField(key, e.target.value || undefined)}>
-                {(optional || !choices.includes(v as string)) && <option value="">{optional ? `(any ${key})` : `${key}?`}</option>}
-                {choices.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-            );
-          }
-          if (inner instanceof z.ZodBoolean) {
-            return (
-              <label key={key} className="inline-check">
-                <input type="checkbox" aria-label={name} checked={(v as boolean) ?? true} disabled={locked} onChange={(e) => setField(key, e.target.checked)} />
-                {key}
-              </label>
-            );
-          }
-          if (inner instanceof z.ZodNumber) {
-            return (
-              <CommitInput
-                key={key}
-                className="number-box"
-                type="number"
-                label={name}
-                placeholder={key}
-                value={v === undefined || v === null ? "" : String(v)}
-                disabled={locked}
-                onCommit={(text) => setField(key, text === "" ? (optional ? undefined : 0) : Number(text))}
-              />
-            );
-          }
-          if (inner instanceof z.ZodArray) return null; // lists of ids (revealMap rooms): all by default
-          return (
-            <CommitInput
-              key={key}
-              className="art-text handler-text"
-              label={name}
-              placeholder={key}
-              value={(v as string) ?? ""}
-              disabled={locked}
-              onCommit={(text) => setField(key, text)}
-            />
-          );
-        })}
+                </span>
+              );
+            }
+            if (inner instanceof z.ZodTuple) {
+              const pair = Array.isArray(v) ? (v as number[]) : [0, 0];
+              return (
+                <span key={key} className="handler-nested" title={key}>
+                  <span className="muted">{key}</span>
+                  {["x", "y"].map((axis, i) => (
+                    <CommitInput
+                      key={axis}
+                      className="number-box"
+                      type="number"
+                      label={`${name} ${axis}`}
+                      placeholder={axis}
+                      value={String(pair[i] ?? 0)}
+                      disabled={locked}
+                      onCommit={(text) => setField(key, pair.map((n, j) => (j === i ? Number(text) || 0 : n)))}
+                    />
+                  ))}
+                </span>
+              );
+            }
+            const refs = refChoices(key, current, ctx);
+            const choices = refs ? [...refs, ...(typeof v === "string" && v && !refs.includes(v) ? [v] : [])] : inner instanceof z.ZodEnum ? (inner.options as string[]) : null;
+            if (choices) {
+              const shownValue = (v as string | undefined) ?? (field instanceof z.ZodDefault && typeof field.def.defaultValue === "string" ? field.def.defaultValue : "");
+              return (
+                <select key={key} aria-label={name} title={key} value={shownValue} disabled={locked} onChange={(e) => setField(key, e.target.value || undefined)}>
+                  {(optional || !choices.includes(shownValue)) && <option value="">{optional ? `(any ${key})` : `${key}?`}</option>}
+                  {choices.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              );
+            }
+            if (inner instanceof z.ZodBoolean) {
+              return (
+                <label key={key} className="inline-check">
+                  <input type="checkbox" aria-label={name} checked={(v as boolean) ?? true} disabled={locked} onChange={(e) => setField(key, e.target.checked)} />
+                  {key}
+                </label>
+              );
+            }
+            if (inner instanceof z.ZodNumber) {
+              return (
+                <CommitInput
+                  key={key}
+                  className="number-box"
+                  type="number"
+                  label={name}
+                  placeholder={key}
+                  value={v === undefined || v === null ? "" : String(v)}
+                  disabled={locked}
+                  onCommit={(text) => setField(key, text === "" ? (optional ? undefined : 0) : Number(text))}
+                />
+              );
+            }
+            if (inner instanceof z.ZodArray) return null; // lists of ids (revealMap rooms): all by default
+            return <CommitInput key={key} className="art-text handler-text" label={name} placeholder={key} value={(v as string) ?? ""} disabled={locked} onCommit={(text) => setField(key, text)} />;
+          })}
     </>
   );
 }
