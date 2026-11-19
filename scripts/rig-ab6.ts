@@ -491,6 +491,15 @@ try {
         }),
     );
   }
+  // Subjects set up in earlier runs keep their concept cost.
+  for (const s of SUBJECTS) {
+    const saved = join(out, s.id, "base.json");
+    if (setups[s.id] === undefined && existsSync(saved)) {
+      const base = JSON.parse(readFileSync(saved, "utf8")) as { project: ProjectSpec; cost: number };
+      setups[s.id] = base.cost;
+      if (s.kind === "player") s.brief = assetOf(base.project, s).brief;
+    }
+  }
   writeFileSync(
     join(out, "subjects.json"),
     JSON.stringify(SUBJECTS.map(({ id, name, brief, kind, clips }) => ({ id, name, brief, kind, clips: Object.keys(clips), conceptCost: setups[id] ?? null })), null, 1),

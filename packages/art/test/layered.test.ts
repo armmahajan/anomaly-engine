@@ -278,12 +278,20 @@ class MemoryFiles {
   }
 }
 
-describe("the rig stage in layered mode", () => {
-  it("builds from the sheet's full-resolution cell, paints in what's hidden with one image edit, and measures it", async () => {
-    let project: ProjectSpec = createDefaultProject();
-    const files = new MemoryFiles();
-    const log: ArtActivity[] = [];
-    const image = new FakeImageModel();
+/** The paint-in answered by painting the marked parts back (the unmarked design, its second reference). */
+class RestoringImage extends FakeImageModel {
+  override async generate(request: Parameters<FakeImageModel["generate"]>[0]) {
+    const done = await super.generate(request);
+    return request.prompt.includes(LAYER_PAINT_MARK) ? { ...done, image: request.references![1]! } : done;
+  }
+}
+
+/** A charger chosen from a 1536 px creature sheet and rigged in layered mode. */
+async function layeredStage(image: FakeImageModel) {
+  let project: ProjectSpec = createDefaultProject();
+  const files = new MemoryFiles();
+  const log: ArtActivity[] = [];
+  {
     const ctx: ArtContext = {
       project: () => project,
       image,
@@ -308,7 +316,14 @@ describe("the rig stage in layered mode", () => {
     ]);
     commit((await chooseConcept(ctx, { characterId: "charger" })).operations);
     commit((await buildRig(ctx, { characterId: "charger", rigMode: "layered" })).operations);
+  }
+  return { project, files, log };
+}
 
+describe("the rig stage in layered mode", () => {
+  it("builds from the sheet's full-resolution cell, paints in what's hidden with one image edit, and measures it", async () => {
+    const image = new FakeImageModel();
+    const { project, files, log } = await layeredStage(image);
     const asset = project.art.assets.find((a) => a.id === "look")!;
     if (asset.kind !== "character") throw new Error("no asset");
     const rig = asset.rig!;
@@ -316,7 +331,7 @@ describe("the rig stage in layered mode", () => {
     expect(rig.mode).toBe("layered");
     expect(rig.parts.every((p) => p.shape.type === "mesh" && p.texture)).toBe(true);
     expect(log.some((a) => /layers: the design at 73\dx73\d px \(1\.4\dx the chosen design\)/.test(a.text))).toBe(true);
-    // One image edit, with the pulled-apart layers and the design.
+    // One image edit: the design with its near-side parts marked, and the design.
     const paints = image.requests.filter((r) => r.prompt.includes(LAYER_PAINT_MARK));
     expect(paints).toHaveLength(1);
     expect(paints[0]!.references).toHaveLength(2);
@@ -330,5 +345,13 @@ describe("the rig stage in layered mode", () => {
     expect((Math.max(...xs) - Math.min(...xs)) / canvasWidth).toBeGreaterThan(1.35);
     expect(atlas.width).toBeLessThanOrEqual(1000);
     expect(asset.preview?.match).toBeDefined();
+  }, 60_000);
+
+  it("takes no paint from a model that paints the marked parts back instead of what they hid", async () => {
+    const { project, log } = await layeredStage(new RestoringImage());
+    expect(log.some((a) => /painted the marked parts back/.test(a.text))).toBe(true);
+    expect(log.some((a) => /hidden px painted/.test(a.text))).toBe(false);
+    const asset = project.art.assets.find((a) => a.id === "look")!;
+    expect(asset.kind === "character" && asset.rig?.mode).toBe("layered");
   }, 60_000);
 });

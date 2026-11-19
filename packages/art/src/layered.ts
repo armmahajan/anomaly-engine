@@ -360,13 +360,11 @@ export function fillLayer(cut: Cutout, lp: LayerPlan, k: number, paint?: PaintLo
         const ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
         const j = ny * w + nx;
-        if (set[j] || !hidden[(ny + y0) * W + nx + x0]) continue;
-        const d = dist[i]! + (dx && dy ? Math.SQRT2 : 1);
-        if (d < dist[j]!) {
-          dist[j] = d;
-          from[j] = from[i]!;
-          queue.push(j);
-        }
+        // Breadth first, each pixel once (nearest in steps; re-relaxing can grow the queue past any limit).
+        if (set[j] || from[j]! >= 0 || !hidden[(ny + y0) * W + nx + x0]) continue;
+        dist[j] = dist[i]! + 1;
+        from[j] = from[i]!;
+        queue.push(j);
       }
   }
   for (let i = 0; i < w * h; i++) {
@@ -759,6 +757,8 @@ export interface PaintResult {
   painted: Buffer;
   /** How well the painting lines up with the design where nothing was removed (0-1 correlation). */
   registration: number;
+  /** Hidden pixels asked for since the lookup was made: taken, or why not (counts grow with each use). */
+  stats?: { taken: number; unmarked: number; background: number; otherPart: number; paintedBack: number };
   /** Plan part ids taken out (marked) for the painting. */
   removed: string[];
   cost: number;
@@ -767,8 +767,14 @@ export interface PaintResult {
 
 /** The painting's drawing correlates with the design (where nothing was removed) less than this: it is not used. */
 const PAINT_MIN_MATCH = 0.6;
-/** A painted pixel this close (RGB) to the design's pixel in front of it is that piece painted back: not taken. */
-const GHOST = 20;
+/** Paint whose neighbourhood differs from the design's by less than this (mean per channel) is the piece in front painted back: not taken. */
+const GHOST = 10;
+/** A painted pixel this close (RGB) to the design where a part was marked is that part painted back... */
+const RESTORED = 30;
+/** ...and a painting with more than this share of them painted the parts back instead of what they hid. */
+const MAX_RESTORED = 0.5;
+/** Paint this close (RGB) to the painting's background is a faded gap, not part of the figure. */
+const NEAR_BACKGROUND = 25;
 /** A part in front hiding less than this share of the figure isn't taken out. */
 const MIN_OCCLUSION = 0.002;
 /** Colour bins (per channel) for "does this paint look like this part". */
@@ -922,6 +928,10 @@ export async function paintHidden(
   const painting = resample(decodePng(png), IW, IH);
   const pd = painting.data;
   const fg = figureMask(painting);
+  // The painting's own background colour (its border's median): paint faded toward it is a gap, not a part.
+  const border: number[][] = [];
+  for (let x = 0; x < IW; x++) border.push([...pd.subarray(x * 4, x * 4 + 3)], [...pd.subarray(((IH - 1) * IW + x) * 4, ((IH - 1) * IW + x) * 4 + 3)]);
+  const paintBg = [0, 1, 2].map((c) => border.map((p) => p[c]!).sort((x, y) => x - y)[Math.floor(border.length / 2)]!);
   for (let i = 0; i < IW * IH; i++) if (fg[i] && isMagenta(pd[i * 4]!, pd[i * 4 + 1]!, pd[i * 4 + 2]!)) fg[i] = 0;
   const painted = encodePng(painting);
   // Line it up with the design where nothing was marked (the figure there should be untouched).
@@ -940,6 +950,22 @@ export async function paintHidden(
     ctx.log({ text: "the painting does not line up: hidden stretches keep their edge colours" });
     return { ...base, lookup: null };
   }
+  // A model that paints the marked parts back (the design again) shows nothing of what they hid.
+  let total = 0;
+  let same = 0;
+  for (let i = 0; i < IW * IH; i += 3) {
+    if (!marked[i]) continue;
+    const [px, py] = applySim(fit.t, (i % IW) + 0.5, Math.floor(i / IW) + 0.5);
+    const c = sample(painting, px, py);
+    if (!c) continue;
+    total++;
+    if (Math.hypot(c[0] - image.data[i * 4]!, c[1] - image.data[i * 4 + 1]!, c[2] - image.data[i * 4 + 2]!) < RESTORED) same++;
+  }
+  const restored = total === 0 ? 0 : same / total;
+  if (restored > MAX_RESTORED) {
+    ctx.log({ text: `the image model painted the marked parts back (${Math.round(restored * 100)}% as in the design) instead of what they hid: hidden stretches keep their edge colours` });
+    return { ...base, lookup: null };
+  }
   const pairs: { paint: number[]; design: number[] }[] = [];
   for (let i = 0; i < IW * IH; i += 7) {
     if (!kept[i]) continue;
@@ -949,23 +975,46 @@ export async function paintHidden(
   }
   const colors = fitColors(pairs);
   const palettes = lp.vis.map((v) => palette(native, v));
+  const stats = { taken: 0, unmarked: 0, background: 0, otherPart: 0, paintedBack: 0 };
+  const refuse = (why: Exclude<keyof typeof stats, "taken">) => {
+    stats[why]++;
+    return null;
+  };
   const lookup: PaintLookup = (k, x, y) => {
     const ix = x + ox;
     const iy = y + oy;
+    // Only where a part was taken out: elsewhere the painting shows the design as it was (the part in front).
+    const mi = Math.floor(iy) * IW + Math.floor(ix);
+    if (ix < 0 || iy < 0 || ix >= IW || iy >= IH || !markedWide[mi]) return refuse("unmarked");
     const [px, py] = applySim(fit.t, ix, iy);
     const qx = Math.floor(px);
     const qy = Math.floor(py);
-    if (qx < 0 || qy < 0 || qx >= IW || qy >= IH || !fg[qy * IW + qx]) return null;
+    if (qx < 0 || qy < 0 || qx >= IW || qy >= IH || !fg[qy * IW + qx]) return refuse("background");
     const c = sample(painting, px, py);
-    if (!c || c[3] < 200 || isMagenta(c[0], c[1], c[2])) return null;
+    if (!c || c[3] < 200 || isMagenta(c[0], c[1], c[2]) || Math.hypot(c[0] - paintBg[0]!, c[1] - paintBg[1]!, c[2] - paintBg[2]!) < NEAR_BACKGROUND) return refuse("background");
     const rgb = [0, 1, 2].map((ch) => Math.max(0, Math.min(255, colors.gain[ch]! * c[ch]! + colors.offset[ch]!))) as [number, number, number];
     // Not this part (another one, or the background), or the piece in front painted back.
-    if (!palettes[k]![bin(rgb[0], rgb[1], rgb[2])]) return null;
-    const o = (Math.floor(iy) * IW + Math.floor(ix)) * 4;
-    if (Math.hypot(rgb[0] - image.data[o]!, rgb[1] - image.data[o + 1]!, rgb[2] - image.data[o + 2]!) < GHOST) return null;
+    if (!palettes[k]![bin(rgb[0], rgb[1], rgb[2])]) return refuse("otherPart");
+    // The piece in front painted back looks like the design around this spot, not only in colour
+    // (a stone arm over a stone body is the same colour, but not the same drawing).
+    let diff = 0;
+    let count = 0;
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const sx = Math.floor(ix) + dx * 2;
+        const sy = Math.floor(iy) + dy * 2;
+        if (sx < 0 || sy < 0 || sx >= IW || sy >= IH) continue;
+        const q = sample(painting, ...applySim(fit.t, sx + 0.5, sy + 0.5));
+        if (!q) continue;
+        const o = (sy * IW + sx) * 4;
+        diff += Math.abs(q[0] - image.data[o]!) + Math.abs(q[1] - image.data[o + 1]!) + Math.abs(q[2] - image.data[o + 2]!);
+        count += 3;
+      }
+    if (count > 0 && diff / count < GHOST) return refuse("paintedBack");
+    stats.taken++;
     return rgb;
   };
-  return { ...base, lookup };
+  return { ...base, lookup, stats };
 }
 
 function luminanceOf(data: Uint8Array, n: number): Float32Array {

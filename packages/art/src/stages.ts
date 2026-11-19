@@ -963,7 +963,7 @@ async function paintLayers(
     const built = await input.build(plan, painted.lookup);
     const layers = built.layered?.layers ?? [];
     const sum = (f: (l: (typeof layers)[number]) => number) => layers.reduce((s, l) => s + f(l), 0);
-    ctx.log({ text: `layers: ${sum((l) => l.painted)} hidden px painted, ${sum((l) => l.extended)} extended from the edges` });
+    ctx.log({ text: `layers: ${sum((l) => l.painted)} hidden px painted, ${sum((l) => l.extended)} extended from the edges (paint refused: ${JSON.stringify(painted.stats ?? {})})` });
     const rig = toRigSpace(built.rig, input.frame);
     const views = await canvasViews(ctx, built.rig, input.frame, input.concept, input.size, input.reference);
     ctx.log({ text: `painted layers (${matchText(views.match)})`, file: await ctx.files.put(views.overlay, "png") });
