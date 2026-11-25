@@ -2,7 +2,7 @@ node_modules/
 dist/
 # Godot web export output (regenerate with `npm run build:game`)
 apps/studio/public/game/
-# Generated world previews (node scripts/world-demo.ts)
+# Generated world previews
 apps/studio/public/world-preview/
 game/.godot/
 test-results/
@@ -11,3 +11,6 @@ projects/
 .e2e-data/
 .studio-token
 .env
+# Local tooling
+.claude/
+*.log

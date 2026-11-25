@@ -12,7 +12,7 @@ export default defineConfig({
   workers: E2E_WORKERS,
   fullyParallel: false,
   use: {
-    // Override to test via another address, e.g. BASE_URL=https://10.0.0.94:5173
+    // Override to test via another address, e.g. BASE_URL=https://my-machine.local:5173
     baseURL: process.env.BASE_URL ?? `http://localhost:${PORT + E2E_INDEX}`,
     viewport: { width: 1280, height: 720 },
     launchOptions: {

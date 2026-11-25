@@ -94,13 +94,13 @@ const flag = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 
 const BUDGET = Number(flag("--budget") ?? 0.5);
 const wantedSubjects = flag("--subjects")?.split(",");
 const wantedArms = flag("--arms")?.split(",");
-const userProject = flag("--project") ?? "/home/armaan/anomaly/projects/default";
+const userProject = flag("--project") ?? join(root, "projects/default");
 const from = flag("--from");
 mkdirSync(join(out, "cache"), { recursive: true });
 mkdirSync(join(out, "files"), { recursive: true });
 
 const env: Record<string, string | undefined> = { ...process.env };
-for (const file of [join(root, ".env"), "/home/armaan/anomaly/.env"]) {
+for (const file of [join(root, ".env")]) {
   if (!existsSync(file)) continue;
   for (const line of readFileSync(file, "utf8").split("\n")) {
     const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/.exec(line);

@@ -1,5 +1,14 @@
 {
   "name": "anomaly",
+  "description": "AI-native studio for 2D action-platformers: React workspace, Godot runtime, AI agents and a game solver",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/armmahajan/game-engine.git"
+  },
+  "engines": {
+    "node": ">=24"
+  },
   "private": true,
   "type": "module",
   "workspaces": [
